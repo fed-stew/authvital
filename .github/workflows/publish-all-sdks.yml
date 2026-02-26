@@ -1,0 +1,54 @@
+name: Publish All SDKs
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 0.0.1)'
+        required: true
+        default: '0.0.1'
+      pypi:
+        description: 'Publish to PyPI'
+        type: boolean
+        default: true
+      crates:
+        description: 'Publish to crates.io'
+        type: boolean
+        default: true
+      maven:
+        description: 'Publish to Maven Central'
+        type: boolean
+        default: true
+      nuget:
+        description: 'Publish to NuGet'
+        type: boolean
+        default: true
+
+jobs:
+  pypi:
+    if: ${{ github.event.inputs.pypi == 'true' }}
+    uses: ./.github/workflows/publish-pypi.yml
+    with:
+      version: ${{ github.event.inputs.version }}
+    secrets: inherit
+
+  crates:
+    if: ${{ github.event.inputs.crates == 'true' }}
+    uses: ./.github/workflows/publish-crates.yml
+    with:
+      version: ${{ github.event.inputs.version }}
+    secrets: inherit
+
+  maven:
+    if: ${{ github.event.inputs.maven == 'true' }}
+    uses: ./.github/workflows/publish-maven.yml
+    with:
+      version: ${{ github.event.inputs.version }}
+    secrets: inherit
+
+  nuget:
+    if: ${{ github.event.inputs.nuget == 'true' }}
+    uses: ./.github/workflows/publish-nuget.yml
+    with:
+      version: ${{ github.event.inputs.version }}
+    secrets: inherit

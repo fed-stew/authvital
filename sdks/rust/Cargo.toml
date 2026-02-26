@@ -1,0 +1,17 @@
+[package]
+name = "authvader"
+version = "0.0.1"
+edition = "2021"
+authors = ["AuthVader Contributors"]
+description = "Official Rust SDK for AuthVader Identity Platform - Coming Soon"
+documentation = "https://docs.rs/authvader"
+homepage = "https://github.com/authvader/authvader"
+repository = "https://github.com/authvader/authvader"
+readme = "README.md"
+license-file = "../../LICENSE"
+keywords = ["authvader", "authentication", "identity", "oauth", "sdk"]
+categories = ["authentication", "web-programming"]
+
+[dependencies]
+
+[dev-dependencies]

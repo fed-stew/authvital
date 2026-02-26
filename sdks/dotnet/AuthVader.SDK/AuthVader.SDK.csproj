@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    
+    <!-- Package metadata -->
+    <PackageId>AuthVader.SDK</PackageId>
+    <Version>0.0.1</Version>
+    <Authors>AuthVader Contributors</Authors>
+    <Company>AuthVader</Company>
+    <Description>Official .NET SDK for AuthVader Identity Platform - Coming Soon</Description>
+    <PackageTags>authvader;authentication;identity;oauth;sdk;oidc</PackageTags>
+    <PackageProjectUrl>https://github.com/authvader/authvader</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/authvader/authvader</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    
+    <!-- Enable package validation -->
+    <EnablePackageValidation>true</EnablePackageValidation>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
+    <None Include="..\README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+
+</Project>

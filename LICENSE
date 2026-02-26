@@ -1,0 +1,101 @@
+AuthVader Community License v1.0
+
+Copyright (c) 2024 AuthVader Contributors
+
+TERMS AND CONDITIONS
+
+1. DEFINITIONS
+
+   "Software" means AuthVader and all associated source code, documentation, 
+   and assets contained in this repository.
+   
+   "Commercial Use" means any use intended for direct or indirect monetary 
+   compensation.
+   
+   "Paid Service" means any product or service for which end users are 
+   charged fees, including but not limited to subscription fees, transaction 
+   fees, or premium tier access.
+
+2. PERMITTED USE
+
+   You are granted a perpetual, worldwide, non-exclusive, royalty-free 
+   license to:
+   
+   a) Use the Software for personal, educational, or internal business 
+      purposes.
+   
+   b) Use the Software as a component within your own products or services, 
+      subject to Section 3.
+   
+   c) Modify the Software, subject to Section 4.
+   
+   d) Distribute the Software, subject to Sections 4 and 5.
+
+3. COMMERCIAL USE RESTRICTIONS
+
+   a) You may NOT sell, sublicense, or charge fees for the Software itself.
+   
+   b) You may NOT offer the Software as a hosted identity-provider service 
+      (i.e., "Authentication as a Service" or "Identity as a Service") to 
+      third parties.
+   
+   c) You MAY use the Software internally as the authentication system for 
+      your own Paid Service (e.g., as the auth backend for your SaaS 
+      application), PROVIDED THAT you have obtained prior written permission 
+      from the copyright holder.
+   
+   d) You MAY use the Software freely in any service that is entirely free 
+      to end users (no subscription fees, no transaction fees, no premium 
+      tiers).
+
+4. MODIFICATIONS AND DERIVATIVE WORKS
+
+   Any modifications, derivative works, or substantial portions of the 
+   Software that you create MUST be:
+   
+   a) Made publicly available under this same license, OR
+   
+   b) Contributed back to the original project via pull request.
+   
+   You must clearly indicate any changes made to the original Software and 
+   maintain all copyright notices.
+
+5. DISTRIBUTION
+
+   If you distribute the Software or any derivative works, you must:
+   
+   a) Include a complete copy of this license.
+   
+   b) Provide clear attribution to the original authors.
+   
+   c) Not remove, alter, or obscure any copyright, trademark, or attribution 
+      notices.
+
+6. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS 
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+   FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL 
+   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR 
+   OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, 
+   ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR 
+   OTHER DEALINGS IN THE SOFTWARE.
+
+7. REQUESTING COMMERCIAL PERMISSION
+
+   To request permission to use the Software in a Paid Service, please 
+   open an issue on the project repository or contact the maintainers 
+   directly.
+
+8. TERMINATION
+
+   This license terminates automatically if you fail to comply with any of 
+   its terms. Upon termination, you must cease all use and distribution of 
+   the Software.
+
+9. GENERAL
+
+   If any provision of this license is held to be unenforceable, such 
+   provision shall be reformed only to the extent necessary to make it 
+   enforceable, and the remaining provisions shall continue in full force 
+   and effect.
