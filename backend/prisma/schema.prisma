@@ -1,0 +1,1276 @@
+// =============================================================================
+// B2B Identity Provider Platform
+// Prisma Schema - OIDC-Compliant Auth, Multi-tenancy, RBAC, Licensing
+// =============================================================================
+
+generator client {
+  provider      = "prisma-client-js"
+  output        = "../node_modules/.prisma/client"
+  // Binary targets: native (dev) + Alpine Linux (Docker)
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// SUPER ADMIN (System-Level)
+// =============================================================================
+
+model SuperAdmin {
+  id String @id @default(cuid())
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PROFILE SCOPE (OIDC Standard Claims) - Matches User model
+  // ═══════════════════════════════════════════════════════════════════════════
+  username    String? @unique // Unique handle (e.g., @janesmith)
+  displayName String? @map("display_name") // Full display name (OIDC: name)
+  givenName   String? @map("given_name") // First name
+  familyName  String? @map("family_name") // Last name
+  middleName  String? @map("middle_name") // Middle name(s)
+  nickname    String? // Casual name or alias
+  pictureUrl  String? @map("picture_url") // Profile picture URL
+  website     String? // Personal/professional URL
+  gender      String? // Gender identity
+  birthdate   String? // YYYY-MM-DD format
+  zoneinfo    String? // IANA timezone (e.g., America/New_York)
+  locale      String? // Language/region (e.g., en-US)
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // EMAIL SCOPE (OIDC Standard Claims)
+  // ═══════════════════════════════════════════════════════════════════════════
+  email         String  @unique
+  emailVerified Boolean @default(false) @map("email_verified")
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PHONE SCOPE (OIDC Standard Claims)
+  // ═══════════════════════════════════════════════════════════════════════════
+  phone         String? // E.164 format (e.g., +12345678901)
+  phoneVerified Boolean @default(false) @map("phone_verified")
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ADMIN-SPECIFIC FIELDS
+  // ═══════════════════════════════════════════════════════════════════════════
+  passwordHash       String
+  isActive           Boolean   @default(true)
+  mustChangePassword Boolean   @default(false)
+  lastLoginAt        DateTime? @map("last_login_at")
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MFA
+  // ═══════════════════════════════════════════════════════════════════════════
+  mfaEnabled     Boolean   @default(false)
+  mfaSecret      String? // Encrypted TOTP secret
+  mfaBackupCodes String[]  @default([]) // Hashed backup codes
+  mfaVerifiedAt  DateTime? @map("mfa_verified_at")
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SSO LINKS (for future SSO admin login)
+  // ═══════════════════════════════════════════════════════════════════════════
+  ssoLinks AdminSsoLink[]
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TIMESTAMPS
+  // ═══════════════════════════════════════════════════════════════════════════
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([username])
+  @@map("super_admins")
+}
+
+/// AdminSsoLink: Links SuperAdmin accounts to external SSO providers
+model AdminSsoLink {
+  id            String   @id @default(cuid())
+  adminId       String   @map("admin_id")
+  admin         SuperAdmin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  provider      String   // 'google' | 'microsoft' | etc.
+  providerUserId String  @map("provider_user_id") // External user ID from provider
+  email         String   // Email from SSO provider (for reference)
+  rawProfile    Json?    @map("raw_profile") // Full profile from provider
+  linkedAt      DateTime @default(now()) @map("linked_at")
+  lastUsedAt    DateTime? @map("last_used_at")
+
+  @@unique([provider, providerUserId])
+  @@unique([adminId, provider])
+  @@index([adminId])
+  @@map("admin_sso_links")
+}
+
+// =============================================================================
+// INSTANCE CONFIGURATION (Singleton)
+// =============================================================================
+
+/// InstanceMeta: Singleton configuration for this IDP instance
+/// Enforced as singleton by using fixed id="instance"
+model InstanceMeta {
+  id           String @id @default("instance") // Singleton enforcement
+  instanceUuid String @unique @default(uuid()) // Immutable fleet identifier
+  name         String @default("AuthVader IDP")
+
+  // Sign-up configuration (migrated from Directory)
+  allowSignUp          Boolean  @default(false)
+  autoCreateTenant     Boolean  @default(true)
+  allowGenericDomains  Boolean  @default(true)
+  allowAnonymousSignUp Boolean  @default(false)
+  requiredUserFields   String[] @default([])
+  defaultTenantRoleIds String[] @default([])
+
+  // ==========================================================================
+  // SINGLE-TENANT MODE
+  // ==========================================================================
+  // When enabled, ALL signups auto-join the specified tenant
+  // No tenant creation, no tenant picker - just one tenant for the whole IDP
+  singleTenantMode Boolean @default(false) @map("single_tenant_mode")
+  defaultTenantId  String? @map("default_tenant_id")
+
+  // Default Branding (migrated from Directory)
+  brandingName            String?
+  brandingLogoUrl         String?
+  brandingIconUrl         String?
+  brandingPrimaryColor    String?
+  brandingBackgroundColor String?
+  brandingAccentColor     String?
+  brandingSupportUrl      String?
+  brandingPrivacyUrl      String?
+  brandingTermsUrl        String?
+  initiateLoginUri        String? @map("initiate_login_uri")
+
+  superAdminMfaRequired Boolean @default(false) @map("super_admin_mfa_required")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("instance_meta")
+}
+
+/// InstanceApiKey: API keys for instance-level operations (Fleet Manager)
+/// These keys bypass tenant restrictions and can manage the entire instance
+model InstanceApiKey {
+  id          String    @id @default(cuid())
+  keyHash     String // Bcrypt hash of the full key
+  prefix      String // First 8 chars for display (e.g., "ik_live_")
+  name        String // User-friendly label
+  description String? // Extended description
+  permissions String[]  @default(["instance:*"]) // Instance-level permissions
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([prefix])
+  @@map("instance_api_keys")
+}
+
+// =============================================================================
+// SYSTEM WEBHOOKS (Instance-level event notifications)
+// =============================================================================
+
+/// SystemWebhook: Webhook endpoints for instance-wide events
+model SystemWebhook {
+  id          String   @id @default(cuid())
+  name        String   // User-friendly name
+  url         String   // Endpoint URL to POST to
+  secret      String   // Secret for HMAC signature (encrypted)
+  events      String[] // Events to subscribe to
+  isActive    Boolean  @default(true) @map("is_active")
+  
+  // Metadata
+  description String?
+  headers     Json?    // Custom headers to include (encrypted)
+  
+  // Stats
+  lastTriggeredAt DateTime? @map("last_triggered_at")
+  lastStatus      Int?      @map("last_status") // HTTP status of last call
+  failureCount    Int       @default(0) @map("failure_count")
+  
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  deliveries SystemWebhookDelivery[]
+
+  @@map("system_webhooks")
+}
+
+/// SystemWebhookDelivery: Log of webhook delivery attempts
+model SystemWebhookDelivery {
+  id        String   @id @default(cuid())
+  webhookId String   @map("webhook_id")
+  webhook   SystemWebhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  
+  event     String   // Event type that triggered this
+  payload   Json     // The payload that was sent
+  
+  // Response
+  status    Int?     // HTTP status code
+  response  String?  // Response body (truncated)
+  duration  Int?     // Request duration in ms
+  error     String?  // Error message if failed
+  
+  attemptedAt DateTime @default(now()) @map("attempted_at")
+
+  @@index([webhookId])
+  @@index([attemptedAt])
+  @@map("system_webhook_deliveries")
+}
+
+// =============================================================================
+// CORE IDENTITY MODELS
+// =============================================================================
+
+/// User: Individual identity within the instance
+/// Can be a human user or a machine/service account
+model User {
+  id String @id @default(uuid())
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PROFILE SCOPE (OIDC Standard Claims)
+  // ═══════════════════════════════════════════════════════════════════════════
+  username    String? @unique // Unique handle (e.g., @janesmith)
+  displayName String? @map("display_name") // Full display name (OIDC: name)
+  givenName   String? @map("given_name") // First name
+  familyName  String? @map("family_name") // Last name
+  middleName  String? @map("middle_name") // Middle name(s)
+  nickname    String? // Casual name or alias
+  pictureUrl  String? @map("picture_url") // Profile picture URL
+  website     String? // Personal/professional URL
+  gender      String? // Gender identity
+  birthdate   String? // YYYY-MM-DD format
+  zoneinfo    String? // IANA timezone (e.g., America/New_York)
+  locale      String? // Language/region (e.g., en-US)
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // EMAIL SCOPE (OIDC Standard Claims)
+  // ═══════════════════════════════════════════════════════════════════════════
+  email         String? @unique // Email address
+  emailVerified Boolean @default(false) @map("email_verified")
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PHONE SCOPE (OIDC Standard Claims)
+  // ═══════════════════════════════════════════════════════════════════════════
+  phone         String? @unique // E.164 format (e.g., +12345678901)
+  phoneVerified Boolean @default(false) @map("phone_verified")
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // AUTHENTICATION & ACCOUNT STATUS
+  // ═══════════════════════════════════════════════════════════════════════════
+  passwordHash   String? // Null for machine users or passwordless
+  mfaEnabled     Boolean   @default(false) // Multi-factor authentication enabled
+  mfaSecret      String?   @map("mfa_secret") // Encrypted TOTP secret
+  mfaBackupCodes String[]  @default([]) @map("mfa_backup_codes") // Hashed backup codes
+  mfaVerifiedAt  DateTime? @map("mfa_verified_at")
+  isMachine      Boolean   @default(false) // True for service accounts
+  isAnonymous    Boolean   @default(false) // True for anonymous accounts
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PASSWORD RESET
+  // ═══════════════════════════════════════════════════════════════════════════
+  passwordResetToken   String?   @map("password_reset_token") // Bcrypt hash of reset token
+  passwordResetExpires DateTime? @map("password_reset_expires") // Token expiry
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TIMESTAMPS
+  // ═══════════════════════════════════════════════════════════════════════════
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RELATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+  memberships         Membership[]
+  sessions            Session[]
+  authorizationCodes  AuthorizationCode[]
+  refreshTokens       RefreshToken[]
+  apiKeys             ApiKey[]
+  invitationsSent     Invitation[]        @relation("InvitationsSent")
+  invitationsReceived Invitation[]        @relation("InvitationsReceived")
+  licenseAssignments  LicenseAssignment[]
+  appAccess           AppAccess[]
+  ssoLinks            UserSsoLink[]
+
+  @@index([isMachine])
+  @@index([username])
+  @@map("users")
+}
+
+/// ApiKey: User-generated API keys for programmatic access
+model ApiKey {
+  id          String    @id @default(cuid())
+  keyHash     String // Bcrypt hash of the full key
+  prefix      String // First 8 chars for display (e.g., "sk_live_a1b2")
+  name        String // User-friendly label
+  description String? // Extended description (e.g., "Used for nightly sync")
+  permissions String[] // List of permission strings
+  lastUsedAt  DateTime?
+  expiresAt   DateTime? // Optional expiration
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([prefix])
+  @@index([userId])
+  @@map("api_keys")
+}
+
+/// Session: User login session (cookie-based)
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique @default(uuid())
+  userAgent String?
+  ipAddress String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("sessions")
+}
+
+// =============================================================================
+// OAUTH 2.0 / OIDC MODELS
+// =============================================================================
+
+/// Application: OAuth Client (SPA or Machine-to-Machine)
+model Application {
+  id          String          @id @default(cuid())
+  name        String
+  slug        String
+  description String?
+  type        ApplicationType @default(SPA)
+
+  // OAuth Client Credentials
+  clientId     String  @unique @default(uuid())
+  clientSecret String? // Hashed, only for MACHINE type
+
+  // OAuth URIs (strict validation)
+  redirectUris           String[] @default([])
+  postLogoutRedirectUris String[] @default([])
+
+  // Initiate Login URI - URI for third-party initiated login (OIDC standard)
+  // When set, allows the IDP to redirect here to start the login flow
+  // Use {tenant} as placeholder for tenant slug
+  // Example: "https://{tenant}.myapp.com/login"
+  initiateLoginUri String? @map("initiate_login_uri")
+
+  // Allowed Web Origins - Origins allowed to make CORS requests to OAuth endpoints
+  // Example: ["https://myapp.com", "http://localhost:3000"]
+  allowedWebOrigins String[] @default([])
+
+  // Token settings
+  accessTokenTtl  Int @default(3600) // 1 hour in seconds
+  refreshTokenTtl Int @default(604800) // 7 days in seconds
+
+  // ==========================================================================
+  // BRANDING - Customizes the login experience for this application
+  // ==========================================================================
+
+  // Display name shown on login screen (defaults to `name` if not set)
+  brandingName String?
+
+  // Logo URL (displayed on login screen, recommended: 200x50px or similar)
+  brandingLogoUrl String?
+
+  // Icon URL (square, for favicon/small displays, recommended: 64x64px)
+  brandingIconUrl String?
+
+  // Primary brand color (hex, e.g., "#6366f1" for indigo)
+  brandingPrimaryColor String?
+
+  // Background color or gradient (hex or CSS gradient)
+  brandingBackgroundColor String?
+
+  // Accent/secondary color (hex)
+  brandingAccentColor String?
+
+  // Support/help URL shown on login page
+  brandingSupportUrl String?
+
+  // Privacy policy URL
+  brandingPrivacyUrl String?
+
+  // Terms of service URL
+  brandingTermsUrl String?
+
+  // ==========================================================================
+  // LICENSING CONFIGURATION
+  // ==========================================================================
+
+  // How licensing works for this app
+  licensingMode LicensingMode @default(FREE) @map("licensing_mode")
+
+  // Default license type to provision for new tenants (when autoProvisionOnSignup=true)
+  defaultLicenseTypeId String?      @map("default_license_type_id")
+  defaultLicenseType   LicenseType? @relation("DefaultLicenseType", fields: [defaultLicenseTypeId], references: [id], onDelete: SetNull)
+
+  // How many seats to provision by default (for PER_SEAT mode)
+  defaultSeatCount Int @default(5) @map("default_seat_count")
+
+  // Automatically create subscription when tenant signs up
+  autoProvisionOnSignup Boolean @default(false) @map("auto_provision_on_signup")
+
+  // For PER_SEAT mode: automatically grant license to tenant owner
+  autoGrantToOwner Boolean @default(true) @map("auto_grant_to_owner")
+
+  // Available features that can be enabled per license type
+  // Array of feature definitions: [{key: "sso", name: "Single Sign-On", description: "..."}]
+  availableFeatures Json @default("[]") @map("available_features")
+
+  // Allow tenants to have multiple subscription license types for the same app
+  // When false: one license type per tenant (upgrade replaces)
+  // When true: can have Pro AND Enterprise simultaneously
+  allowMixedLicensing Boolean @default(false) @map("allow_mixed_licensing")
+
+  // ==========================================================================
+  // ACCESS CONTROL (separate from licensing)
+  // ==========================================================================
+  
+  // How access is granted to users within tenants
+  // AUTOMATIC: All tenant members automatically get access
+  // MANUAL_AUTO_GRANT: Manual assignment, but new members get access by default
+  // MANUAL_NO_DEFAULT: Manual assignment, new members must be explicitly granted
+  // DISABLED: No new access grants (existing access preserved)
+  accessMode AccessMode @default(AUTOMATIC) @map("access_mode")
+
+  // ==========================================================================
+  // WEBHOOK CONFIGURATION
+  // ==========================================================================
+
+  // Single webhook endpoint for all sync events
+  webhookUrl     String?  @map("webhook_url")
+  webhookEnabled Boolean  @default(false) @map("webhook_enabled")
+  // Optional event filter: ["user.*", "invite.*"] - empty array means all events
+  webhookEvents  String[] @default([]) @map("webhook_events")
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  roles              Role[]
+  authorizationCodes AuthorizationCode[]
+  refreshTokens      RefreshToken[]
+
+  // License Pool System
+  licenseTypes     LicenseType[]
+  appSubscriptions AppSubscription[]
+
+  @@unique([slug])
+  @@index([clientId])
+  @@map("applications")
+}
+
+enum ApplicationType {
+  SPA // Single Page App - uses PKCE, no client secret
+  MACHINE // Machine-to-Machine - uses client secret
+}
+
+enum LicensingMode {
+  FREE // Free tier - auto-provisioned, all members get access
+  PER_SEAT // Each user needs assigned seat
+  TENANT_WIDE // Tenant subscribes, all members have access
+}
+
+enum AccessMode {
+  AUTOMATIC           // All members automatically get access when they join
+  MANUAL_AUTO_GRANT   // Manual control, but new members get access by default
+  MANUAL_NO_DEFAULT   // Manual control, new members don't get access by default
+  DISABLED            // No new access grants allowed (existing access remains)
+}
+
+/// AuthorizationCode: Pending OAuth authorization codes with PKCE
+model AuthorizationCode {
+  id          String  @id @default(cuid())
+  code        String  @unique @default(uuid())
+  redirectUri String // Must match exactly on token exchange
+  scope       String? // Requested scopes
+  state       String? // Client state parameter
+  nonce       String? // OIDC nonce for ID token
+
+  // PKCE (Required for SPA, optional for MACHINE)
+  codeChallenge       String?
+  codeChallengeMethod CodeChallengeMethod?
+
+  // Tenant scoping for separate token per tenant
+  // When set, the resulting token will ONLY include this tenant
+  tenantId        String? // The specific tenant this code is for
+  tenantSubdomain String? // The subdomain (e.g., "acme")
+
+  expiresAt DateTime // Short-lived (typically 10 minutes)
+  usedAt    DateTime? // Mark as used to prevent replay
+  createdAt DateTime  @default(now())
+
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([code])
+  @@index([userId])
+  @@index([applicationId])
+  @@map("authorization_codes")
+}
+
+enum CodeChallengeMethod {
+  S256
+  PLAIN // Not recommended, but part of spec
+}
+
+/// RefreshToken: Long-lived tokens for obtaining new access tokens
+/// Token Ghosting: The refresh token is a JWT with `sid` claim pointing to this record's `id`
+/// On refresh, we verify JWT signature first, then check this record for revocation
+model RefreshToken {
+  id        String   @id @default(uuid()) // UUID for Token Ghosting (this is the `sid` claim)
+  scope     String?
+  expiresAt DateTime @map("expires_at")
+
+  // Token Ghosting: revocation tracking
+  revoked   Boolean   @default(false) // Fast boolean check for session validity
+  revokedAt DateTime? @map("revoked_at") // When the session was revoked (for audit)
+
+  // Session metadata (for Token Ghosting)
+  userAgent String? @map("user_agent")
+  ipAddress String? @map("ip_address")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Tenant scoping for separate token per tenant
+  // When set, refreshed tokens will ONLY include this tenant
+  tenantId        String? @map("tenant_id") // The specific tenant this token is for
+  tenantSubdomain String? @map("tenant_subdomain") // The subdomain (e.g., "acme")
+
+  userId        String      @map("user_id")
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId String      @map("application_id")
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([applicationId])
+  @@index([revoked]) // For filtering active sessions
+  @@map("refresh_tokens")
+}
+
+// =============================================================================
+// SSO PROVIDER MODELS
+// =============================================================================
+// Single Sign-On (SSO) configuration for Google and Microsoft OAuth
+// Supports both instance-level (super admin) and tenant-level (tenant admin) config
+// =============================================================================
+
+enum SsoProviderType {
+  GOOGLE
+  MICROSOFT
+}
+
+/// SsoProvider: Instance-level SSO configuration (managed by super admin)
+/// Defines the global OAuth client credentials and settings for each provider
+model SsoProvider {
+  id               String          @id @default(cuid())
+  provider         SsoProviderType @unique
+  enabled          Boolean         @default(false)
+  clientId         String          @map("client_id")
+  clientSecretEnc  String          @map("client_secret_enc") // Encrypted client secret
+  scopes           String[]        @default([])
+  allowedDomains   String[]        @default([]) @map("allowed_domains") // Restrict to specific email domains (empty = all)
+  autoCreateUser   Boolean         @default(true) @map("auto_create_user")
+  autoLinkExisting Boolean         @default(true) @map("auto_link_existing") // Link to existing user with same email
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  @@map("sso_providers")
+}
+
+/// TenantSsoConfig: Tenant-level SSO configuration overrides
+/// Allows tenant admins to customize SSO behavior or use their own OAuth credentials
+model TenantSsoConfig {
+  id              String          @id @default(cuid())
+  tenantId        String          @map("tenant_id")
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  provider        SsoProviderType
+  enabled         Boolean         @default(false)
+  // If clientId/clientSecretEnc are null, uses instance-level config
+  clientId        String?         @map("client_id")
+  clientSecretEnc String?         @map("client_secret_enc")
+  enforced        Boolean         @default(false) // If true, password login disabled for this tenant
+  allowedDomains  String[]        @default([]) @map("allowed_domains")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  @@unique([tenantId, provider])
+  @@index([tenantId])
+  @@map("tenant_sso_configs")
+}
+
+/// UserSsoLink: Tracks SSO provider connections for users
+/// Records which SSO providers a user has linked to their account
+model UserSsoLink {
+  id             String          @id @default(cuid())
+  userId         String          @map("user_id")
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider       SsoProviderType
+  providerUserId String          @map("provider_user_id") // Google/Microsoft user ID
+  email          String // Email from SSO provider
+  displayName    String?         @map("display_name")
+  avatarUrl      String?         @map("avatar_url")
+  rawProfile     Json?           @map("raw_profile") // Full profile from provider for debugging
+  lastUsedAt     DateTime?       @map("last_used_at")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  @@unique([provider, providerUserId])
+  @@unique([userId, provider])
+  @@index([userId])
+  @@index([email])
+  @@map("user_sso_links")
+}
+
+// =============================================================================
+// TENANCY MODELS
+// =============================================================================
+
+model Tenant {
+  id       String @id @default(uuid())
+  name     String
+  slug     String
+  settings Json   @default("{}")
+
+  // Initiate Login URI - URL to redirect users to start login for this tenant
+  // Useful for tenant-specific login pages (e.g., subdomain-based apps)
+  // Example: "https://acme.myapp.com/login" or "https://myapp.com/acme/login"
+  initiateLoginUri String? @map("initiate_login_uri")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships Membership[]
+  domains     Domain[]
+  invitations Invitation[]
+
+  // License Pool System
+  appSubscriptions   AppSubscription[]
+  licenseAssignments LicenseAssignment[]
+
+  // Application Access
+  appAccess AppAccess[]
+
+  // Groups (tenant-scoped)
+  groups Group[]
+
+  // SSO Configuration (tenant-level overrides)
+  ssoConfigs TenantSsoConfig[]
+
+  // MFA Policy
+  mfaPolicy          MfaPolicy @default(OPTIONAL) @map("mfa_policy")
+  mfaGracePeriodDays Int       @default(7) @map("mfa_grace_period_days")
+
+  @@unique([slug])
+  @@map("tenants")
+}
+
+model Membership {
+  id        String           @id @default(cuid())
+  status    MembershipStatus @default(INVITED)
+  joinedAt  DateTime?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  membershipRoles       MembershipRole[]
+  membershipTenantRoles MembershipTenantRole[]
+  groups                MembershipGroup[]
+
+  // Back-relation for invitation that created this membership
+  invitation Invitation?
+
+  @@unique([userId, tenantId])
+  @@index([userId])
+  @@index([tenantId])
+  @@map("memberships")
+}
+
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+}
+
+enum MfaPolicy {
+  DISABLED // MFA not available for this tenant
+  OPTIONAL // Users can enable MFA voluntarily
+  ENCOURAGED // Prompt users to enable MFA but don't require
+  REQUIRED // Users must have MFA enabled to access tenant
+}
+
+// =============================================================================
+// INVITATIONS (for inviting users who may not have accounts yet)
+// =============================================================================
+
+/// Invitation: Pending invite to join a tenant (user may not exist yet)
+model Invitation {
+  id         String    @id @default(cuid())
+  email      String // Email of invitee (user may not exist yet!)
+  token      String    @unique // Secure token for invite link
+  expiresAt  DateTime // When the invite expires
+  consumedAt DateTime? // When the invite was used (null = pending)
+  metadata   Json?     @default("{}") // Stored license type ID and other custom data
+  createdAt  DateTime  @default(now())
+
+  // The tenant being invited to
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // The application this invite is for (determines redirect URL)
+  // References Application.clientId for OAuth consistency
+  clientId String?
+
+  // Who sent the invite (optional - could be system/admin)
+  invitedById String?
+  invitedBy   User?   @relation("InvitationsSent", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  // Who consumed the invite (set when accepted)
+  consumedById String?
+  consumedBy   User?   @relation("InvitationsReceived", fields: [consumedById], references: [id], onDelete: SetNull)
+
+  // Link to the membership created for this invitation
+  membershipId String?     @unique
+  membership   Membership? @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([token])
+  @@index([tenantId])
+  @@index([clientId])
+  @@map("invitations")
+}
+
+// =============================================================================
+// RBAC MODELS
+// =============================================================================
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String
+  description String?
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  applicationId   String
+  application     Application      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  membershipRoles MembershipRole[]
+
+  @@unique([slug, applicationId])
+  @@index([applicationId])
+  @@map("roles")
+}
+
+model MembershipRole {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  membershipId String
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, roleId])
+  @@index([membershipId])
+  @@index([roleId])
+  @@map("membership_roles")
+}
+
+/// TenantRole: Instance-wide roles (not tied to any application)
+/// These roles define what users can do at the tenant level (e.g., billing, member management)
+model TenantRole {
+  id          String   @id @default(cuid())
+  name        String // "Owner", "Admin", "Member"
+  slug        String   @unique // "owner", "admin", "member"
+  description String?
+  isSystem    Boolean  @default(false) // System roles cannot be deleted
+  permissions String[] @default([]) // Array of permission actions
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  membershipTenantRoles MembershipTenantRole[]
+
+  @@map("tenant_roles")
+}
+
+/// MembershipTenantRole: Join table linking memberships to tenant roles
+/// A membership can have multiple tenant roles (e.g., Admin + Billing Manager)
+model MembershipTenantRole {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  membershipId String
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  tenantRoleId String
+  tenantRole   TenantRole @relation(fields: [tenantRoleId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, tenantRoleId])
+  @@index([membershipId])
+  @@index([tenantRoleId])
+  @@map("membership_tenant_roles")
+}
+
+// =============================================================================
+// AUDIT LOGGING
+// =============================================================================
+
+/// AuditLog: Tracks security-relevant operations for compliance
+model AuditLog {
+  id         String   @id @default(cuid())
+  tenantId   String?  @map("tenant_id")
+  userId     String?  @map("user_id")
+  action     String // e.g., "license:assign", "role:create", "member:remove"
+  targetType String // e.g., "user", "role", "license", "permission"
+  targetId   String?  @map("target_id")
+  metadata   Json     @default("{}") // Additional context
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([action])
+  @@index([targetType])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// =============================================================================
+// SYNC EVENTS (Webhook & Polling)
+// =============================================================================
+
+/// SyncEvent: Tracks events for webhook delivery and polling API
+/// Events are retained for 30 days for catch-up sync
+model SyncEvent {
+  id            String @id @default(cuid())
+  eventType     String @map("event_type") // "user.created", "invite.accepted", etc.
+  tenantId      String @map("tenant_id")
+  applicationId String @map("application_id")
+  payload       Json // Full event data
+
+  // Webhook delivery tracking
+  webhookStatus   WebhookStatus @default(PENDING) @map("webhook_status")
+  webhookAttempts Int           @default(0) @map("webhook_attempts")
+  lastAttemptAt   DateTime?     @map("last_attempt_at")
+  deliveredAt     DateTime?     @map("delivered_at")
+  lastError       String?       @map("last_error")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, applicationId, createdAt])
+  @@index([applicationId, webhookStatus])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("sync_events")
+}
+
+enum WebhookStatus {
+  PENDING // Not yet attempted
+  DELIVERED // Successfully delivered
+  FAILED // All retries exhausted
+  SKIPPED // Webhook not configured or disabled
+}
+
+// =============================================================================
+// LICENSE POOL SYSTEM
+// =============================================================================
+// Core Philosophy: Tenant = Wallet, User = License Holder
+// Tenants purchase Capacity (Inventory), Admins assign that capacity to Users
+// =============================================================================
+
+/// LicenseType: Defines a license type for an application (e.g., "Pro", "Standard", "Enterprise")
+/// This is the CATALOG - what license types are available
+model LicenseType {
+  id          String  @id @default(cuid())
+  name        String // Display name: "Pro", "Standard", "Enterprise"
+  slug        String // URL-safe identifier: "pro", "standard", "enterprise"
+  description String?
+
+  // Display price for UI (e.g., "$29/mo", "Contact Sales")
+  displayPrice String? @map("display_price")
+
+  // Which application this license type belongs to
+  applicationId String      @map("application_id")
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  // Feature flags for this license type (e.g., {"sso": true, "audit_logs": false, "api_access": true})
+  features Json @default("{}") @map("features")
+
+  // Display ordering (for UI)
+  displayOrder Int @default(0) @map("display_order") // Higher = better tier
+
+  // ==========================================================================
+  // LIMITS (enforced by system)
+  // ==========================================================================
+
+  // Maximum tenant members allowed with this license type (null = unlimited)
+  maxMembers Int? @map("max_members")
+
+  // For future use:
+  // maxStorageMb Int? @map("max_storage_mb")
+  // maxApiCallsPerMonth Int? @map("max_api_calls_per_month")
+
+  // Status
+  status LicenseTypeStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Subscriptions using this license type
+  appSubscriptions AppSubscription[]
+
+  // Reverse relation for default license type
+  applicationsAsDefault Application[] @relation("DefaultLicenseType")
+
+  @@unique([applicationId, slug]) // Unique slug per application
+  @@index([applicationId])
+  @@index([status])
+  @@map("license_types")
+}
+
+enum LicenseTypeStatus {
+  DRAFT // Not visible, still being configured
+  ACTIVE // Available for purchase
+  ARCHIVED // No new purchases, existing subscriptions continue
+  HIDDEN // Only for custom/enterprise deals
+}
+
+/// AppSubscription: The Tenant's "Wallet" of licenses for an app+license type
+/// This is the INVENTORY - what the tenant has purchased
+model AppSubscription {
+  id String @id @default(cuid())
+
+  // Which tenant owns this subscription (Tenant = Wallet)
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Which application + license type this subscription is for
+  applicationId String      @map("application_id")
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  licenseTypeId String      @map("license_type_id")
+  licenseType   LicenseType @relation(fields: [licenseTypeId], references: [id], onDelete: Restrict)
+
+  // ==========================================================================
+  // INVENTORY TRACKING
+  // ==========================================================================
+  quantityPurchased Int @default(0) @map("quantity_purchased")
+  quantityAssigned  Int @default(0) @map("quantity_assigned") // Cached count of assignments
+
+  // Subscription period
+  status             SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart DateTime           @default(now()) @map("current_period_start")
+  currentPeriodEnd   DateTime           @map("current_period_end")
+  autoRenew          Boolean            @default(true) @map("auto_renew")
+  canceledAt         DateTime?          @map("canceled_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // License assignments from this subscription
+  licenseAssignments LicenseAssignment[]
+
+  // A tenant can have multiple license types for the SAME app (e.g., 5 Pro + 10 Standard)
+  @@unique([tenantId, applicationId, licenseTypeId])
+  @@index([tenantId])
+  @@index([applicationId])
+  @@index([licenseTypeId])
+  @@index([status])
+  @@map("app_subscriptions")
+}
+
+enum SubscriptionStatus {
+  ACTIVE // Currently active and paid
+  TRIALING // In trial period
+  PAST_DUE // Payment failed, grace period
+  CANCELED // Canceled, access until period end
+  EXPIRED // Period ended, no access
+}
+
+/// LicenseAssignment: Explicit binding of a USER to a LICENSE
+/// This is the USAGE - who is consuming the inventory
+/// "Alice has a Pro seat for project-board"
+model LicenseAssignment {
+  id String @id @default(cuid())
+
+  // Who holds this license (User = License Holder)
+  userId String @map("user_id")
+
+  // Which tenant context (for the unique constraint)
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Which application (denormalized for the unique constraint)
+  applicationId String @map("application_id")
+
+  // Which subscription this license comes from
+  subscriptionId String          @map("subscription_id")
+  subscription   AppSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  // Assignment metadata
+  assignedAt   DateTime @default(now()) @map("assigned_at")
+  assignedById String?  @map("assigned_by_id") // Admin who granted this license
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // License type info (denormalized for audit)
+  licenseTypeId   String @map("license_type_id")
+  licenseTypeName String @map("license_type_name")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Reverse relation for AppAccess
+  appAccess AppAccess?
+
+  // ==========================================================================
+  // CRITICAL CONSTRAINT: A user can only have ONE license per app per tenant
+  // They cannot be Pro AND Standard for the same app simultaneously
+  // ==========================================================================
+  @@unique([tenantId, userId, applicationId])
+  @@index([tenantId])
+  @@index([userId])
+  @@index([subscriptionId])
+  @@index([applicationId])
+  @@map("license_assignments")
+}
+
+// =============================================================================
+// APPLICATION ACCESS (Entitlement)
+// =============================================================================
+// Core Philosophy: Access is EXPLICIT - every user's access to every app is recorded
+// Separate from LicenseAssignment (seat consumption) and MembershipRole (permissions)
+// =============================================================================
+
+/// AppAccess: Explicit grant of application access to a user within a tenant
+/// This is the ENTITLEMENT - "User X can access App Y in Tenant Z"
+model AppAccess {
+  id String @id @default(cuid())
+
+  userId        String @map("user_id")
+  tenantId      String @map("tenant_id")
+  applicationId String @map("application_id")
+
+  // How was this access granted?
+  accessType AccessType @default(GRANTED)
+
+  // Current status
+  status AccessStatus @default(ACTIVE)
+
+  // Audit fields
+  grantedAt   DateTime  @default(now()) @map("granted_at")
+  grantedById String?   @map("granted_by_id") // Who granted access (null = system)
+  revokedAt   DateTime? @map("revoked_at")
+  revokedById String?   @map("revoked_by_id")
+
+  // Relations
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // For PER_SEAT apps: optional link to license assignment
+  licenseAssignmentId String?            @unique @map("license_assignment_id")
+  licenseAssignment   LicenseAssignment? @relation(fields: [licenseAssignmentId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, tenantId, applicationId])
+  @@index([tenantId, applicationId])
+  @@index([userId])
+  @@index([status])
+  @@map("app_access")
+}
+
+enum AccessType {
+  GRANTED // Explicitly granted by admin
+  INVITED // Granted via invitation
+  AUTO_FREE // Auto-granted for FREE app
+  AUTO_TENANT // Auto-granted for TENANT_WIDE app  
+  AUTO_OWNER // Auto-granted to tenant owner on signup
+}
+
+enum AccessStatus {
+  ACTIVE
+  REVOKED
+  SUSPENDED
+}
+
+/// LicenseAuditLog: Tracks all license assignment changes for compliance
+/// Records grants, revokes, and changes with full context
+model LicenseAuditLog {
+  id                      String             @id @default(cuid())
+  tenantId                String             @map("tenant_id")
+  userId                  String             @map("user_id")
+  userEmail               String             @map("user_email")
+  userName                String?            @map("user_name")
+  applicationId           String             @map("application_id")
+  applicationName         String             @map("application_name")
+  licenseTypeId           String             @map("license_type_id")
+  licenseTypeName         String             @map("license_type_name")
+  action                  LicenseAuditAction @default(GRANTED)
+  previousLicenseTypeName String?            @map("previous_license_type_name") // Set when CHANGED
+  performedBy             String             @map("performed_by") // Admin user ID who performed the action
+  performedByEmail        String             @map("performed_by_email") // Admin email
+  performedByName         String?            @map("performed_by_name") // Admin name
+  membershipId            String?            @map("membership_id") // Related membership
+  reason                  String?
+  ipAddress               String?            @map("ip_address")
+  createdAt               DateTime           @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([applicationId])
+  @@index([licenseTypeId])
+  @@index([action])
+  @@index([createdAt])
+  @@index([performedBy])
+  @@map("license_audit_logs")
+}
+
+enum LicenseAuditAction {
+  GRANTED
+  REVOKED
+  CHANGED // When license type is upgraded/downgraded
+}
+
+// =============================================================================
+// DOMAIN VERIFICATION
+// =============================================================================
+
+model Domain {
+  id                String    @id @default(cuid())
+  domainName        String
+  verificationToken String
+  isVerified        Boolean   @default(false)
+  verifiedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([domainName, tenantId])
+  @@index([tenantId])
+  @@index([domainName])
+  @@map("domains")
+}
+
+// =============================================================================
+// PENDING SIGNUPS (Email Verification)
+// =============================================================================
+
+/// PendingSignup: Tracks signup attempts awaiting email verification
+model PendingSignup {
+  id                    String  @id @default(cuid())
+  email                 String
+  verificationToken     String  @unique // URL-safe token for email link
+  tenantName            String? @map("tenant_name") // For new tenant signups
+  givenName             String? @map("given_name")
+  familyName            String? @map("family_name")
+  redirectUri           String? // Legacy - use application.appUrlTemplate instead
+  applicationId         String? // The app that initiated signup (to get appUrlTemplate)
+  selectedLicenseTypeId String? @map("selected_license_type_id") // User's selected license type for auto-provisioning
+
+  status      PendingSignupStatus @default(PENDING)
+  expiresAt   DateTime
+  verifiedAt  DateTime?
+  completedAt DateTime? // When signup was completed
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@unique([email]) // Email unique across instance
+  @@index([status])
+  @@index([verificationToken])
+  @@map("pending_signups")
+}
+
+enum PendingSignupStatus {
+  PENDING // Awaiting email verification
+  VERIFIED // Email verified, awaiting completion
+  COMPLETED // Signup completed
+  EXPIRED // Verification expired
+  CANCELLED // User cancelled
+}
+
+// =============================================================================
+// SIGNING KEYS (JWT/JWKS Management)
+// =============================================================================
+
+/// SigningKey: RSA key pairs for JWT signing with rotation support
+model SigningKey {
+  id         String           @id @default(uuid())
+  kid        String           @unique // Key ID (visible in JWT headers)
+  privateKey String // Encrypted private key (AES-256-GCM)
+  publicKey  String // Plaintext public key PEM
+  algorithm  String           @default("RS256")
+  status     SigningKeyStatus @default(ACTIVE)
+  expiresAt  DateTime? // Optional: when to stop using for verification
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  @@index([status])
+  @@index([kid])
+  @@map("signing_keys")
+}
+
+// =============================================================================
+// GROUPS (Tenant-Scoped)
+// =============================================================================
+
+/// Group: Named collection of members within a tenant
+/// Used for group-based access control and permissions
+model Group {
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name        String // Display name (e.g., "Engineering Team")
+  slug        String // URL-safe identifier (e.g., "engineering")
+  description String? // Optional description
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  members MembershipGroup[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@map("groups")
+}
+
+/// MembershipGroup: Join table linking memberships to groups
+model MembershipGroup {
+  id           String     @id @default(cuid())
+  membershipId String     @map("membership_id")
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  groupId      String     @map("group_id")
+  group        Group      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  assignedAt DateTime @default(now()) @map("assigned_at")
+
+  @@unique([membershipId, groupId])
+  @@index([membershipId])
+  @@index([groupId])
+  @@map("membership_groups")
+}
+
+enum SigningKeyStatus {
+  ACTIVE // Currently used for signing new tokens
+  PASSIVE // Still valid for verification, not used for signing
+  ARCHIVED // No longer used, kept for audit
+  REVOKED // Explicitly revoked, should not be trusted
+}

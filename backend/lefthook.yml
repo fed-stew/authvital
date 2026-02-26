@@ -1,0 +1,17 @@
+pre-commit:
+  parallel: false
+  commands:
+    format-staged:
+      glob: "*.{ts,tsx,js,json,md,yml,yaml}"
+      run: npx prettier --write {staged_files}
+      stage_fixed: true
+    lint-staged-ts:
+      glob: "*.{ts,tsx}"
+      run: npx eslint --fix {staged_files}
+      stage_fixed: true
+
+pre-push:
+  parallel: false
+  commands:
+    test:
+      run: npm run test:silent

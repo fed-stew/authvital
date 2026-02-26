@@ -1,0 +1,112 @@
+# =============================================================================
+# AuthVader - Docker Compose with Nginx
+# =============================================================================
+#
+# Usage:
+#   docker compose up -d          # Start all services
+#   docker compose logs -f api    # Follow API logs
+#   docker compose down            # Stop all services
+#
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # Nginx Reverse Proxy (only exposed service)
+  # ===========================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: authvader-nginx
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.2:80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - authvader
+    restart: unless-stopped
+
+  # ===========================================================================
+  # PostgreSQL Database
+  # ===========================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: authvader-postgres
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-authvader}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-localdev123}
+      POSTGRES_DB: ${DB_DATABASE:-authvader}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - authvader
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-authvader} -d ${DB_DATABASE:-authvader}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ===========================================================================
+  # AuthVader API (internal only)
+  # ===========================================================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: authvader-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8000"
+    environment:
+      # Database
+      DATABASE_URL: postgresql://${DB_USERNAME:-authvader}:${DB_PASSWORD:-localdev123}@postgres:5432/${DB_DATABASE:-authvader}
+      DB_HOST: postgres
+      DB_USERNAME: ${DB_USERNAME:-authvader}
+      DB_PASSWORD: ${DB_PASSWORD:-localdev123}
+      DB_DATABASE: ${DB_DATABASE:-authvader}
+      
+      # Application
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 8000
+      BASE_URL: ${BASE_URL:-http://localhost}
+      
+      # Cookie security - set to 'false' for local HTTP dev
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      
+      # Security
+      SIGNING_KEY_SECRET: ${SIGNING_KEY_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      
+      # CORS
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      
+      # Email
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+      SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-}
+      SENDGRID_FROM_NAME: ${SENDGRID_FROM_NAME:-}
+      
+      # Bootstrap
+      SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@localhost}
+      
+      # Run mode
+      RUN_MODE: ${RUN_MODE:-full}
+    networks:
+      - authvader
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    restart: unless-stopped
+
+networks:
+  authvader:
+    name: authvader
+    driver: bridge
+
+volumes:
+  postgres_data:
