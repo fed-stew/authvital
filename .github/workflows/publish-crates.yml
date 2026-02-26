@@ -1,18 +1,10 @@
 name: Publish Rust SDK to crates.io
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to publish (e.g., 0.0.1)'
-        required: true
-        default: '0.0.1'
-  workflow_call:
-    inputs:
-      version:
-        description: 'Version to publish'
-        required: true
-        type: string
 
 jobs:
   publish:
@@ -24,12 +16,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Update version
         run: |
-          sed -i 's/^version = ".*"/version = "${{ inputs.version }}"/' Cargo.toml
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" Cargo.toml
 
       - name: Publish to crates.io
         env:

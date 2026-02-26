@@ -1,54 +1,118 @@
 name: Publish All SDKs
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to publish (e.g., 0.0.1)'
-        required: true
-        default: '0.0.1'
-      pypi:
-        description: 'Publish to PyPI'
-        type: boolean
-        default: true
-      crates:
-        description: 'Publish to crates.io'
-        type: boolean
-        default: true
-      maven:
-        description: 'Publish to Maven Central'
-        type: boolean
-        default: true
-      nuget:
-        description: 'Publish to NuGet'
-        type: boolean
-        default: true
 
 jobs:
+  get-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+    steps:
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
   pypi:
-    if: ${{ github.event.inputs.pypi == 'true' }}
-    uses: ./.github/workflows/publish-pypi.yml
-    with:
-      version: ${{ github.event.inputs.version }}
-    secrets: inherit
+    needs: get-version
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/python
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+      - name: Update version
+        run: |
+          VERSION="${{ needs.get-version.outputs.version }}"
+          sed -i "s/version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
+          sed -i "s/__version__ = \".*\"/__version__ = \"${VERSION}\"/" authvader_sdk/__init__.py
+      - name: Build package
+        run: python -m build
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: twine upload dist/*
 
   crates:
-    if: ${{ github.event.inputs.crates == 'true' }}
-    uses: ./.github/workflows/publish-crates.yml
-    with:
-      version: ${{ github.event.inputs.version }}
-    secrets: inherit
+    needs: get-version
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/rust
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Update version
+        run: |
+          VERSION="${{ needs.get-version.outputs.version }}"
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" Cargo.toml
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: cargo publish --allow-dirty
 
   maven:
-    if: ${{ github.event.inputs.maven == 'true' }}
-    uses: ./.github/workflows/publish-maven.yml
-    with:
-      version: ${{ github.event.inputs.version }}
-    secrets: inherit
+    needs: get-version
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/java
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 11
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+          server-id: ossrh
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase: GPG_PASSPHRASE
+      - name: Update version
+        run: |
+          mvn versions:set -DnewVersion=${{ needs.get-version.outputs.version }}
+      - name: Build and publish
+        env:
+          MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: mvn clean deploy -P release
 
   nuget:
-    if: ${{ github.event.inputs.nuget == 'true' }}
-    uses: ./.github/workflows/publish-nuget.yml
-    with:
-      version: ${{ github.event.inputs.version }}
-    secrets: inherit
+    needs: get-version
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/dotnet/AuthVader.SDK
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Update version
+        run: |
+          VERSION="${{ needs.get-version.outputs.version }}"
+          sed -i "s/<Version>.*<\/Version>/<Version>${VERSION}<\/Version>/" AuthVader.SDK.csproj
+      - name: Build
+        run: dotnet build --configuration Release
+      - name: Pack
+        run: dotnet pack --configuration Release --no-build --output ./nupkg
+      - name: Publish to NuGet
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: dotnet nuget push ./nupkg/*.nupkg --api-key $NUGET_API_KEY --source https://api.nuget.org/v3/index.json

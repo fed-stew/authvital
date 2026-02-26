@@ -1,18 +1,10 @@
 name: Publish Python SDK to PyPI
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to publish (e.g., 0.0.1)'
-        required: true
-        default: '0.0.1'
-  workflow_call:
-    inputs:
-      version:
-        description: 'Version to publish'
-        required: true
-        type: string
 
 jobs:
   publish:
@@ -23,6 +15,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -36,8 +32,9 @@ jobs:
 
       - name: Update version
         run: |
-          sed -i 's/version = ".*"/version = "${{ inputs.version }}"/' pyproject.toml
-          sed -i 's/__version__ = ".*"/__version__ = "${{ inputs.version }}"/' authvader_sdk/__init__.py
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          sed -i "s/version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
+          sed -i "s/__version__ = \".*\"/__version__ = \"${VERSION}\"/" authvader_sdk/__init__.py
 
       - name: Build package
         run: python -m build

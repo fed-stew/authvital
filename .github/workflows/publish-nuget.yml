@@ -1,28 +1,24 @@
 name: Publish .NET SDK to NuGet
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to publish (e.g., 0.0.1)'
-        required: true
-        default: '0.0.1'
-  workflow_call:
-    inputs:
-      version:
-        description: 'Version to publish'
-        required: true
-        type: string
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: sdks/dotnet
+        working-directory: sdks/dotnet/AuthVader.SDK
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -31,7 +27,8 @@ jobs:
 
       - name: Update version
         run: |
-          sed -i 's/<Version>.*<\/Version>/<Version>${{ inputs.version }}<\/Version>/' AuthVader.SDK/AuthVader.SDK.csproj
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          sed -i "s/<Version>.*<\/Version>/<Version>${VERSION}<\/Version>/" AuthVader.SDK.csproj
 
       - name: Build
         run: dotnet build --configuration Release
