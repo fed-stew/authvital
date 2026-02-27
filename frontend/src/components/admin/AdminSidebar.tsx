@@ -108,7 +108,7 @@ function AdminSidebar({ className }: AdminSidebarProps) {
           </div>
           <div>
             <h1 className="text-lg font-semibold text-foreground">
-              AuthVader
+              AuthVital
             </h1>
             <p className="text-xs text-muted-foreground">Admin</p>
           </div>
@@ -157,7 +157,7 @@ function AdminSidebar({ className }: AdminSidebarProps) {
       {/* Version */}
       <div className="border-t border-white/10 p-4">
         <p className="text-xs text-muted-foreground">
-          AuthVader Admin v1.0.0
+          AuthVital Admin v1.0.0
         </p>
       </div>
     </aside>

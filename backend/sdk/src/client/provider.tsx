@@ -1,5 +1,5 @@
 /**
- * @authvader/sdk - React Provider & Hooks
+ * @authvital/sdk - React Provider & Hooks
  * 
  * Provides authentication context for React applications.
  * This is a CLIENT-ONLY state manager - it does NOT call the IDP.
@@ -9,19 +9,19 @@
  * 
  * @example
  * ```tsx
- * import { AuthVaderProvider, useAuth } from '@authvader/sdk';
+ * import { AuthVitalProvider, useAuth } from '@authvital/sdk';
  * 
  * // User data comes from YOUR server (which verified the JWT)
  * function App({ initialUser, initialTenants }) {
  *   return (
- *     <AuthVaderProvider
+ *     <AuthVitalProvider
  *       clientId="your-client-id"
- *       authVaderHost="http://localhost:3000"
+ *       authVitalHost="http://localhost:3000"
  *       initialUser={initialUser}
  *       initialTenants={initialTenants}
  *     >
  *       <YourApp />
- *     </AuthVaderProvider>
+ *     </AuthVitalProvider>
  *   );
  * }
  * ```
@@ -29,9 +29,9 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type {
-  AuthVaderProviderProps,
-  AuthVaderUser,
-  AuthVaderTenant,
+  AuthVitalProviderProps,
+  AuthVitalUser,
+  AuthVitalTenant,
   AuthContextValue,
   LoginResult,
   SignUpData,
@@ -46,25 +46,25 @@ import type {
 // =============================================================================
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-const ConfigContext = createContext<{ authVaderHost: string; clientId: string } | null>(null);
+const ConfigContext = createContext<{ authVitalHost: string; clientId: string } | null>(null);
 
 // =============================================================================
 // PROVIDER
 // =============================================================================
 
-export function AuthVaderProvider({
+export function AuthVitalProvider({
   clientId,
-  authVaderHost,
+  authVitalHost,
   initialUser = null,
   initialTenants = [],
   children,
-}: AuthVaderProviderProps) {
+}: AuthVitalProviderProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isSigningUp, setIsSigningUp] = useState(false);
-  const [user, setUser] = useState<AuthVaderUser | null>(initialUser);
-  const [tenants, setTenants] = useState<AuthVaderTenant[]>(initialTenants);
-  const [currentTenant, setCurrentTenant] = useState<AuthVaderTenant | null>(initialTenants[0] || null);
+  const [user, setUser] = useState<AuthVitalUser | null>(initialUser);
+  const [tenants, setTenants] = useState<AuthVitalTenant[]>(initialTenants);
+  const [currentTenant, setCurrentTenant] = useState<AuthVitalTenant | null>(initialTenants[0] || null);
   const [error, setError] = useState<string | null>(null);
 
 
@@ -77,7 +77,7 @@ export function AuthVaderProvider({
    * Set the authenticated user and their tenants.
    * Call this after your server verifies the JWT using getCurrentUser().
    */
-  const setAuthState = useCallback((newUser: AuthVaderUser | null, newTenants: AuthVaderTenant[] = []) => {
+  const setAuthState = useCallback((newUser: AuthVitalUser | null, newTenants: AuthVitalTenant[] = []) => {
     setUser(newUser);
     setTenants(newTenants);
     setCurrentTenant(newTenants[0] || null);
@@ -98,7 +98,7 @@ export function AuthVaderProvider({
   // =============================================================================
 
   /**
-   * Redirect to AuthVader login page (OAuth flow)
+   * Redirect to AuthVital login page (OAuth flow)
    */
   const login = useCallback(
     async (_email?: string, _password?: string): Promise<LoginResult> => {
@@ -113,7 +113,7 @@ export function AuthVaderProvider({
           : '';
         
         await startAuthorizationFlow({
-          authVaderHost,
+          authVitalHost,
           clientId,
           redirectUri,
         });
@@ -128,11 +128,11 @@ export function AuthVaderProvider({
         setIsSigningIn(false);
       }
     },
-    [authVaderHost, clientId],
+    [authVitalHost, clientId],
   );
 
   /**
-   * Redirect to AuthVader signup page (OAuth flow)
+   * Redirect to AuthVital signup page (OAuth flow)
    */
   const signUp = useCallback(
     async (_data?: SignUpData): Promise<SignUpResult> => {
@@ -146,7 +146,7 @@ export function AuthVaderProvider({
           : '';
         
         await startAuthorizationFlow({
-          authVaderHost,
+          authVitalHost,
           clientId,
           redirectUri,
         }, { screen: 'signup' });
@@ -161,7 +161,7 @@ export function AuthVaderProvider({
         setIsSigningUp(false);
       }
     },
-    [authVaderHost, clientId],
+    [authVitalHost, clientId],
   );
 
   /**
@@ -170,12 +170,12 @@ export function AuthVaderProvider({
   const signOut = useCallback(async () => {
     clearAuthState();
     
-    // Redirect to AuthVader logout endpoint
-    const { logout: authVaderLogout } = await import('./oauth');
-    await authVaderLogout(authVaderHost, {
+    // Redirect to AuthVital logout endpoint
+    const { logout: authVitalLogout } = await import('./oauth');
+    await authVitalLogout(authVitalHost, {
       postLogoutRedirectUri: typeof window !== 'undefined' ? window.location.origin : undefined,
     });
-  }, [authVaderHost, clearAuthState]);
+  }, [authVitalHost, clearAuthState]);
 
   // =============================================================================
   // TENANT MANAGEMENT
@@ -233,7 +233,7 @@ export function AuthVaderProvider({
     clearAuthState,
   };
 
-  const configValue = { authVaderHost, clientId };
+  const configValue = { authVitalHost, clientId };
 
   return (
     <ConfigContext.Provider value={configValue}>
@@ -249,30 +249,30 @@ export function AuthVaderProvider({
 export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
   if (!context) {
-    throw new Error('useAuth must be used within an AuthVaderProvider');
+    throw new Error('useAuth must be used within an AuthVitalProvider');
   }
   return context;
 }
 
-export function useUser(): AuthVaderUser | null {
+export function useUser(): AuthVitalUser | null {
   const { user } = useAuth();
   return user;
 }
 
-export function useTenant(): AuthVaderTenant | null {
+export function useTenant(): AuthVitalTenant | null {
   const { currentTenant } = useAuth();
   return currentTenant;
 }
 
-export function useTenants(): AuthVaderTenant[] {
+export function useTenants(): AuthVitalTenant[] {
   const { tenants } = useAuth();
   return tenants;
 }
 
-export function useAuthVaderConfig() {
+export function useAuthVitalConfig() {
   const context = useContext(ConfigContext);
   if (!context) {
-    throw new Error('useAuthVaderConfig must be used within an AuthVaderProvider');
+    throw new Error('useAuthVitalConfig must be used within an AuthVitalProvider');
   }
   return context;
 }
@@ -282,7 +282,7 @@ export function useAuthVaderConfig() {
 // =============================================================================
 
 export function useOAuth(options?: { redirectUri?: string }) {
-  const config = useAuthVaderConfig();
+  const config = useAuthVitalConfig();
   const { isAuthenticated } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   
@@ -293,7 +293,7 @@ export function useOAuth(options?: { redirectUri?: string }) {
     try {
       const { startAuthorizationFlow } = await import('./oauth');
       await startAuthorizationFlow({
-        authVaderHost: config.authVaderHost,
+        authVitalHost: config.authVitalHost,
         clientId: config.clientId,
         redirectUri,
         scope: opts?.scope,
@@ -308,7 +308,7 @@ export function useOAuth(options?: { redirectUri?: string }) {
     try {
       const { startAuthorizationFlow } = await import('./oauth');
       await startAuthorizationFlow({
-        authVaderHost: config.authVaderHost,
+        authVitalHost: config.authVitalHost,
         clientId: config.clientId,
         redirectUri,
         scope: opts?.scope,
@@ -319,9 +319,9 @@ export function useOAuth(options?: { redirectUri?: string }) {
   }, [config, redirectUri]);
 
   const logoutFn = useCallback(async (logoutOptions?: { postLogoutRedirectUri?: string }) => {
-    const { logout: authVaderLogout } = await import('./oauth');
-    await authVaderLogout(config.authVaderHost, logoutOptions);
-  }, [config.authVaderHost]);
+    const { logout: authVitalLogout } = await import('./oauth');
+    await authVitalLogout(config.authVitalHost, logoutOptions);
+  }, [config.authVitalHost]);
 
   return {
     isAuthenticated,
@@ -338,7 +338,7 @@ export function useOAuth(options?: { redirectUri?: string }) {
 
 export function useInvitation(options: UseInvitationOptions = {}) {
   const { onConsumed, onError } = options;
-  const config = useAuthVaderConfig();
+  const config = useAuthVitalConfig();
   
   const [invitation, setInvitation] = useState<InvitationDetails | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -350,7 +350,7 @@ export function useInvitation(options: UseInvitationOptions = {}) {
     setError(null);
     try {
       const { getInvitation } = await import('./invitations');
-      const invite = await getInvitation(config.authVaderHost, token);
+      const invite = await getInvitation(config.authVitalHost, token);
       setInvitation(invite);
       return invite;
     } catch (err) {
@@ -360,14 +360,14 @@ export function useInvitation(options: UseInvitationOptions = {}) {
     } finally {
       setIsLoading(false);
     }
-  }, [config.authVaderHost]);
+  }, [config.authVitalHost]);
 
   const acceptAndLogin = useCallback(async (token: string, loginOptions?: { state?: string }) => {
     const { storeInviteToken } = await import('./invitations');
     const { startAuthorizationFlow } = await import('./oauth');
     storeInviteToken(token);
     await startAuthorizationFlow({
-      authVaderHost: config.authVaderHost,
+      authVitalHost: config.authVitalHost,
       clientId: config.clientId,
       redirectUri: typeof window !== 'undefined' ? window.location.origin + '/api/auth/callback' : '',
     }, { state: loginOptions?.state });
@@ -382,7 +382,7 @@ export function useInvitation(options: UseInvitationOptions = {}) {
     setError(null);
     try {
       const { consumeInvitation, clearStoredInviteToken } = await import('./invitations');
-      const result = await consumeInvitation(config.authVaderHost, '', token);
+      const result = await consumeInvitation(config.authVitalHost, '', token);
       clearStoredInviteToken();
       setConsumed(true);
       onConsumed?.(result);
@@ -395,14 +395,14 @@ export function useInvitation(options: UseInvitationOptions = {}) {
     } finally {
       setIsLoading(false);
     }
-  }, [config.authVaderHost, onConsumed, onError]);
+  }, [config.authVitalHost, onConsumed, onError]);
 
   return {
     invitation,
     isLoading,
     error,
     consumed,
-    hasPendingInvite: typeof window !== 'undefined' ? !!sessionStorage.getItem('authvader_invite_token') : false,
+    hasPendingInvite: typeof window !== 'undefined' ? !!sessionStorage.getItem('authvital_invite_token') : false,
     fetchInvitation,
     acceptAndLogin,
     consumeInvite,

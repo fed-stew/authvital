@@ -1,17 +1,17 @@
 # Event Handler Reference
 
-> Complete reference for the AuthVaderEventHandler class with examples.
+> Complete reference for the AuthVitalEventHandler class with examples.
 
 **See also:** [Webhooks Guide](./webhooks.md) | [Event Types](./webhooks-events.md)
 
 ---
 
-## AuthVaderEventHandler Class
+## AuthVitalEventHandler Class
 
 Extend this class to handle webhook events. Override only the methods you need.
 
 ```typescript
-import { AuthVaderEventHandler } from '@authvader/sdk/webhooks';
+import { AuthVitalEventHandler } from '@authvital/sdk/webhooks';
 import type {
   SubjectCreatedEvent,
   SubjectUpdatedEvent,
@@ -33,9 +33,9 @@ import type {
   LicenseRevokedEvent,
   LicenseChangedEvent,
   WebhookEvent,
-} from '@authvader/sdk/webhooks';
+} from '@authvital/sdk/webhooks';
 
-class AuthVaderEventHandler {
+class AuthVitalEventHandler {
   /**
    * Called for EVERY event before the specific handler.
    * Use for logging, metrics, or cross-cutting concerns.
@@ -78,7 +78,7 @@ class AuthVaderEventHandler {
 ## Complete Example
 
 ```typescript
-import { AuthVaderEventHandler } from '@authvader/sdk/webhooks';
+import { AuthVitalEventHandler } from '@authvital/sdk/webhooks';
 import type {
   WebhookEvent,
   SubjectCreatedEvent,
@@ -92,12 +92,12 @@ import type {
   LicenseAssignedEvent,
   LicenseRevokedEvent,
   LicenseChangedEvent,
-} from '@authvader/sdk/webhooks';
+} from '@authvital/sdk/webhooks';
 import { prisma } from './lib/prisma';
 import { sendEmail } from './lib/email';
 import { slack } from './lib/slack';
 
-export class MyEventHandler extends AuthVaderEventHandler {
+export class MyEventHandler extends AuthVitalEventHandler {
   /**
    * Global event handler - runs before specific handlers.
    * Perfect for logging and metrics.
@@ -345,10 +345,10 @@ export class MyEventHandler extends AuthVaderEventHandler {
 You only need to override the methods you care about:
 
 ```typescript
-import { AuthVaderEventHandler } from '@authvader/sdk/webhooks';
-import type { SubjectCreatedEvent, MemberJoinedEvent } from '@authvader/sdk/webhooks';
+import { AuthVitalEventHandler } from '@authvital/sdk/webhooks';
+import type { SubjectCreatedEvent, MemberJoinedEvent } from '@authvital/sdk/webhooks';
 
-export class MinimalHandler extends AuthVaderEventHandler {
+export class MinimalHandler extends AuthVitalEventHandler {
   async onSubjectCreated(event: SubjectCreatedEvent) {
     console.log('New user:', event.data.email);
   }
@@ -364,11 +364,11 @@ export class MinimalHandler extends AuthVaderEventHandler {
 ## Using the Handler with WebhookRouter
 
 ```typescript
-import { WebhookRouter } from '@authvader/sdk/webhooks';
+import { WebhookRouter } from '@authvital/sdk/webhooks';
 import { MyEventHandler } from './event-handler';
 
 const router = new WebhookRouter({
-  authVaderHost: process.env.AV_HOST,
+  authVitalHost: process.env.AV_HOST,
   handler: new MyEventHandler(),
   maxTimestampAge: 300,
   keysCacheTtl: 3600000,

@@ -1,6 +1,6 @@
 # Installation & Deployment
 
-> Set up AuthVader for local development or production deployment.
+> Set up AuthVital for local development or production deployment.
 
 ## Prerequisites
 
@@ -12,12 +12,12 @@
 
 ### Option 1: Docker Compose (Recommended)
 
-The fastest way to get AuthVader running locally:
+The fastest way to get AuthVital running locally:
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/authvader.git
-cd authvader
+git clone https://github.com/your-org/authvital.git
+cd authvital
 
 # Copy environment files
 cp .env.example .env
@@ -29,8 +29,8 @@ docker-compose up -d
 
 This starts:
 - **PostgreSQL** on port 5432
-- **AuthVader Backend** on port 8000
-- **AuthVader Frontend** on port 5173 (dev mode)
+- **AuthVital Backend** on port 8000
+- **AuthVital Frontend** on port 5173 (dev mode)
 
 Access the admin panel at: `http://localhost:8000/admin`
 
@@ -44,17 +44,17 @@ brew install postgresql@15
 brew services start postgresql@15
 
 # Create database
-createdb authvader
+createdb authvital
 ```
 
 Or use Docker for just the database:
 
 ```bash
 docker run -d \
-  --name authvader-db \
-  -e POSTGRES_USER=authvader \
+  --name authvital-db \
+  -e POSTGRES_USER=authvital \
   -e POSTGRES_PASSWORD=localdev123 \
-  -e POSTGRES_DB=authvader \
+  -e POSTGRES_DB=authvital \
   -p 5432:5432 \
   postgres:15
 ```
@@ -70,7 +70,7 @@ Edit `.env`:
 
 ```bash
 # Database
-DATABASE_URL=postgresql://authvader:localdev123@localhost:5432/authvader
+DATABASE_URL=postgresql://authvital:localdev123@localhost:5432/authvital
 
 # Application
 BASE_URL=http://localhost:8000
@@ -130,7 +130,7 @@ cd frontend && npm run dev
 
 ### Cloud Run (Google Cloud)
 
-AuthVader is designed for Cloud Run with a **two-mode deployment pattern**:
+AuthVital is designed for Cloud Run with a **two-mode deployment pattern**:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -156,22 +156,22 @@ AuthVader is designed for Cloud Run with a **two-mode deployment pattern**:
 
 ```bash
 # Build the image
-docker build -t gcr.io/PROJECT_ID/authvader:latest ./backend
+docker build -t gcr.io/PROJECT_ID/authvital:latest ./backend
 
 # Push to Artifact Registry
-docker push gcr.io/PROJECT_ID/authvader:latest
+docker push gcr.io/PROJECT_ID/authvital:latest
 ```
 
 #### 2. Create Cloud SQL Database
 
 ```bash
-gcloud sql instances create authvader-db \
+gcloud sql instances create authvital-db \
   --database-version=POSTGRES_15 \
   --tier=db-f1-micro \
   --region=us-central1
 
-gcloud sql databases create authvader \
-  --instance=authvader-db
+gcloud sql databases create authvital \
+  --instance=authvital-db
 ```
 
 #### 3. Set Up Secrets
@@ -190,28 +190,28 @@ echo -n "SG.xxx" | gcloud secrets create SENDGRID_API_KEY --data-file=-
 #### 4. Deploy Migration Job
 
 ```bash
-gcloud run jobs create authvader-migration \
-  --image=gcr.io/PROJECT_ID/authvader:latest \
+gcloud run jobs create authvital-migration \
+  --image=gcr.io/PROJECT_ID/authvital:latest \
   --command="./migrate.sh" \
-  --set-cloudsql-instances=PROJECT_ID:REGION:authvader-db \
+  --set-cloudsql-instances=PROJECT_ID:REGION:authvital-db \
   --set-secrets=DB_PASSWORD=DB_PASSWORD:latest,SIGNING_KEY_SECRET=SIGNING_KEY_SECRET:latest \
-  --set-env-vars="DB_HOST=/cloudsql/PROJECT_ID:REGION:authvader-db,DB_USERNAME=postgres,DB_DATABASE=authvader,BASE_URL=https://auth.yourdomain.com"
+  --set-env-vars="DB_HOST=/cloudsql/PROJECT_ID:REGION:authvital-db,DB_USERNAME=postgres,DB_DATABASE=authvital,BASE_URL=https://auth.yourdomain.com"
 ```
 
 #### 5. Run Migrations
 
 ```bash
-gcloud run jobs execute authvader-migration --wait
+gcloud run jobs execute authvital-migration --wait
 ```
 
 #### 6. Deploy API Service
 
 ```bash
-gcloud run deploy authvader \
-  --image=gcr.io/PROJECT_ID/authvader:latest \
-  --set-cloudsql-instances=PROJECT_ID:REGION:authvader-db \
+gcloud run deploy authvital \
+  --image=gcr.io/PROJECT_ID/authvital:latest \
+  --set-cloudsql-instances=PROJECT_ID:REGION:authvital-db \
   --set-secrets=DB_PASSWORD=DB_PASSWORD:latest,SIGNING_KEY_SECRET=SIGNING_KEY_SECRET:latest \
-  --set-env-vars="DB_HOST=/cloudsql/PROJECT_ID:REGION:authvader-db,DB_USERNAME=postgres,DB_DATABASE=authvader,BASE_URL=https://auth.yourdomain.com,NODE_ENV=production" \
+  --set-env-vars="DB_HOST=/cloudsql/PROJECT_ID:REGION:authvital-db,DB_USERNAME=postgres,DB_DATABASE=authvital,BASE_URL=https://auth.yourdomain.com,NODE_ENV=production" \
   --allow-unauthenticated \
   --port=8000
 ```
@@ -221,7 +221,7 @@ gcloud run deploy authvader \
 ```yaml
 # values.yaml
 image:
-  repository: gcr.io/PROJECT_ID/authvader
+  repository: gcr.io/PROJECT_ID/authvital
   tag: latest
 
 env:
@@ -231,10 +231,10 @@ env:
 
 secrets:
   - name: DATABASE_URL
-    secretRef: authvader-secrets
+    secretRef: authvital-secrets
     key: database-url
   - name: SIGNING_KEY_SECRET
-    secretRef: authvader-secrets
+    secretRef: authvital-secrets
     key: signing-key
 
 postgresql:
@@ -251,18 +251,18 @@ services:
   db:
     image: postgres:15
     environment:
-      POSTGRES_USER: authvader
+      POSTGRES_USER: authvital
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: authvader
+      POSTGRES_DB: authvital
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
   app:
-    image: gcr.io/PROJECT_ID/authvader:latest
+    image: gcr.io/PROJECT_ID/authvital:latest
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://authvader:${DB_PASSWORD}@db:5432/authvader
+      DATABASE_URL: postgresql://authvital:${DB_PASSWORD}@db:5432/authvital
       BASE_URL: https://auth.yourdomain.com
       NODE_ENV: production
       COOKIE_SECURE: "true"
@@ -281,7 +281,7 @@ volumes:
 | Variable | Description | Example |
 |----------|-------------|--------|
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:pass@host:5432/db` |
-| `BASE_URL` | Public URL of AuthVader | `https://auth.yourdomain.com` |
+| `BASE_URL` | Public URL of AuthVital | `https://auth.yourdomain.com` |
 | `SIGNING_KEY_SECRET` | 32-byte hex key for JWT signing | `0123456789abcdef...` (64 chars) |
 
 ### Optional
@@ -319,7 +319,7 @@ After deployment:
 
 ## Health Checks
 
-AuthVader exposes a health endpoint:
+AuthVital exposes a health endpoint:
 
 ```bash
 curl https://auth.yourdomain.com/health

@@ -1,5 +1,5 @@
 /**
- * @authvader/sdk - Client-Side Types
+ * @authvital/sdk - Client-Side Types
  * 
  * Type definitions for React components and browser-side SDK.
  */
@@ -10,11 +10,11 @@ import type { ReactNode, CSSProperties } from 'react';
 // PROVIDER CONFIGURATION
 // =============================================================================
 
-export interface AuthVaderProviderProps {
-  /** OAuth Client ID from AuthVader admin panel */
+export interface AuthVitalProviderProps {
+  /** OAuth Client ID from AuthVital admin panel */
   clientId: string;
-  /** AuthVader server URL (e.g., http://localhost:3000) */
-  authVaderHost: string;
+  /** AuthVital server URL (e.g., http://localhost:3000) */
+  authVitalHost: string;
   /** Redirect after successful sign-in */
   afterSignInUrl?: string;
   /** Redirect after successful sign-up */
@@ -24,11 +24,11 @@ export interface AuthVaderProviderProps {
    * Your server should use `getCurrentUser()` from the server SDK to verify the JWT,
    * then pass the user data here.
    */
-  initialUser?: AuthVaderUser | null;
+  initialUser?: AuthVitalUser | null;
   /**
    * Initial tenants data (from your server after JWT verification).
    */
-  initialTenants?: AuthVaderTenant[];
+  initialTenants?: AuthVitalTenant[];
   /** Children */
   children: ReactNode;
 }
@@ -37,7 +37,7 @@ export interface AuthVaderProviderProps {
 // USER & TENANT TYPES
 // =============================================================================
 
-export interface AuthVaderUser {
+export interface AuthVitalUser {
   id: string;
   email: string | null;
   givenName: string | null;
@@ -49,7 +49,7 @@ export interface AuthVaderUser {
   updatedAt?: string;
 }
 
-export interface AuthVaderTenant {
+export interface AuthVitalTenant {
   id: string;
   name: string;
   slug: string;
@@ -57,9 +57,9 @@ export interface AuthVaderTenant {
   role: string;
 }
 
-export interface AuthVaderMembership {
+export interface AuthVitalMembership {
   id: string;
-  tenant: AuthVaderTenant;
+  tenant: AuthVitalTenant;
   role: string;
   joinedAt: string;
 }
@@ -78,11 +78,11 @@ export interface AuthContextValue {
   /** Whether sign-up is in progress */
   isSigningUp: boolean;
   /** Current user (null if not authenticated) */
-  user: AuthVaderUser | null;
+  user: AuthVitalUser | null;
   /** User's tenants */
-  tenants: AuthVaderTenant[];
+  tenants: AuthVitalTenant[];
   /** Currently active tenant */
-  currentTenant: AuthVaderTenant | null;
+  currentTenant: AuthVitalTenant | null;
   /** Last error message */
   error: string | null;
 
@@ -107,7 +107,7 @@ export interface AuthContextValue {
    * Set the authenticated user and tenants.
    * Call this after your server verifies the JWT using getCurrentUser().
    */
-  setAuthState: (user: AuthVaderUser | null, tenants?: AuthVaderTenant[]) => void;
+  setAuthState: (user: AuthVitalUser | null, tenants?: AuthVitalTenant[]) => void;
   /**
    * Clear auth state (call on logout)
    */
@@ -115,8 +115,8 @@ export interface AuthContextValue {
 }
 
 export interface LoginResult {
-  user: AuthVaderUser;
-  tenants: AuthVaderTenant[];
+  user: AuthVitalUser;
+  tenants: AuthVitalTenant[];
   redirectToken?: string;
   redirectUrl?: string;
 }
@@ -130,8 +130,8 @@ export interface SignUpData {
 }
 
 export interface SignUpResult {
-  user: AuthVaderUser;
-  tenant?: AuthVaderTenant;
+  user: AuthVitalUser;
+  tenant?: AuthVitalTenant;
   needsEmailVerification?: boolean;
 }
 
@@ -141,7 +141,7 @@ export interface SignUpResult {
 
 export interface SignInProps {
   /** Callback on successful sign-in */
-  onSuccess?: (user: AuthVaderUser, tenants: AuthVaderTenant[]) => void;
+  onSuccess?: (user: AuthVitalUser, tenants: AuthVitalTenant[]) => void;
   /** Callback on error */
   onError?: (error: Error) => void;
   /** Show social login buttons (Google, GitHub, etc.) */
@@ -205,7 +205,7 @@ export interface ProtectedRouteProps {
 
 export interface TenantSwitcherProps {
   /** Callback when tenant changes */
-  onChange?: (tenant: AuthVaderTenant) => void;
+  onChange?: (tenant: AuthVitalTenant) => void;
   /** Show "Create tenant" option */
   showCreateTenant?: boolean;
   /** Appearance customization */
@@ -253,7 +253,7 @@ export interface AppearanceElements {
 // =============================================================================
 
 export interface OAuthConfig {
-  authVaderHost: string;
+  authVitalHost: string;
   clientId: string;
   redirectUri: string;
   scope?: string;
@@ -275,14 +275,14 @@ export interface TokenResponse {
 }
 
 export interface StandaloneAuthOptions {
-  authVaderHost: string;
+  authVitalHost: string;
   clientId: string;
   redirectUri: string;
   scope?: string;
   state?: string;
 }
 
-export interface LoginToAuthVaderOptions {
+export interface LoginToAuthVitalOptions {
   screen?: 'login' | 'signup';
   clientId?: string;
 }

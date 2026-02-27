@@ -1,6 +1,6 @@
 # Configuration Reference
 
-> Complete reference for all AuthVader environment variables and settings.
+> Complete reference for all AuthVital environment variables and settings.
 
 ## Environment Variables
 
@@ -9,7 +9,7 @@
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DATABASE_URL` | Yes* | - | PostgreSQL connection string |
-| `BASE_URL` | Yes | - | Public URL of AuthVader (no trailing slash) |
+| `BASE_URL` | Yes | - | Public URL of AuthVital (no trailing slash) |
 | `PORT` | No | `8000` | Server port |
 | `NODE_ENV` | No | `development` | Environment (`development` or `production`) |
 
@@ -73,7 +73,7 @@ CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 |----------|----------|---------|-------------|
 | `SENDGRID_API_KEY` | No | - | SendGrid API key |
 | `SENDGRID_FROM_EMAIL` | No | - | Sender email address |
-| `SENDGRID_FROM_NAME` | No | `AuthVader` | Sender name |
+| `SENDGRID_FROM_NAME` | No | `AuthVital` | Sender name |
 
 If not configured, emails are logged to console (useful for development).
 
@@ -169,7 +169,7 @@ Each OAuth application has its own settings:
 
 ### Redirect URI Patterns
 
-AuthVader supports flexible redirect URI matching:
+AuthVital supports flexible redirect URI matching:
 
 ```
 # Exact match
@@ -272,7 +272,7 @@ Each app can override instance branding:
 
 ```bash
 # .env
-DATABASE_URL=postgresql://authvader:localdev123@localhost:5432/authvader
+DATABASE_URL=postgresql://authvital:localdev123@localhost:5432/authvital
 BASE_URL=http://localhost:8000
 PORT=8000
 NODE_ENV=development
@@ -288,7 +288,7 @@ SUPER_ADMIN_EMAIL=admin@localhost
 DB_HOST=/cloudsql/project:region:instance
 DB_USERNAME=postgres
 DB_PASSWORD=<from-secret-manager>
-DB_DATABASE=authvader
+DB_DATABASE=authvital
 BASE_URL=https://auth.yourcompany.com
 NODE_ENV=production
 SIGNING_KEY_SECRET=<from-secret-manager>
@@ -302,7 +302,7 @@ SENDGRID_FROM_EMAIL=noreply@yourcompany.com
 
 ```bash
 # .env
-DATABASE_URL=postgresql://authvader:securepassword@db:5432/authvader
+DATABASE_URL=postgresql://authvital:securepassword@db:5432/authvital
 BASE_URL=https://auth.yourcompany.com
 PORT=8000
 NODE_ENV=production

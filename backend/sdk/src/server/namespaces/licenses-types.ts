@@ -1,5 +1,5 @@
 /**
- * @authvader/sdk - License Types
+ * @authvital/sdk - License Types
  *
  * Shared types for the licenses namespace.
  */

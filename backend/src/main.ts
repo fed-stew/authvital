@@ -170,7 +170,7 @@ async function bootstrap() {
   }
   await app.listen(port);
 
-  console.log(`AuthVader IDP running on http://localhost:${port}`);
+  console.log(`AuthVital IDP running on http://localhost:${port}`);
 }
 
 bootstrap();

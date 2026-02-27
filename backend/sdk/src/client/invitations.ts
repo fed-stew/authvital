@@ -1,5 +1,5 @@
 /**
- * @authvader/sdk - Client-Side Invitation Helpers
+ * @authvital/sdk - Client-Side Invitation Helpers
  * 
  * Handles the invite flow: get invite details, store token, consume after login.
  * Auth is via httpOnly cookies - no Authorization header needed for authenticated requests.
@@ -12,7 +12,7 @@ import type {
   ConsumeInvitationResult,
 } from './types';
 
-const INVITE_TOKEN_KEY = 'authvader_invite_token';
+const INVITE_TOKEN_KEY = 'authvital_invite_token';
 
 // =============================================================================
 // INVITE TOKEN STORAGE (sessionStorage - short-lived, not auth tokens)
@@ -67,10 +67,10 @@ export function captureInviteTokenFromUrl(): string | null {
  * Get invitation details by token (public endpoint - no auth required)
  */
 export async function getInvitation(
-  authVaderHost: string,
+  authVitalHost: string,
   token: string
 ): Promise<InvitationDetails> {
-  const response = await fetch(`${authVaderHost}/api/invitations/token/${token}`);
+  const response = await fetch(`${authVitalHost}/api/invitations/token/${token}`);
   
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
@@ -84,11 +84,11 @@ export async function getInvitation(
  * Create an invitation (requires authentication via cookie)
  */
 export async function createInvitation(
-  authVaderHost: string,
+  authVitalHost: string,
   _accessToken: string, // Ignored - auth is via cookie
   params: CreateInvitationParams
 ): Promise<CreateInvitationResult> {
-  const response = await fetch(`${authVaderHost}/api/invitations`, {
+  const response = await fetch(`${authVitalHost}/api/invitations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include', // Send httpOnly cookie
@@ -107,11 +107,11 @@ export async function createInvitation(
  * Consume an invitation - adds current user to the tenant
  */
 export async function consumeInvitation(
-  authVaderHost: string,
+  authVitalHost: string,
   _accessToken: string, // Ignored - auth is via cookie
   token: string
 ): Promise<ConsumeInvitationResult> {
-  const response = await fetch(`${authVaderHost}/api/invitations/consume`, {
+  const response = await fetch(`${authVitalHost}/api/invitations/consume`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include', // Send httpOnly cookie
@@ -130,7 +130,7 @@ export async function consumeInvitation(
  * List pending invitations for a tenant
  */
 export async function listTenantInvitations(
-  authVaderHost: string,
+  authVitalHost: string,
   _accessToken: string, // Ignored - auth is via cookie
   tenantId: string
 ): Promise<Array<{
@@ -141,7 +141,7 @@ export async function listTenantInvitations(
   createdAt: string;
   invitedBy: { id: string; email: string; givenName: string; familyName: string } | null;
 }>> {
-  const response = await fetch(`${authVaderHost}/api/invitations/tenant/${tenantId}`, {
+  const response = await fetch(`${authVitalHost}/api/invitations/tenant/${tenantId}`, {
     credentials: 'include', // Send httpOnly cookie
   });
   
@@ -157,11 +157,11 @@ export async function listTenantInvitations(
  * Revoke an invitation
  */
 export async function revokeInvitation(
-  authVaderHost: string,
+  authVitalHost: string,
   _accessToken: string, // Ignored - auth is via cookie
   invitationId: string
 ): Promise<{ success: boolean }> {
-  const response = await fetch(`${authVaderHost}/api/invitations/${invitationId}`, {
+  const response = await fetch(`${authVitalHost}/api/invitations/${invitationId}`, {
     method: 'DELETE',
     credentials: 'include', // Send httpOnly cookie
   });

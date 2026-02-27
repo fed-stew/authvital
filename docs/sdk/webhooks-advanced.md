@@ -10,7 +10,7 @@
 
 ### Webhook Retry Policy
 
-AuthVader retries failed webhooks with exponential backoff:
+AuthVital retries failed webhooks with exponential backoff:
 
 | Attempt | Delay | Total Time |
 |---------|-------|------------|
@@ -52,7 +52,7 @@ res.status(503).json({ error: 'Service temporarily unavailable' });
 ### Error Handling in Event Handlers
 
 ```typescript
-class MyEventHandler extends AuthVaderEventHandler {
+class MyEventHandler extends AuthVitalEventHandler {
   async onSubjectCreated(event: SubjectCreatedEvent): Promise<void> {
     try {
       await this.processNewUser(event.data);
@@ -210,9 +210,9 @@ cloudflared tunnel --url http://localhost:3000
 npx localtunnel --port 3000
 ```
 
-Then configure your webhook URL in AuthVader:
+Then configure your webhook URL in AuthVital:
 ```
-https://abc123.ngrok.io/webhooks/authvader
+https://abc123.ngrok.io/webhooks/authvital
 ```
 
 ### Unit Testing Event Handlers
@@ -220,7 +220,7 @@ https://abc123.ngrok.io/webhooks/authvader
 ```typescript
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MyEventHandler } from './event-handler';
-import type { SubjectCreatedEvent, MemberRoleChangedEvent } from '@authvader/sdk/webhooks';
+import type { SubjectCreatedEvent, MemberRoleChangedEvent } from '@authvital/sdk/webhooks';
 import { prisma } from './lib/prisma';
 
 vi.mock('./lib/prisma');
@@ -341,11 +341,11 @@ export async function sendTestWebhook(params: TestWebhookParams) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-AuthVader-Event-Id': event.id as string,
-      'X-AuthVader-Event-Type': event.type as string,
-      'X-AuthVader-Timestamp': timestamp,
-      'X-AuthVader-Key-Id': 'test-key',
-      'X-AuthVader-Signature': 'test-signature', // Mock for testing
+      'X-AuthVital-Event-Id': event.id as string,
+      'X-AuthVital-Event-Type': event.type as string,
+      'X-AuthVital-Timestamp': timestamp,
+      'X-AuthVital-Key-Id': 'test-key',
+      'X-AuthVital-Signature': 'test-signature', // Mock for testing
     },
     body,
   });
@@ -360,11 +360,11 @@ For local testing, you can create a test-mode router:
 
 ```typescript
 // test/test-webhook-router.ts
-import { WebhookRouter, AuthVaderEventHandler } from '@authvader/sdk/webhooks';
+import { WebhookRouter, AuthVitalEventHandler } from '@authvital/sdk/webhooks';
 
-export function createTestRouter(handler: AuthVaderEventHandler) {
+export function createTestRouter(handler: AuthVitalEventHandler) {
   return new WebhookRouter({
-    authVaderHost: 'http://localhost:9999', // Fake host
+    authVitalHost: 'http://localhost:9999', // Fake host
     handler,
     // In test mode, skip signature verification
     skipVerification: process.env.NODE_ENV === 'test',
@@ -403,13 +403,13 @@ describe('Webhook E2E', () => {
     };
 
     const response = await request(app)
-      .post('/webhooks/authvader')
+      .post('/webhooks/authvital')
       .set('Content-Type', 'application/json')
-      .set('X-AuthVader-Event-Id', event.id)
-      .set('X-AuthVader-Event-Type', event.type)
-      .set('X-AuthVader-Timestamp', String(Math.floor(Date.now() / 1000)))
-      .set('X-AuthVader-Key-Id', 'test-key')
-      .set('X-AuthVader-Signature', 'test-sig')
+      .set('X-AuthVital-Event-Id', event.id)
+      .set('X-AuthVital-Event-Type', event.type)
+      .set('X-AuthVital-Timestamp', String(Math.floor(Date.now() / 1000)))
+      .set('X-AuthVital-Key-Id', 'test-key')
+      .set('X-AuthVital-Signature', 'test-sig')
       .send(event);
 
     expect(response.status).toBe(200);
@@ -440,15 +440,15 @@ describe('Webhook E2E', () => {
 
     // Send first webhook
     await request(app)
-      .post('/webhooks/authvader')
+      .post('/webhooks/authvital')
       .send(event)
-      .set('X-AuthVader-Event-Id', event.id);
+      .set('X-AuthVital-Event-Id', event.id);
 
     // Send duplicate
     const response = await request(app)
-      .post('/webhooks/authvader')
+      .post('/webhooks/authvital')
       .send(event)
-      .set('X-AuthVader-Event-Id', event.id);
+      .set('X-AuthVital-Event-Id', event.id);
 
     expect(response.status).toBe(200);
 
@@ -468,9 +468,9 @@ describe('Webhook E2E', () => {
 ### Logging Best Practices
 
 ```typescript
-import { AuthVaderEventHandler } from '@authvader/sdk/webhooks';
+import { AuthVitalEventHandler } from '@authvital/sdk/webhooks';
 
-class MyEventHandler extends AuthVaderEventHandler {
+class MyEventHandler extends AuthVitalEventHandler {
   async onEvent(event) {
     // Structured logging
     console.log(JSON.stringify({
@@ -528,7 +528,7 @@ const webhookDuration = new Histogram({
   labelNames: ['event_type'],
 });
 
-class MetricsEventHandler extends AuthVaderEventHandler {
+class MetricsEventHandler extends AuthVitalEventHandler {
   async onEvent(event) {
     const end = webhookDuration.startTimer({ event_type: event.type });
     
@@ -559,7 +559,7 @@ const router = new WebhookRouter({
 
 // ✅ Always verify
 const router = new WebhookRouter({
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   handler: new MyEventHandler(),
 });
 ```
@@ -594,6 +594,6 @@ async onSubjectCreated(event: SubjectCreatedEvent) {
 
 - [Webhooks Guide](./webhooks.md) - Overview and quick start
 - [Event Types & Payloads](./webhooks-events.md) - All event types
-- [Event Handler Reference](./webhooks-handler.md) - AuthVaderEventHandler class
+- [Event Handler Reference](./webhooks-handler.md) - AuthVitalEventHandler class
 - [Framework Integration](./webhooks-frameworks.md) - Express, Next.js, NestJS
 - [Manual Verification](./webhooks-verification.md) - Low-level API

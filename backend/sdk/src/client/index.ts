@@ -1,7 +1,7 @@
 /**
- * @authvader/sdk - Client-Side Exports
+ * @authvital/sdk - Client-Side Exports
  * 
- * React components, hooks, and browser utilities for AuthVader integration.
+ * React components, hooks, and browser utilities for AuthVital integration.
  * 
  * IMPORTANT: Auth state is managed via httpOnly cookies for security.
  * No tokens are stored in localStorage/sessionStorage.
@@ -9,12 +9,12 @@
 
 // Provider and hooks
 export {
-  AuthVaderProvider,
+  AuthVitalProvider,
   useAuth,
   useUser,
   useTenant,
   useTenants,
-  useAuthVaderConfig,
+  useAuthVitalConfig,
   useOAuth,
   useInvitation,
 } from './provider';
@@ -22,8 +22,8 @@ export {
 // OAuth utilities
 export {
   // Simple navigation (no PKCE)
-  loginToAuthVader,
-  signupAtAuthVader,
+  loginToAuthVital,
+  signupAtAuthVital,
   // PKCE utilities
   generateCodeVerifier,
   generateCodeChallenge,
@@ -81,11 +81,11 @@ export type {
 // Types
 export type {
   // Provider
-  AuthVaderProviderProps,
+  AuthVitalProviderProps,
   // User & Tenant
-  AuthVaderUser,
-  AuthVaderTenant,
-  AuthVaderMembership,
+  AuthVitalUser,
+  AuthVitalTenant,
+  AuthVitalMembership,
   // Auth context
   AuthContextValue,
   LoginResult,
@@ -106,7 +106,7 @@ export type {
   OAuthConfig,
   TokenResponse,
   StandaloneAuthOptions,
-  LoginToAuthVaderOptions,
+  LoginToAuthVitalOptions,
   // Invitations
   InvitationDetails,
   CreateInvitationParams,

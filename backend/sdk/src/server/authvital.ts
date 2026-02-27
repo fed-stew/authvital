@@ -1,28 +1,28 @@
 /**
- * @authvader/sdk - Unified Server SDK
+ * @authvital/sdk - Unified Server SDK
  *
- * Single entry point for all server-side AuthVader operations.
+ * Single entry point for all server-side AuthVital operations.
  * Configure once, use everywhere.
  *
  * @example
  * ```ts
- * import { createAuthVader } from '@authvader/sdk/server';
+ * import { createAuthVital } from '@authvital/sdk/server';
  *
- * const authvader = createAuthVader({
- *   authVaderHost: process.env.AV_HOST,
+ * const authvital = createAuthVital({
+ *   authVitalHost: process.env.AV_HOST,
  *   clientId: process.env.AV_CLIENT_ID,
  *   clientSecret: process.env.AV_CLIENT_SECRET,
  * });
  *
  * // Validate JWT from incoming request (uses cached JWKS, no IDP call)
- * const { user } = await authvader.getCurrentUser(request);
+ * const { user } = await authvital.getCurrentUser(request);
  *
  * // Machine-to-machine calls (uses client_credentials automatically)
- * const members = await authvader.memberships.listForTenant('tenant-123');
+ * const members = await authvital.memberships.listForTenant('tenant-123');
  *
  * // Get user's tenants with login URIs ready for OAuth redirect
  * // The appendClientId option automatically adds ?client_id=... to each initiateLoginUri
- * const tenants = await authvader.memberships.listTenantsForUser(userId, {
+ * const tenants = await authvital.memberships.listTenantsForUser(userId, {
  *   appendClientId: true, // Uses clientId from SDK config
  * });
  * // Result: tenant.initiateLoginUri = "https://acme.app.com/login?client_id=your-client-id"
@@ -31,7 +31,7 @@
 
 import {
   BaseClient,
-  type AuthVaderConfig,
+  type AuthVitalConfig,
   type GetCurrentUserResult,
   type ValidatedClaims,
   type RequestLike,
@@ -46,14 +46,14 @@ import {
 } from './namespaces';
 
 // Re-export types from base-client for backwards compatibility
-export type { AuthVaderConfig, GetCurrentUserResult, ValidatedClaims, RequestLike };
+export type { AuthVitalConfig, GetCurrentUserResult, ValidatedClaims, RequestLike };
 
 // =============================================================================
-// AUTHVADER CLIENT
+// AUTHVITAL CLIENT
 // =============================================================================
 
 /**
- * Main AuthVader SDK client.
+ * Main AuthVital SDK client.
  *
  * Extends BaseClient with namespaced APIs for:
  * - Invitations (send, list, resend, revoke)
@@ -63,7 +63,7 @@ export type { AuthVaderConfig, GetCurrentUserResult, ValidatedClaims, RequestLik
  * - Licenses (grant, revoke, check)
  * - Sessions (list, revoke, logout)
  */
-export class AuthVader extends BaseClient {
+export class AuthVital extends BaseClient {
   // ===========================================================================
   // NAMESPACED APIS
   // ===========================================================================
@@ -88,7 +88,7 @@ export class AuthVader extends BaseClient {
    *
    * @example
    * ```ts
-   * if (await authvader.hasTenantPermission(req, 'licenses:manage')) {
+   * if (await authvital.hasTenantPermission(req, 'licenses:manage')) {
    *   // User can manage licenses - show admin UI
    * }
    * ```
@@ -107,7 +107,7 @@ export class AuthVader extends BaseClient {
    *
    * @example
    * ```ts
-   * if (await authvader.hasAppPermission(req, 'projects:create')) {
+   * if (await authvital.hasAppPermission(req, 'projects:create')) {
    *   // User can create projects
    * }
    * ```
@@ -126,7 +126,7 @@ export class AuthVader extends BaseClient {
    *
    * @example
    * ```ts
-   * if (await authvader.hasFeatureFromJwt(req, 'sso')) {
+   * if (await authvital.hasFeatureFromJwt(req, 'sso')) {
    *   // User's tenant has SSO enabled
    * }
    * ```
@@ -145,7 +145,7 @@ export class AuthVader extends BaseClient {
    *
    * @example
    * ```ts
-   * const licenseType = await authvader.getLicenseTypeFromJwt(req);
+   * const licenseType = await authvital.getLicenseTypeFromJwt(req);
    * if (licenseType === 'enterprise') {
    *   // Show enterprise features
    * }
@@ -163,7 +163,7 @@ export class AuthVader extends BaseClient {
    *
    * @example
    * ```ts
-   * const permissions = await authvader.getTenantPermissions(req);
+   * const permissions = await authvital.getTenantPermissions(req);
    * console.log(permissions); // ['licenses:view', 'members:invite', ...]
    * ```
    */
@@ -178,7 +178,7 @@ export class AuthVader extends BaseClient {
    *
    * @example
    * ```ts
-   * const permissions = await authvader.getAppPermissions(req);
+   * const permissions = await authvital.getAppPermissions(req);
    * console.log(permissions); // ['projects:create', 'datasets:read', ...]
    * ```
    */
@@ -193,7 +193,7 @@ export class AuthVader extends BaseClient {
    *
    * @example
    * ```ts
-   * const roles = await authvader.getTenantRoles(req);
+   * const roles = await authvital.getTenantRoles(req);
    * console.log(roles); // ['owner', 'admin']
    * ```
    */
@@ -208,7 +208,7 @@ export class AuthVader extends BaseClient {
    *
    * @example
    * ```ts
-   * const roles = await authvader.getAppRoles(req);
+   * const roles = await authvital.getAppRoles(req);
    * console.log(roles); // ['editor', 'viewer']
    * ```
    */
@@ -227,7 +227,7 @@ export class AuthVader extends BaseClient {
    */
   async getMembersUrl(req: RequestLike): Promise<string> {
     const { tenantId } = await this.validateRequest(req);
-    return `${this.config.authVaderHost}/tenant/${tenantId}/members`;
+    return `${this.config.authVitalHost}/tenant/${tenantId}/members`;
   }
 
   /**
@@ -236,7 +236,7 @@ export class AuthVader extends BaseClient {
    */
   async getApplicationsUrl(req: RequestLike): Promise<string> {
     const { tenantId } = await this.validateRequest(req);
-    return `${this.config.authVaderHost}/tenant/${tenantId}/applications`;
+    return `${this.config.authVitalHost}/tenant/${tenantId}/applications`;
   }
 
   /**
@@ -245,7 +245,7 @@ export class AuthVader extends BaseClient {
    */
   async getSettingsUrl(req: RequestLike): Promise<string> {
     const { tenantId } = await this.validateRequest(req);
-    return `${this.config.authVaderHost}/tenant/${tenantId}/settings`;
+    return `${this.config.authVitalHost}/tenant/${tenantId}/settings`;
   }
 
   /**
@@ -254,7 +254,7 @@ export class AuthVader extends BaseClient {
    */
   async getOverviewUrl(req: RequestLike): Promise<string> {
     const { tenantId } = await this.validateRequest(req);
-    return `${this.config.authVaderHost}/tenant/${tenantId}/overview`;
+    return `${this.config.authVitalHost}/tenant/${tenantId}/overview`;
   }
 
   /**
@@ -262,7 +262,7 @@ export class AuthVader extends BaseClient {
    * (Does not require tenantId)
    */
   getAccountSettingsUrl(): string {
-    return `${this.config.authVaderHost}/account/settings`;
+    return `${this.config.authVitalHost}/account/settings`;
   }
 
   /**
@@ -271,7 +271,7 @@ export class AuthVader extends BaseClient {
    *
    * @example
    * ```typescript
-   * const urls = await authvader.getManagementUrls(req);
+   * const urls = await authvital.getManagementUrls(req);
    * res.json({ urls });
    * // {
    * //   overview: 'https://auth.example.com/tenant/abc/overview',
@@ -290,7 +290,7 @@ export class AuthVader extends BaseClient {
     accountSettings: string;
   }> {
     const { tenantId } = await this.validateRequest(req);
-    const base = this.config.authVaderHost;
+    const base = this.config.authVitalHost;
     return {
       overview: `${base}/tenant/${tenantId}/overview`,
       members: `${base}/tenant/${tenantId}/members`,
@@ -306,31 +306,31 @@ export class AuthVader extends BaseClient {
 // =============================================================================
 
 /**
- * Create an AuthVader client instance.
+ * Create an AuthVital client instance.
  *
  * Configure once at startup, use everywhere.
  *
  * @example
  * ```ts
- * // lib/authvader.ts
- * import { createAuthVader } from '@authvader/sdk/server';
+ * // lib/authvital.ts
+ * import { createAuthVital } from '@authvital/sdk/server';
  *
- * export const authvader = createAuthVader({
- *   authVaderHost: process.env.AV_HOST!,
+ * export const authvital = createAuthVital({
+ *   authVitalHost: process.env.AV_HOST!,
  *   clientId: process.env.AV_CLIENT_ID!,
  *   clientSecret: process.env.AV_CLIENT_SECRET!,
  * });
  *
  * // Then use it anywhere:
- * import { authvader } from '@/lib/authvader';
+ * import { authvital } from '@/lib/authvital';
  *
  * // Validate JWT from request (uses cached JWKS, no IDP auth needed)
- * const { user } = await authvader.getCurrentUser(request);
+ * const { user } = await authvital.getCurrentUser(request);
  *
  * // M2M calls (uses client_credentials automatically)
- * const members = await authvader.memberships.listForTenant('tenant-123');
+ * const members = await authvital.memberships.listForTenant('tenant-123');
  * ```
  */
-export function createAuthVader(config: AuthVaderConfig): AuthVader {
-  return new AuthVader(config);
+export function createAuthVital(config: AuthVitalConfig): AuthVital {
+  return new AuthVital(config);
 }

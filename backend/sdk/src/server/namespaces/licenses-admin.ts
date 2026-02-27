@@ -1,5 +1,5 @@
 /**
- * @authvader/sdk - Admin License Operations (M2M)
+ * @authvital/sdk - Admin License Operations (M2M)
  *
  * M2M (machine-to-machine) license operations for tenant administration.
  * These operations require M2M authentication with licensing permissions.
@@ -35,7 +35,7 @@ export function createAdminLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const overview = await authvader.licenses.getTenantOverview('tenant-123');
+     * const overview = await authvital.licenses.getTenantOverview('tenant-123');
      * console.log(`Using ${overview.totalSeatsAssigned} of ${overview.totalSeatsOwned} seats`);
      * ```
      */
@@ -51,7 +51,7 @@ export function createAdminLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const licenses = await authvader.licenses.getUserLicenses('tenant-123', 'user-456');
+     * const licenses = await authvital.licenses.getUserLicenses('tenant-123', 'user-456');
      * licenses.forEach(l => console.log(`Has ${l.licenseTypeName} for ${l.applicationId}`));
      * ```
      */
@@ -72,7 +72,7 @@ export function createAdminLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const subscriptions = await authvader.licenses.getTenantSubscriptions('tenant-123');
+     * const subscriptions = await authvital.licenses.getTenantSubscriptions('tenant-123');
      * subscriptions.forEach(sub => {
      *   console.log(`${sub.applicationName}: ${sub.quantityAvailable} seats available`);
      * });
@@ -93,7 +93,7 @@ export function createAdminLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const members = await authvader.licenses.getMembersWithLicenses('tenant-123');
+     * const members = await authvital.licenses.getMembersWithLicenses('tenant-123');
      * members.forEach(member => {
      *   console.log(`${member.user.email} has ${member.licenses.length} licenses`);
      * });
@@ -114,7 +114,7 @@ export function createAdminLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const available = await authvader.licenses.getAvailableLicenseTypes('tenant-123');
+     * const available = await authvital.licenses.getAvailableLicenseTypes('tenant-123');
      * available.forEach(type => {
      *   if (type.hasSubscription) {
      *     console.log(`Already have: ${type.name} (${type.existingSubscription?.quantityPurchased} seats)`);
@@ -141,7 +141,7 @@ export function createAdminLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const assignment = await authvader.licenses.grantToUser({
+     * const assignment = await authvital.licenses.grantToUser({
      *   tenantId: 'tenant-123',
      *   userId: 'user-456',
      *   applicationId: 'app-789',
@@ -160,7 +160,7 @@ export function createAdminLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * await authvader.licenses.revokeFromUser({
+     * await authvital.licenses.revokeFromUser({
      *   tenantId: 'tenant-123',
      *   userId: 'user-456',
      *   applicationId: 'app-789',
@@ -178,7 +178,7 @@ export function createAdminLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const newAssignment = await authvader.licenses.changeUserType({
+     * const newAssignment = await authvital.licenses.changeUserType({
      *   tenantId: 'tenant-123',
      *   userId: 'user-456',
      *   applicationId: 'app-789',
@@ -199,7 +199,7 @@ export function createAdminLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const results = await authvader.licenses.grantBulk([
+     * const results = await authvital.licenses.grantBulk([
      *   { tenantId: 'tenant-123', userId: 'user-1', applicationId: 'app-789', licenseTypeId: 'pro' },
      *   { tenantId: 'tenant-123', userId: 'user-2', applicationId: 'app-789', licenseTypeId: 'pro' },
      * ]);
@@ -217,7 +217,7 @@ export function createAdminLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const result = await authvader.licenses.revokeBulk([
+     * const result = await authvital.licenses.revokeBulk([
      *   { tenantId: 'tenant-123', userId: 'user-1', applicationId: 'app-789' },
      *   { tenantId: 'tenant-123', userId: 'user-2', applicationId: 'app-789' },
      * ]);

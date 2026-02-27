@@ -13,7 +13,7 @@ export function Landing() {
         </div>
 
         {/* Title */}
-        <h1 className="text-4xl font-bold text-white mb-2">AuthVader</h1>
+        <h1 className="text-4xl font-bold text-white mb-2">AuthVital</h1>
         <p className="text-lg text-slate-400 mb-8">Identity Provider Service</p>
 
         {/* Links */}
@@ -34,7 +34,7 @@ export function Landing() {
 
         {/* Footer */}
         <p className="text-sm text-slate-600 mt-12">
-          Built with ❤️ by the AuthVader team
+          Built with ❤️ by the AuthVital team
         </p>
       </div>
     </div>

@@ -1,5 +1,5 @@
 /**
- * @authvader/sdk - React Components
+ * @authvital/sdk - React Components
  */
 
 export { ProtectedRoute } from './ProtectedRoute';

@@ -8,8 +8,8 @@
 
 # Configuration - UPDATE THESE!
 CLOUD_SQL_INSTANCE="anokanban-dev:us-central1:anokanban-db-1"
-DB_USERNAME="authvader"
-DB_DATABASE="authvader"
+DB_USERNAME="authvital"
+DB_DATABASE="authvital"
 
 # Colors for output
 RED='\033[0;31m'

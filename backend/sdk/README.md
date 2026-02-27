@@ -1,15 +1,15 @@
-# @authvader/sdk
+# @authvital/sdk
 
-Official SDK for integrating with AuthVader Identity Provider.
+Official SDK for integrating with AuthVital Identity Provider.
 
 ## Installation
 
 ```bash
-npm install @authvader/sdk
+npm install @authvital/sdk
 # or
-yarn add @authvader/sdk
+yarn add @authvital/sdk
 # or
-pnpm add @authvader/sdk
+pnpm add @authvital/sdk
 ```
 
 ## Quick Start
@@ -17,17 +17,17 @@ pnpm add @authvader/sdk
 ### Server-Side (Node.js/Backend)
 
 ```typescript
-import { createAuthVader } from '@authvader/sdk/server';
+import { createAuthVital } from '@authvital/sdk/server';
 
-const authvader = createAuthVader({
-  authVaderHost: process.env.AUTHVADER_HOST!,
-  clientId: process.env.AUTHVADER_CLIENT_ID!,
-  clientSecret: process.env.AUTHVADER_CLIENT_SECRET!,
+const authvital = createAuthVital({
+  authVitalHost: process.env.AUTHVITAL_HOST!,
+  clientId: process.env.AUTHVITAL_CLIENT_ID!,
+  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
 });
 
 // Validate JWT from incoming request
 app.get('/api/protected', async (req, res) => {
-  const { authenticated, user } = await authvader.getCurrentUser(req);
+  const { authenticated, user } = await authvital.getCurrentUser(req);
   
   if (!authenticated) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -40,16 +40,16 @@ app.get('/api/protected', async (req, res) => {
 ### Client-Side (React)
 
 ```typescript
-import { AuthVaderProvider, useAuth } from '@authvader/sdk/client';
+import { AuthVitalProvider, useAuth } from '@authvital/sdk/client';
 
 function App() {
   return (
-    <AuthVaderProvider
-      authVaderHost={process.env.REACT_APP_AUTHVADER_HOST!}
+    <AuthVitalProvider
+      authVitalHost={process.env.REACT_APP_AUTHVITAL_HOST!}
       clientId={process.env.REACT_APP_CLIENT_ID!}
     >
       <MyApp />
-    </AuthVaderProvider>
+    </AuthVitalProvider>
   );
 }
 
@@ -76,16 +76,16 @@ function MyApp() {
 ### JWT Validation
 
 ```typescript
-import { createAuthVader } from '@authvader/sdk/server';
+import { createAuthVital } from '@authvital/sdk/server';
 
-const authvader = createAuthVader({
-  authVaderHost: 'https://auth.yourapp.com',
+const authvital = createAuthVital({
+  authVitalHost: 'https://auth.yourapp.com',
   clientId: 'your-client-id',
   clientSecret: 'your-client-secret',
 });
 
 // Get current user from request
-const { authenticated, user } = await authvader.getCurrentUser(req);
+const { authenticated, user } = await authvital.getCurrentUser(req);
 
 // User object includes:
 // - sub: string (user ID)
@@ -112,10 +112,10 @@ import {
   getRolesFromClaims,
   hasRole,
   getTenantIdFromClaims,
-} from '@authvader/sdk/server';
+} from '@authvital/sdk/server';
 
 // After validating JWT, you have claims:
-const { authenticated, user: claims } = await authvader.getCurrentUser(req);
+const { authenticated, user: claims } = await authvital.getCurrentUser(req);
 
 if (authenticated) {
   // Get all permissions from the token
@@ -156,30 +156,30 @@ The SDK provides namespaced methods for different operations:
 
 ```typescript
 // Send an invitation
-await authvader.invitations.send({
+await authvital.invitations.send({
   email: 'newuser@example.com',
   tenantId: 'tenant-123',
   roleId: 'role-member',
 });
 
 // List pending invitations
-const pending = await authvader.invitations.listPending('tenant-123');
+const pending = await authvital.invitations.listPending('tenant-123');
 
 // Revoke an invitation
-await authvader.invitations.revoke('invitation-id');
+await authvital.invitations.revoke('invitation-id');
 ```
 
 #### Memberships
 
 ```typescript
 // List tenant members
-const members = await authvader.memberships.listForTenant('tenant-123');
+const members = await authvital.memberships.listForTenant('tenant-123');
 
 // Get user's tenants
-const tenants = await authvader.memberships.listUserTenants(req);
+const tenants = await authvital.memberships.listUserTenants(req);
 
 // Set member role
-await authvader.memberships.setTenantRole({
+await authvital.memberships.setTenantRole({
   membershipId: 'membership-123',
   roleSlug: 'admin',
 });
@@ -189,12 +189,12 @@ await authvader.memberships.setTenantRole({
 
 ```typescript
 // Check a single permission
-const { allowed } = await authvader.permissions.check(req, {
+const { allowed } = await authvital.permissions.check(req, {
   permission: 'documents:write',
 });
 
 // Check multiple permissions
-const results = await authvader.permissions.checkMany(req, {
+const results = await authvital.permissions.checkMany(req, {
   permissions: ['documents:read', 'documents:write', 'admin:access'],
 });
 ```
@@ -203,18 +203,18 @@ const results = await authvader.permissions.checkMany(req, {
 
 ```typescript
 // Check if user has a license
-const { hasLicense, licenseType } = await authvader.licenses.check(req, {
+const { hasLicense, licenseType } = await authvital.licenses.check(req, {
   applicationId: 'app-123',
 });
 
 // Check specific feature
-const { hasFeature } = await authvader.licenses.hasFeature(req, {
+const { hasFeature } = await authvital.licenses.hasFeature(req, {
   applicationId: 'app-123',
   feature: 'advanced-analytics',
 });
 
 // Grant a license (admin)
-await authvader.licenses.grant(req, {
+await authvital.licenses.grant(req, {
   userId: 'user-123',
   applicationId: 'app-123',
   licenseTypeId: 'license-pro',
@@ -225,20 +225,20 @@ await authvader.licenses.grant(req, {
 
 ```typescript
 // List user's active sessions
-const { sessions } = await authvader.sessions.list(req);
+const { sessions } = await authvital.sessions.list(req);
 
 // Revoke a specific session
-await authvader.sessions.revoke(req, 'session-id');
+await authvital.sessions.revoke(req, 'session-id');
 
 // Logout from all devices
-await authvader.sessions.revokeAll(req);
+await authvital.sessions.revokeAll(req);
 ```
 
 #### Entitlements
 
 ```typescript
 // Check user's entitlements for a resource
-const entitlements = await authvader.entitlements.check(req, {
+const entitlements = await authvital.entitlements.check(req, {
   resourceType: 'api-calls',
 });
 
@@ -254,10 +254,10 @@ const entitlements = await authvader.entitlements.check(req, {
 For server-side OAuth with PKCE:
 
 ```typescript
-import { OAuthFlow } from '@authvader/sdk/server';
+import { OAuthFlow } from '@authvital/sdk/server';
 
 const oauth = new OAuthFlow({
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   clientId: process.env.AV_CLIENT_ID!,
   clientSecret: process.env.AV_CLIENT_SECRET!,
   redirectUri: 'https://myapp.com/api/auth/callback',
@@ -295,7 +295,7 @@ app.get('/api/auth/callback', async (req, res) => {
 For custom flows that need CSRF + app state:
 
 ```typescript
-import { encodeState, decodeState, type StatePayload } from '@authvader/sdk/server';
+import { encodeState, decodeState, type StatePayload } from '@authvital/sdk/server';
 
 // Encode CSRF + app state into OAuth state param
 const state = encodeState(csrfNonce, '/dashboard?tab=settings');
@@ -315,11 +315,11 @@ import {
   getSignupUrl,
   getLogoutUrl,
   getInviteAcceptUrl,
-} from '@authvader/sdk/server';
+} from '@authvital/sdk/server';
 
 // Simple login link
 const loginUrl = getLoginUrl({
-  authVaderHost: 'https://auth.myapp.com',
+  authVitalHost: 'https://auth.myapp.com',
   clientId: 'my-app',
   redirectUri: 'https://app.myapp.com/dashboard',
   tenantHint: 'acme-corp', // Optional
@@ -327,7 +327,7 @@ const loginUrl = getLoginUrl({
 
 // Signup with pre-filled email
 const signupUrl = getSignupUrl({
-  authVaderHost: 'https://auth.myapp.com',
+  authVitalHost: 'https://auth.myapp.com',
   clientId: 'my-app',
   redirectUri: 'https://app.myapp.com/onboarding',
   email: 'user@example.com', // Optional
@@ -335,13 +335,13 @@ const signupUrl = getSignupUrl({
 
 // Logout URL
 const logoutUrl = getLogoutUrl({
-  authVaderHost: 'https://auth.myapp.com',
+  authVitalHost: 'https://auth.myapp.com',
   postLogoutRedirectUri: 'https://myapp.com',
 });
 
 // Invitation acceptance link (for emails)
 const inviteUrl = getInviteAcceptUrl({
-  authVaderHost: 'https://auth.myapp.com',
+  authVitalHost: 'https://auth.myapp.com',
   clientId: 'my-app',
   inviteToken: 'abc123xyz',
 });
@@ -356,14 +356,14 @@ import {
   generatePKCE,
   buildAuthorizeUrl,
   exchangeCodeForTokens,
-} from '@authvader/sdk/server';
+} from '@authvital/sdk/server';
 
 // Generate PKCE challenge
 const { codeVerifier, codeChallenge } = await generatePKCE();
 
 // Build authorization URL
 const authorizeUrl = buildAuthorizeUrl({
-  authVaderHost: 'https://auth.yourapp.com',
+  authVitalHost: 'https://auth.yourapp.com',
   clientId: 'your-client-id',
   redirectUri: 'https://yourapp.com/callback',
   codeChallenge,
@@ -372,7 +372,7 @@ const authorizeUrl = buildAuthorizeUrl({
 
 // Exchange code for tokens
 const tokens = await exchangeCodeForTokens({
-  authVaderHost: 'https://auth.yourapp.com',
+  authVitalHost: 'https://auth.yourapp.com',
   clientId: 'your-client-id',
   clientSecret: 'your-client-secret',
   code: 'authorization-code',
@@ -385,12 +385,12 @@ const tokens = await exchangeCodeForTokens({
 
 ## Identity Sync (Local Database Mirroring)
 
-The SDK provides tools for syncing AuthVader identities to your local database, reducing API calls and enabling offline queries.
+The SDK provides tools for syncing AuthVital identities to your local database, reducing API calls and enabling offline queries.
 
 ### Step 1: Add Prisma Schema
 
 ```typescript
-import { printSchema } from '@authvader/sdk/server';
+import { printSchema } from '@authvital/sdk/server';
 
 // Print schema to console, then copy to your schema.prisma
 printSchema();
@@ -400,7 +400,7 @@ This outputs:
 
 ```prisma
 model Identity {
-  id            String    @id                      // AuthVader subject ID
+  id            String    @id                      // AuthVital subject ID
   email         String?   @unique
   givenName     String?   @map("given_name")
   familyName    String?   @map("family_name")
@@ -426,7 +426,7 @@ model IdentitySession {
   id            String    @id @default(cuid())
   identityId    String    @map("identity_id")
   identity      Identity  @relation(fields: [identityId], references: [id], onDelete: Cascade)
-  authSessionId String?   @unique @map("auth_session_id")  // AuthVader session ID
+  authSessionId String?   @unique @map("auth_session_id")  // AuthVital session ID
   deviceInfo    String?   @map("device_info")
   ipAddress     String?   @map("ip_address")
   userAgent     String?   @map("user_agent")
@@ -443,7 +443,7 @@ model IdentitySession {
 ### Step 2: Set Up Webhook Handler
 
 ```typescript
-import { IdentitySyncHandler, WebhookRouter } from '@authvader/sdk/server';
+import { IdentitySyncHandler, WebhookRouter } from '@authvital/sdk/server';
 import { prisma } from './prisma';
 
 // Create the sync handler with your Prisma client
@@ -451,17 +451,17 @@ const syncHandler = new IdentitySyncHandler(prisma);
 
 // Create the webhook router (uses JWKS for verification)
 const router = new WebhookRouter({
-  authVaderHost: process.env.AUTHVADER_HOST!,
+  authVitalHost: process.env.AUTHVITAL_HOST!,
   handler: syncHandler,
 });
 
 // Mount in your Express app
-app.post('/webhooks/authvader', router.expressHandler());
+app.post('/webhooks/authvital', router.expressHandler());
 ```
 
-### Step 3: Configure Webhook in AuthVader
+### Step 3: Configure Webhook in AuthVital
 
-In your AuthVader dashboard, add a webhook endpoint pointing to your `/webhooks/authvader` URL. Enable these events:
+In your AuthVital dashboard, add a webhook endpoint pointing to your `/webhooks/authvital` URL. Enable these events:
 
 - `subject.created` - New user registered
 - `subject.updated` - User profile changed
@@ -477,7 +477,7 @@ In your AuthVader dashboard, add a webhook endpoint pointing to your `/webhooks/
 ### Step 4: Optional Session Cleanup
 
 ```typescript
-import { cleanupSessions } from '@authvader/sdk/server';
+import { cleanupSessions } from '@authvital/sdk/server';
 
 // Run daily via cron
 cron.schedule('0 3 * * *', async () => {
@@ -493,7 +493,7 @@ cron.schedule('0 3 * * *', async () => {
 Or use raw SQL with pg_cron:
 
 ```typescript
-import { getCleanupSQL } from '@authvader/sdk/server';
+import { getCleanupSQL } from '@authvital/sdk/server';
 
 console.log(getCleanupSQL({ expiredOlderThanDays: 30 }));
 // DELETE FROM identity_sessions WHERE expires_at < NOW() - INTERVAL '30 days';
@@ -503,28 +503,28 @@ console.log(getCleanupSQL({ expiredOlderThanDays: 30 }));
 
 ## Webhooks
 
-Webhooks are verified using JWKS (JSON Web Key Set) from your AuthVader instance - no shared secrets needed!
+Webhooks are verified using JWKS (JSON Web Key Set) from your AuthVital instance - no shared secrets needed!
 
 ### Using WebhookRouter
 
 ```typescript
-import { WebhookRouter, IdentitySyncHandler } from '@authvader/sdk/server';
+import { WebhookRouter, IdentitySyncHandler } from '@authvital/sdk/server';
 
 // Option 1: Use built-in IdentitySyncHandler for database mirroring
 const router = new WebhookRouter({
-  authVaderHost: process.env.AUTHVADER_HOST!,
+  authVitalHost: process.env.AUTHVITAL_HOST!,
   handler: new IdentitySyncHandler(prisma),
 });
 
-app.post('/webhooks/authvader', router.expressHandler());
+app.post('/webhooks/authvital', router.expressHandler());
 ```
 
 ### Custom Event Handler
 
 ```typescript
-import { AuthVaderEventHandler, WebhookRouter } from '@authvader/sdk/server';
+import { AuthVitalEventHandler, WebhookRouter } from '@authvital/sdk/server';
 
-class MyEventHandler extends AuthVaderEventHandler {
+class MyEventHandler extends AuthVitalEventHandler {
   async onSubjectCreated(event) {
     // User registered
     await sendWelcomeEmail(event.data.email);
@@ -547,7 +547,7 @@ class MyEventHandler extends AuthVaderEventHandler {
 }
 
 const router = new WebhookRouter({
-  authVaderHost: process.env.AUTHVADER_HOST!,
+  authVitalHost: process.env.AUTHVITAL_HOST!,
   handler: new MyEventHandler(),
 });
 
@@ -619,7 +619,7 @@ import type {
   SubjectCreatedEvent,
   MemberJoinedEvent,
   WebhookPayload,
-} from '@authvader/sdk/server';
+} from '@authvital/sdk/server';
 ```
 
 ---
@@ -628,12 +628,12 @@ import type {
 
 ```bash
 # Required
-AUTHVADER_HOST=https://auth.yourapp.com
-AUTHVADER_CLIENT_ID=your-client-id
-AUTHVADER_CLIENT_SECRET=your-client-secret
+AUTHVITAL_HOST=https://auth.yourapp.com
+AUTHVITAL_CLIENT_ID=your-client-id
+AUTHVITAL_CLIENT_SECRET=your-client-secret
 
 # Optional (for OAuth flow)
-AUTHVADER_REDIRECT_URI=https://yourapp.com/callback
+AUTHVITAL_REDIRECT_URI=https://yourapp.com/callback
 ```
 
 ---

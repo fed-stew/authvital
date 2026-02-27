@@ -1,5 +1,5 @@
 /**
- * @authvader/sdk - Invitations Namespace
+ * @authvital/sdk - Invitations Namespace
  *
  * Manage tenant invitations: send, list pending, resend, and revoke.
  */
@@ -32,10 +32,10 @@ export function createInvitationsNamespace(client: BaseClient) {
      * @example
      * ```ts
      * // First, get the role ID from available roles
-     * const { roles } = await authvader.memberships.getTenantRoles();
+     * const { roles } = await authvital.memberships.getTenantRoles();
      * const adminRole = roles.find(r => r.slug === 'admin');
      *
-     * const { sub, expiresAt } = await authvader.invitations.send(request, {
+     * const { sub, expiresAt } = await authvital.invitations.send(request, {
      *   email: 'newuser@example.com',
      *   givenName: 'John',
      *   familyName: 'Doe',
@@ -66,7 +66,7 @@ export function createInvitationsNamespace(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const { invitations, totalCount } = await authvader.invitations.listPending(request);
+     * const { invitations, totalCount } = await authvital.invitations.listPending(request);
      * ```
      */
     listPending: async (request: RequestLike): Promise<PendingInvitationsResponse> => {
@@ -86,7 +86,7 @@ export function createInvitationsNamespace(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const { expiresAt } = await authvader.invitations.resend(request, {
+     * const { expiresAt } = await authvital.invitations.resend(request, {
      *   invitationId: 'inv-123',
      *   expiresInDays: 7,
      * });
@@ -110,7 +110,7 @@ export function createInvitationsNamespace(client: BaseClient) {
      *
      * @example
      * ```ts
-     * await authvader.invitations.revoke(request, 'inv-123');
+     * await authvital.invitations.revoke(request, 'inv-123');
      * ```
      */
     revoke: async (

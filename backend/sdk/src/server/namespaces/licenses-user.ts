@@ -1,5 +1,5 @@
 /**
- * @authvader/sdk - User License Operations
+ * @authvital/sdk - User License Operations
  *
  * User-scoped license operations that use JWT authentication.
  * For M2M admin operations, see licenses-admin.ts
@@ -36,7 +36,7 @@ export function createUserLicenseOperations(client: BaseClient) {
      * @example
      * ```ts
      * // Grant pro license to a team member
-     * await authvader.licenses.grant(req, {
+     * await authvital.licenses.grant(req, {
      *   userId: 'user-123',
      *   applicationId: 'app-456',
      *   licenseTypeId: 'license-pro',
@@ -68,7 +68,7 @@ export function createUserLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * await authvader.licenses.revoke(req, {
+     * await authvital.licenses.revoke(req, {
      *   userId: 'user-123',
      *   applicationId: 'app-456',
      * });
@@ -98,7 +98,7 @@ export function createUserLicenseOperations(client: BaseClient) {
      * @example
      * ```ts
      * // Upgrade user from basic to pro
-     * await authvader.licenses.changeType(req, {
+     * await authvital.licenses.changeType(req, {
      *   userId: 'user-123',
      *   applicationId: 'app-456',
      *   newLicenseTypeId: 'license-pro',
@@ -132,7 +132,7 @@ export function createUserLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const licenses = await authvader.licenses.listForUser(req);
+     * const licenses = await authvital.licenses.listForUser(req);
      * // [{ id: 'assignment-1', licenseType: 'pro', applicationId: 'app-1', ... }]
      * ```
      */
@@ -158,7 +158,7 @@ export function createUserLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const result = await authvader.licenses.check(req, undefined, 'my-app-id');
+     * const result = await authvital.licenses.check(req, undefined, 'my-app-id');
      * if (result.hasLicense) {
      *   console.log('User has', result.licenseType, 'license');
      * }
@@ -197,7 +197,7 @@ export function createUserLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const { hasFeature } = await authvader.licenses.hasFeature(req, undefined, 'my-app-id', 'sso');
+     * const { hasFeature } = await authvital.licenses.hasFeature(req, undefined, 'my-app-id', 'sso');
      * if (hasFeature) {
      *   // Show SSO option
      * }
@@ -236,7 +236,7 @@ export function createUserLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const users = await authvader.licenses.getAppLicensedUsers(req, 'my-app-id');
+     * const users = await authvital.licenses.getAppLicensedUsers(req, 'my-app-id');
      * users.forEach(u => console.log(u.email, '-', u.licenseType));
      * ```
      */
@@ -263,7 +263,7 @@ export function createUserLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const { count } = await authvader.licenses.countLicensedUsers(req, 'my-app-id');
+     * const { count } = await authvital.licenses.countLicensedUsers(req, 'my-app-id');
      * console.log(`${count} users have licenses`);
      * ```
      */
@@ -293,7 +293,7 @@ export function createUserLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const licenseType = await authvader.licenses.getUserLicenseType(req, undefined, 'my-app-id');
+     * const licenseType = await authvital.licenses.getUserLicenseType(req, undefined, 'my-app-id');
      * if (licenseType === 'enterprise') {
      *   // Show enterprise features
      * }
@@ -326,7 +326,7 @@ export function createUserLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const holders = await authvader.licenses.getHolders(req, 'app-456');
+     * const holders = await authvital.licenses.getHolders(req, 'app-456');
      * // [{ userId: 'user-1', licenseType: 'pro', ... }, ...]
      * ```
      */
@@ -348,7 +348,7 @@ export function createUserLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const auditLog = await authvader.licenses.getAuditLog(req, {
+     * const auditLog = await authvital.licenses.getAuditLog(req, {
      *   userId: 'user-123',
      *   limit: 50,
      * });
@@ -385,7 +385,7 @@ export function createUserLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const usage = await authvader.licenses.getUsageOverview(req);
+     * const usage = await authvital.licenses.getUsageOverview(req);
      * // { totalSeats: 10, seatsAssigned: 8, utilization: 80, ... }
      * ```
      */
@@ -407,7 +407,7 @@ export function createUserLicenseOperations(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const trends = await authvader.licenses.getUsageTrends(req, 30);
+     * const trends = await authvital.licenses.getUsageTrends(req, 30);
      * // [{ date: '2024-01-01', seatsAssigned: 8, ... }, ...]
      * ```
      */

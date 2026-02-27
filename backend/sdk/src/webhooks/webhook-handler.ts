@@ -2,16 +2,16 @@ import * as crypto from 'crypto';
 import type { SyncEvent } from './types';
 
 export interface WebhookHeaders {
-  'x-authvader-signature'?: string;
-  'x-authvader-key-id'?: string;
-  'x-authvader-timestamp'?: string;
-  'x-authvader-event-id'?: string;
-  'x-authvader-event-type'?: string;
+  'x-authvital-signature'?: string;
+  'x-authvital-key-id'?: string;
+  'x-authvital-timestamp'?: string;
+  'x-authvital-event-id'?: string;
+  'x-authvital-event-type'?: string;
 }
 
 export interface WebhookHandlerOptions {
   /**
-   * URL to the AuthVader JWKS endpoint
+   * URL to the AuthVital JWKS endpoint
    * Example: 'https://auth.example.com/.well-known/jwks.json'
    */
   jwksUrl: string;
@@ -44,13 +44,13 @@ interface JwksResponse {
 /**
  * Low-level webhook signature verifier
  *
- * For most use cases, use WebhookRouter + AuthVaderEventHandler instead.
+ * For most use cases, use WebhookRouter + AuthVitalEventHandler instead.
  * This class is useful for advanced scenarios where you need full control
  * over event parsing and routing.
  *
  * @example
  * ```typescript
- * const verifier = new AuthVaderWebhooks({
+ * const verifier = new AuthVitalWebhooks({
  *   jwksUrl: 'https://auth.example.com/.well-known/jwks.json'
  * });
  *
@@ -65,7 +65,7 @@ interface JwksResponse {
  * });
  * ```
  */
-export class AuthVaderWebhooks {
+export class AuthVitalWebhooks {
   private readonly jwksUrl: string;
   private readonly maxTimestampAge: number;
   private readonly keysCacheTtl: number;
@@ -93,18 +93,18 @@ export class AuthVaderWebhooks {
     // Normalize headers (Express uses lowercase)
     const normalizedHeaders = this.normalizeHeaders(headers);
 
-    const signature = normalizedHeaders['x-authvader-signature'];
-    const keyId = normalizedHeaders['x-authvader-key-id'];
-    const timestamp = normalizedHeaders['x-authvader-timestamp'];
+    const signature = normalizedHeaders['x-authvital-signature'];
+    const keyId = normalizedHeaders['x-authvital-key-id'];
+    const timestamp = normalizedHeaders['x-authvital-timestamp'];
 
     if (!signature) {
-      throw new Error('Missing X-AuthVader-Signature header');
+      throw new Error('Missing X-AuthVital-Signature header');
     }
     if (!keyId) {
-      throw new Error('Missing X-AuthVader-Key-Id header');
+      throw new Error('Missing X-AuthVital-Key-Id header');
     }
     if (!timestamp) {
-      throw new Error('Missing X-AuthVader-Timestamp header');
+      throw new Error('Missing X-AuthVital-Timestamp header');
     }
 
     // Verify timestamp is recent (prevent replay attacks)

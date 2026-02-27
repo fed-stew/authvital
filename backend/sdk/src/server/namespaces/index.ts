@@ -1,5 +1,5 @@
 /**
- * @authvader/sdk - Namespaces Index
+ * @authvital/sdk - Namespaces Index
  *
  * Re-exports all namespace factory functions and their types.
  */

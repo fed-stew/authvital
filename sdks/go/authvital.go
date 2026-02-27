@@ -1,33 +1,33 @@
-// Package authvader provides the official Go SDK for AuthVader Identity Platform.
+// Package authvital provides the official Go SDK for AuthVital Identity Platform.
 //
 // Status: Coming Soon
 //
 // This package is a placeholder. The full SDK is under active development.
-// Follow https://github.com/authvader/authvader for updates!
-package authvader
+// Follow https://github.com/authvital/authvital for updates!
+package authvital
 
 import "errors"
 
 // ErrNotImplemented is returned when calling placeholder methods.
-var ErrNotImplemented = errors.New("authvader: SDK is coming soon! Follow https://github.com/authvader/authvader for updates")
+var ErrNotImplemented = errors.New("authvital: SDK is coming soon! Follow https://github.com/authvital/authvital for updates")
 
 // Version is the current SDK version.
 const Version = "0.0.1"
 
-// Client is a placeholder for the AuthVader client.
+// Client is a placeholder for the AuthVital client.
 type Client struct{}
 
-// New creates a new AuthVader client.
+// New creates a new AuthVital client.
 //
 // Note: This is a placeholder. The full SDK is coming soon!
 func New(opts ...Option) (*Client, error) {
 	return nil, ErrNotImplemented
 }
 
-// Option configures the AuthVader client.
+// Option configures the AuthVital client.
 type Option func(*Client)
 
-// WithHost sets the AuthVader host URL.
+// WithHost sets the AuthVital host URL.
 func WithHost(host string) Option {
 	return func(c *Client) {}
 }

@@ -1,6 +1,6 @@
 # Data Models Reference
 
-> Complete reference for AuthVader's data models and entity relationships.
+> Complete reference for AuthVital's data models and entity relationships.
 
 ## Entity Relationship Diagram
 

@@ -1,36 +1,36 @@
 /**
- * @authvader/sdk - Server-Side SDK
+ * @authvital/sdk - Server-Side SDK
  * 
- * Import from '@authvader/sdk/server' for backend-to-backend operations.
+ * Import from '@authvital/sdk/server' for backend-to-backend operations.
  * 
  * @example
  * ```ts
- * import { createAuthVader } from '@authvader/sdk/server';
+ * import { createAuthVital } from '@authvital/sdk/server';
  * 
  * // Configure once at startup
- * const authvader = createAuthVader({
- *   authVaderHost: process.env.AV_HOST,
+ * const authvital = createAuthVital({
+ *   authVitalHost: process.env.AV_HOST,
  *   clientId: process.env.AV_CLIENT_ID,
  *   clientSecret: process.env.AV_CLIENT_SECRET,
  * });
  * 
  * // Validate JWT from request (uses cached JWKS, no IDP auth needed)
- * const { authenticated, user } = await authvader.getCurrentUser(request);
+ * const { authenticated, user } = await authvital.getCurrentUser(request);
  * 
  * // M2M calls (uses client_credentials automatically)
- * const members = await authvader.memberships.listForTenant('tenant-123');
+ * const members = await authvital.memberships.listForTenant('tenant-123');
  * ```
  */
 
 // Main unified client (RECOMMENDED)
 export {
-  AuthVader,
-  createAuthVader,
-  type AuthVaderConfig,
+  AuthVital,
+  createAuthVital,
+  type AuthVitalConfig,
   type GetCurrentUserResult,
   type ValidatedClaims,
   type RequestLike,
-} from './authvader';
+} from './authvital';
 
 // Base client for extending (advanced use cases)
 export { BaseClient, extractAuthorizationHeader, appendClientIdToUri } from './base-client';
@@ -51,7 +51,7 @@ export {
   type SessionsNamespace,
 } from './namespaces';
 
-// Note: AuthVaderClient was removed - use createAuthVader() instead
+// Note: AuthVitalClient was removed - use createAuthVital() instead
 
 // OAuth flow utilities
 export {
@@ -80,13 +80,13 @@ export {
   type RefreshTokenParams,
 } from './oauth-flow';
 
-// JWT Validation (low-level, prefer createAuthVader().getCurrentUser() instead)
+// JWT Validation (low-level, prefer createAuthVital().getCurrentUser() instead)
 export {
   JwtValidator,
   createJwtValidator,
   createJwtMiddleware,
   createPassportJwtOptions,
-  // Standalone helpers (deprecated, use createAuthVader instead)
+  // Standalone helpers (deprecated, use createAuthVital instead)
   getCurrentUser,
   getCurrentUserFromConfig,
   type JwtValidatorConfig,
@@ -105,7 +105,7 @@ export {
   getPasswordResetUrl,
   getInviteAcceptUrl,
   // Standalone account settings URL (doesn't need tenantId)
-  // For tenant-specific URLs, use authvader.getManagementUrls(req)
+  // For tenant-specific URLs, use authvital.getManagementUrls(req)
   getAccountSettingsUrl,
   type AuthUrlOptions,
   type SignupUrlOptions,
@@ -116,7 +116,7 @@ export {
 // Types from types.ts
 export type {
   // Config
-  AuthVaderClientConfig,
+  AuthVitalClientConfig,
   OAuthFlowConfig,
   // Tokens
   TokenResponse,
@@ -214,7 +214,7 @@ export {
 
 export {
   // Main API: Event handler base class
-  AuthVaderEventHandler,
+  AuthVitalEventHandler,
   InviteEventHandler,
   SubjectEventHandler,
   MemberEventHandler,
@@ -227,7 +227,7 @@ export {
   WebhookVerifier,
   type WebhookVerifierOptions,
   // Handler interfaces
-  type IAuthVaderEventHandler,
+  type IAuthVitalEventHandler,
   type IInviteEventHandler,
   type ISubjectEventHandler,
   type IMemberEventHandler,

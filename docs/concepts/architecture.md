@@ -1,10 +1,10 @@
 # Architecture Overview
 
-> Understanding AuthVader's system design and how components interact.
+> Understanding AuthVital's system design and how components interact.
 
 ## System Overview
 
-AuthVader is a **B2B Identity Provider** built as a multi-tenant OAuth 2.0/OIDC compliant authentication platform. It provides:
+AuthVital is a **B2B Identity Provider** built as a multi-tenant OAuth 2.0/OIDC compliant authentication platform. It provides:
 
 - **Authentication**: OAuth 2.0 with PKCE, password login, SSO
 - **Authorization**: Role-based access control (RBAC) with permissions
@@ -17,12 +17,12 @@ AuthVader is a **B2B Identity Provider** built as a multi-tenant OAuth 2.0/OIDC 
 ```mermaid
 graph TB
     subgraph "Client Applications"
-        SPA[React SPA<br/>@authvader/sdk/client]
+        SPA[React SPA<br/>@authvital/sdk/client]
         Mobile[Mobile App]
-        Server[Backend Server<br/>@authvader/sdk/server]
+        Server[Backend Server<br/>@authvital/sdk/server]
     end
 
-    subgraph "AuthVader Platform"
+    subgraph "AuthVital Platform"
         direction TB
         subgraph "API Layer"
             OAuth[OAuth/OIDC<br/>Endpoints]
@@ -83,7 +83,7 @@ graph TB
 
 ### 1. OAuth/OIDC Server
 
-The heart of AuthVader - a fully compliant OAuth 2.0 and OpenID Connect server.
+The heart of AuthVital - a fully compliant OAuth 2.0 and OpenID Connect server.
 
 | Endpoint | Purpose |
 |----------|--------|
@@ -140,7 +140,7 @@ erDiagram
 
 ### 3. Licensing Engine
 
-AuthVader includes a sophisticated license pool system for SaaS applications:
+AuthVital includes a sophisticated license pool system for SaaS applications:
 
 ```mermaid
 graph LR
@@ -176,7 +176,7 @@ graph LR
 sequenceDiagram
     participant U as User
     participant C as Client App
-    participant A as AuthVader
+    participant A as AuthVital
     participant DB as Database
 
     U->>C: Click "Login"
@@ -204,7 +204,7 @@ Real-time event notifications for integrating with your systems:
 
 ```mermaid
 graph LR
-    subgraph "AuthVader"
+    subgraph "AuthVital"
         Event[Event Triggered]
         Queue[Event Queue]
         Deliver[Delivery System]
@@ -233,7 +233,7 @@ graph LR
 ## Directory Structure
 
 ```
-authvader/
+authvital/
 ├── backend/                    # NestJS API Server
 │   ├── src/
 │   │   ├── auth/              # Authentication (login, register, MFA)
@@ -248,7 +248,7 @@ authvader/
 │   ├── prisma/
 │   │   ├── schema.prisma      # Data model (53KB!)
 │   │   └── migrations/        # Database migrations
-│   └── sdk/                   # @authvader/sdk package
+│   └── sdk/                   # @authvital/sdk package
 │       └── src/
 │           ├── client/        # React SDK
 │           ├── server/        # Node.js SDK
@@ -328,7 +328,7 @@ Best for new applications:
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│ React App   │────▶│ Your API    │────▶│ AuthVader   │
+│ React App   │────▶│ Your API    │────▶│ AuthVital   │
 │ (SDK/Client)│     │ (SDK/Server)│     │             │
 └─────────────┘     └─────────────┘     └─────────────┘
 ```
@@ -339,7 +339,7 @@ For custom implementations:
 
 ```
 ┌─────────────┐     ┌─────────────┐
-│ Any Client  │────▶│ AuthVader   │
+│ Any Client  │────▶│ AuthVital   │
 │ (OAuth lib) │     │ OAuth API   │
 └─────────────┘     └─────────────┘
 ```
@@ -350,7 +350,7 @@ For keeping local user data:
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│ AuthVader   │────▶│ Your API    │────▶│ Your DB     │
+│ AuthVital   │────▶│ Your API    │────▶│ Your DB     │
 │ (Webhooks)  │     │ (Handler)   │     │ (Users)     │
 └─────────────┘     └─────────────┘     └─────────────┘
 ```

@@ -315,11 +315,11 @@ export class AdminAuthService {
     const baseUrl = this.configService.getOrThrow<string>('BASE_URL');
     const loginUrl = `${baseUrl}/admin/login`;
 
-    const subject = 'Your AuthVader Admin Account';
+    const subject = 'Your AuthVital Admin Account';
     const text = `
 Hi${displayName ? ` ${displayName}` : ''},
 
-You have been added as a Super Admin to AuthVader.
+You have been added as a Super Admin to AuthVital.
 
 Login URL: ${loginUrl}
 Email: ${email}
@@ -332,7 +332,7 @@ If you didn't expect this invitation, please contact your administrator.
 
     const html = `
 <p>Hi${displayName ? ` ${displayName}` : ''},</p>
-<p>You have been added as a <strong>Super Admin</strong> to AuthVader.</p>
+<p>You have been added as a <strong>Super Admin</strong> to AuthVital.</p>
 <p><strong>Login URL:</strong> <a href="${loginUrl}">${loginUrl}</a></p>
 <p><strong>Email:</strong> ${email}</p>
 <p><strong>Temporary Password:</strong> <code>${password}</code></p>

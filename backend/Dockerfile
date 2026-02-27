@@ -1,5 +1,5 @@
 # =============================================================================
-# AuthVader Backend - Docker Image
+# AuthVital Backend - Docker Image
 # Backend-only build (use root Dockerfile for full frontend+backend)
 # =============================================================================
 

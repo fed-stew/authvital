@@ -1,5 +1,5 @@
 /**
- * @authvader/sdk - Sessions Namespace (Token Ghosting)
+ * @authvital/sdk - Sessions Namespace (Token Ghosting)
  *
  * Manage user sessions: list, revoke specific sessions, or logout everywhere.
  */
@@ -52,7 +52,7 @@ export function createSessionsNamespace(client: BaseClient) {
      * @example
      * ```ts
      * app.get('/api/sessions', async (req, res) => {
-     *   const { sessions, count } = await authvader.sessions.list(req);
+     *   const { sessions, count } = await authvital.sessions.list(req);
      *   res.json(sessions);
      * });
      * ```
@@ -71,7 +71,7 @@ export function createSessionsNamespace(client: BaseClient) {
       const url = `/oauth/sessions${params.toString() ? `?${params.toString()}` : ''}`;
 
       // This endpoint uses OAuth token directly, not M2M
-      const response = await fetch(`${client.config.authVaderHost}${url}`, {
+      const response = await fetch(`${client.config.authVitalHost}${url}`, {
         method: 'GET',
         headers: {
           Authorization: authHeader!,
@@ -98,7 +98,7 @@ export function createSessionsNamespace(client: BaseClient) {
      * @example
      * ```ts
      * app.post('/api/sessions/:id/revoke', async (req, res) => {
-     *   const result = await authvader.sessions.revoke(req, req.params.id);
+     *   const result = await authvital.sessions.revoke(req, req.params.id);
      *   res.json(result);
      * });
      * ```
@@ -108,7 +108,7 @@ export function createSessionsNamespace(client: BaseClient) {
       const authHeader = extractAuthorizationHeader(request);
 
       const response = await fetch(
-        `${client.config.authVaderHost}/oauth/sessions/${encodeURIComponent(sessionId)}/revoke`,
+        `${client.config.authVitalHost}/oauth/sessions/${encodeURIComponent(sessionId)}/revoke`,
         {
           method: 'POST',
           headers: {
@@ -137,7 +137,7 @@ export function createSessionsNamespace(client: BaseClient) {
      * @example
      * ```ts
      * app.post('/api/logout-all', async (req, res) => {
-     *   const result = await authvader.sessions.revokeAll(req);
+     *   const result = await authvital.sessions.revokeAll(req);
      *   res.json({ message: `Logged out of ${result.count} devices` });
      * });
      * ```
@@ -149,7 +149,7 @@ export function createSessionsNamespace(client: BaseClient) {
       await client.validateRequest(request);
       const authHeader = extractAuthorizationHeader(request);
 
-      const response = await fetch(`${client.config.authVaderHost}/oauth/logout-all`, {
+      const response = await fetch(`${client.config.authVitalHost}/oauth/logout-all`, {
         method: 'POST',
         headers: {
           Authorization: authHeader!,
@@ -184,14 +184,14 @@ export function createSessionsNamespace(client: BaseClient) {
      * app.post('/api/logout', async (req, res) => {
      *   // Get refresh token from cookie or body
      *   const refreshToken = req.cookies.refresh_token || req.body.refresh_token;
-     *   const result = await authvader.sessions.logout(refreshToken);
+     *   const result = await authvital.sessions.logout(refreshToken);
      *   res.clearCookie('refresh_token');
      *   res.json(result);
      * });
      * ```
      */
     logout: async (refreshToken: string): Promise<SessionRevokeResponse> => {
-      const response = await fetch(`${client.config.authVaderHost}/oauth/logout`, {
+      const response = await fetch(`${client.config.authVitalHost}/oauth/logout`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

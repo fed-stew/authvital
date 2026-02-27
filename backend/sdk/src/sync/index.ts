@@ -1,7 +1,7 @@
 /**
- * @authvader/sdk - Identity Sync Module
+ * @authvital/sdk - Identity Sync Module
  * 
- * Provides tools for syncing AuthVader identities to your local database:
+ * Provides tools for syncing AuthVital identities to your local database:
  * 
  * 1. **Prisma Schema Snippets** - Copy into your schema.prisma
  * 2. **TypeScript Types** - For type-safe operations
@@ -11,21 +11,21 @@
  * @example
  * ```typescript
  * // 1. Print schema to copy into your schema.prisma
- * import { printSchema } from '@authvader/sdk/server';
+ * import { printSchema } from '@authvital/sdk/server';
  * printSchema();
  * 
  * // 2. Set up webhook handler
- * import { IdentitySyncHandler, WebhookRouter } from '@authvader/sdk/server';
+ * import { IdentitySyncHandler, WebhookRouter } from '@authvital/sdk/server';
  * import { prisma } from './prisma';
  * 
  * const router = new WebhookRouter({
  *   handler: new IdentitySyncHandler(prisma),
  * });
  * 
- * app.post('/webhooks/authvader', router.expressHandler());
+ * app.post('/webhooks/authvital', router.expressHandler());
  * 
  * // 3. Optional: Schedule cleanup
- * import { cleanupSessions } from '@authvader/sdk/server';
+ * import { cleanupSessions } from '@authvital/sdk/server';
  * 
  * // Run daily
  * cron.schedule('0 3 * * *', () => {

@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useAuthVaderConfig } from '../provider';
+import { useAuthVitalConfig } from '../provider';
 import { getStyles } from './styles';
 import type { AppearanceProps } from '../types';
 
@@ -58,7 +58,7 @@ export function VerifyEmail({
   onStartOver,
   appearance,
 }: VerifyEmailProps) {
-  const config = useAuthVaderConfig();
+  const config = useAuthVitalConfig();
   const styles = getStyles(appearance);
   
   const [status, setStatus] = useState<VerifyStatus>('loading');
@@ -81,7 +81,7 @@ export function VerifyEmail({
       }
 
       try {
-        const response = await fetch(`${config.authVaderHost}/api/signup/verify`, {
+        const response = await fetch(`${config.authVitalHost}/api/signup/verify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -125,7 +125,7 @@ export function VerifyEmail({
     };
 
     verifyToken();
-  }, [token, config.authVaderHost, onSuccess, onError]);
+  }, [token, config.authVitalHost, onSuccess, onError]);
 
   const handleContinueSignup = () => {
     if (verifiedData) {

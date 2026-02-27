@@ -1,12 +1,12 @@
 /**
- * @authvader/sdk - Session Cleanup Utility
+ * @authvital/sdk - Session Cleanup Utility
  * 
  * Optional utility for cleaning up expired/revoked sessions.
  * Call this on a schedule (cron job) or manually.
  * 
  * @example
  * ```typescript
- * import { cleanupSessions } from '@authvader/sdk/server';
+ * import { cleanupSessions } from '@authvital/sdk/server';
  * import { prisma } from './prisma';
  * 
  * // Run daily via cron
@@ -90,7 +90,7 @@ export async function cleanupSessions(
 export function getCleanupSQL(options: SessionCleanupOptions = {}): string {
   const { expiredOlderThanDays = 30, deleteRevoked = false } = options;
 
-  let sql = `-- AuthVader SDK: Session Cleanup
+  let sql = `-- AuthVital SDK: Session Cleanup
 -- Run this periodically (e.g., daily via pg_cron)
 
 DELETE FROM av_identity_sessions

@@ -53,7 +53,7 @@ CREATE TABLE "super_admins" (
 CREATE TABLE "instance_meta" (
     "id" TEXT NOT NULL DEFAULT 'instance',
     "instanceUuid" TEXT NOT NULL,
-    "name" TEXT NOT NULL DEFAULT 'AuthVader IDP',
+    "name" TEXT NOT NULL DEFAULT 'AuthVital IDP',
     "allowSignUp" BOOLEAN NOT NULL DEFAULT false,
     "autoCreateTenant" BOOLEAN NOT NULL DEFAULT true,
     "allowGenericDomains" BOOLEAN NOT NULL DEFAULT true,

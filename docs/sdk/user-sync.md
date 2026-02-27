@@ -1,6 +1,6 @@
 # Identity Sync Guide
 
-> Mirror AuthVader identities to your local database for faster queries, foreign key relationships, and offline access.
+> Mirror AuthVital identities to your local database for faster queries, foreign key relationships, and offline access.
 
 ---
 
@@ -28,9 +28,9 @@
 
 | Benefit | Description |
 |---------|-------------|
-| **Performance** | Query identities locally without API calls to AuthVader |
+| **Performance** | Query identities locally without API calls to AuthVital |
 | **Relationships** | Create foreign keys to your app data (posts, orders, comments, etc.) |
-| **Offline Access** | Data available even if AuthVader is temporarily unreachable |
+| **Offline Access** | Data available even if AuthVital is temporarily unreachable |
 | **Custom Fields** | Extend identity data with app-specific attributes |
 | **Complex Queries** | Join identities with your domain models in a single query |
 
@@ -38,7 +38,7 @@
 
 ```
 ┌─────────────┐    Webhook Events    ┌─────────────┐    Sync    ┌─────────────────┐
-│  AuthVader  │ ─────────────────▶  │  Your API   │ ────────▶ │  Your Database  │
+│  AuthVital  │ ─────────────────▶  │  Your API   │ ────────▶ │  Your Database  │
 │    (IDP)    │                      │  (Handler)  │           │ (av_identities) │
 └─────────────┘                      └─────────────┘           └─────────────────┘
      │                                                                 ▲
@@ -46,7 +46,7 @@
      └──────────────────── Real-time sync via webhooks ────────────────┘
 ```
 
-The `IdentitySyncHandler` receives webhook events from AuthVader and automatically creates, updates, or deletes identity records in your database. This keeps your local copy in sync with the authoritative data in AuthVader.
+The `IdentitySyncHandler` receives webhook events from AuthVital and automatically creates, updates, or deletes identity records in your database. This keeps your local copy in sync with the authoritative data in AuthVital.
 
 ---
 
@@ -58,10 +58,10 @@ Before diving in, let's clarify some important terminology:
 
 | Term | Meaning |
 |------|--------|
-| **Identity** | The AuthVader representation of a person. Contains OIDC standard claims and authentication state. |
-| **User** | Your app's domain concept. You might have additional app-specific fields beyond what AuthVader provides. |
+| **Identity** | The AuthVital representation of a person. Contains OIDC standard claims and authentication state. |
+| **User** | Your app's domain concept. You might have additional app-specific fields beyond what AuthVital provides. |
 
-The SDK uses **Identity** because it syncs the OIDC-standard identity data from AuthVader. You can extend this with your own fields to create your "User" concept.
+The SDK uses **Identity** because it syncs the OIDC-standard identity data from AuthVital. You can extend this with your own fields to create your "User" concept.
 
 ### isActive vs hasAppAccess
 
@@ -76,7 +76,7 @@ This is a **critical distinction** that trips up many developers:
 
 ```
 Scenario 1: Employee leaves company
-  → Admin deactivates their AuthVader account
+  → Admin deactivates their AuthVital account
   → subject.deactivated event fires
   → isActive = false
   → User cannot log into ANY apps
@@ -141,8 +141,8 @@ npx prisma migrate dev --name add-identity-sync
 ### Step 2: Create Webhook Handler
 
 ```typescript
-// webhooks/authvader.ts
-import { IdentitySyncHandler, WebhookRouter } from '@authvader/sdk/server';
+// webhooks/authvital.ts
+import { IdentitySyncHandler, WebhookRouter } from '@authvital/sdk/server';
 import { prisma } from '../lib/prisma';
 
 // Create the sync handler with your Prisma client
@@ -151,7 +151,7 @@ const syncHandler = new IdentitySyncHandler(prisma);
 // Create the webhook router
 const router = new WebhookRouter({
   handler: syncHandler,
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
 });
 
 export default router;
@@ -162,14 +162,14 @@ export default router;
 **Next.js (App Router):**
 
 ```typescript
-// app/api/webhooks/authvader/route.ts
-import { IdentitySyncHandler, WebhookRouter } from '@authvader/sdk/server';
+// app/api/webhooks/authvital/route.ts
+import { IdentitySyncHandler, WebhookRouter } from '@authvital/sdk/server';
 import { prisma } from '@/lib/prisma';
 
 const syncHandler = new IdentitySyncHandler(prisma);
 const router = new WebhookRouter({
   handler: syncHandler,
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
 });
 
 export async function POST(request: Request) {
@@ -181,28 +181,28 @@ export async function POST(request: Request) {
 
 ```typescript
 import express from 'express';
-import webhookRouter from './webhooks/authvader';
+import webhookRouter from './webhooks/authvital';
 
 const app = express();
 
 // IMPORTANT: Use raw body for webhook signature verification
 app.post(
-  '/webhooks/authvader',
+  '/webhooks/authvital',
   express.raw({ type: 'application/json' }),
   webhookRouter.expressHandler()
 );
 ```
 
-### Step 4: Configure Webhook in AuthVader Dashboard
+### Step 4: Configure Webhook in AuthVital Dashboard
 
-1. Go to **AuthVader Admin Panel** → **Settings** → **Webhooks**
+1. Go to **AuthVital Admin Panel** → **Settings** → **Webhooks**
 2. Click **Add Webhook**
 3. Configure:
 
 | Field | Value |
 |-------|-------|
 | Name | `Identity Sync` |
-| URL | `https://yourapp.com/api/webhooks/authvader` |
+| URL | `https://yourapp.com/api/webhooks/authvital` |
 | Secret | Generate a strong secret (min 32 chars) |
 
 4. Subscribe to these events:
@@ -228,9 +228,9 @@ The SDK expects this schema structure. Add it to your `schema.prisma`:
 
 ```prisma
 // =============================================================================
-// AuthVader Identity Sync Models
+// AuthVital Identity Sync Models
 // =============================================================================
-// These models mirror OIDC standard claims from AuthVader.
+// These models mirror OIDC standard claims from AuthVital.
 // Table names use "av_" prefix to distinguish from your app's tables.
 // =============================================================================
 
@@ -238,7 +238,7 @@ model Identity {
   // ═══════════════════════════════════════════════════════════════════════════
   // CORE IDENTITY (OIDC Standard Claims - Profile Scope)
   // ═══════════════════════════════════════════════════════════════════════════
-  id                String    @id                           // AuthVader subject ID (OIDC: sub claim)
+  id                String    @id                           // AuthVital subject ID (OIDC: sub claim)
   username          String?   @unique                       // Unique handle, e.g., @janesmith (OIDC: preferred_username)
   displayName       String?   @map("display_name")          // Full display name (OIDC: name)
   givenName         String?   @map("given_name")            // First name (OIDC: given_name)
@@ -310,7 +310,7 @@ model IdentitySession {
   // ═══════════════════════════════════════════════════════════════════════════
   // SESSION IDENTIFICATION
   // ═══════════════════════════════════════════════════════════════════════════
-  authSessionId   String?   @map("auth_session_id")         // AuthVader's session ID (for revocation)
+  authSessionId   String?   @map("auth_session_id")         // AuthVital's session ID (for revocation)
 
   // ═══════════════════════════════════════════════════════════════════════════
   // SESSION METADATA
@@ -369,12 +369,12 @@ Here's how the schema fields map to OIDC standard claims:
 
 ## IdentitySyncHandler
 
-The `IdentitySyncHandler` class automatically syncs identity data from AuthVader webhooks to your Prisma database.
+The `IdentitySyncHandler` class automatically syncs identity data from AuthVital webhooks to your Prisma database.
 
 ### Basic Usage (Single Database)
 
 ```typescript
-import { IdentitySyncHandler, WebhookRouter } from '@authvader/sdk/server';
+import { IdentitySyncHandler, WebhookRouter } from '@authvital/sdk/server';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
@@ -384,7 +384,7 @@ const syncHandler = new IdentitySyncHandler(prisma);
 
 const router = new WebhookRouter({
   handler: syncHandler,
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
 });
 ```
 
@@ -407,7 +407,7 @@ The `IdentitySyncHandler` automatically handles these events:
 
 ### Selective Updates (subject.updated)
 
-When a `subject.updated` event fires, the handler **only updates the fields that actually changed**. AuthVader sends a `changed_fields` array in the payload:
+When a `subject.updated` event fires, the handler **only updates the fields that actually changed**. AuthVital sends a `changed_fields` array in the payload:
 
 ```json
 {
@@ -432,7 +432,7 @@ For multi-tenant applications where each tenant has their own isolated database,
 ### Single Database vs Tenant-Isolated
 
 ```typescript
-import { IdentitySyncHandler } from '@authvader/sdk/server';
+import { IdentitySyncHandler } from '@authvital/sdk/server';
 import { PrismaClient } from '@prisma/client';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -491,8 +491,8 @@ function getTenantDatabaseUrl(tenantId: string): string {
 ```
 
 ```typescript
-// webhooks/authvader.ts
-import { IdentitySyncHandler, WebhookRouter } from '@authvader/sdk/server';
+// webhooks/authvital.ts
+import { IdentitySyncHandler, WebhookRouter } from '@authvital/sdk/server';
 import { getTenantPrisma } from '../lib/tenant-prisma';
 
 // The handler will call this function with the tenantId from each webhook event
@@ -500,7 +500,7 @@ const syncHandler = new IdentitySyncHandler((tenantId) => getTenantPrisma(tenant
 
 const router = new WebhookRouter({
   handler: syncHandler,
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
 });
 
 export default router;
@@ -516,7 +516,7 @@ export default router;
 
 ```
 ┌─────────────┐              ┌──────────────────────┐
-│  AuthVader  │              │   Your Webhook API   │
+│  AuthVital  │              │   Your Webhook API   │
 │   Webhook   │ ──────────▶ │  IdentitySyncHandler │
 │  (tenant_id │              │                      │
 │  = "acme")  │              └──────────────────────┘
@@ -543,7 +543,7 @@ Here's exactly what happens for each event:
 
 ### subject.created
 
-Fires when a new user registers or is created in AuthVader.
+Fires when a new user registers or is created in AuthVital.
 
 ```typescript
 // Incoming event payload
@@ -633,7 +633,7 @@ await prisma.identity.update({
 
 ### subject.deleted
 
-Fires when a user is permanently deleted from AuthVader.
+Fires when a user is permanently deleted from AuthVital.
 
 ```typescript
 // Handler deletes identity (cascades to sessions due to onDelete: Cascade)
@@ -769,25 +769,25 @@ await prisma.identity.update({
 
 ## Custom Event Handling
 
-Need to do more than just sync? Extend `AuthVaderEventHandler` for custom logic:
+Need to do more than just sync? Extend `AuthVitalEventHandler` for custom logic:
 
 ```typescript
-import { AuthVaderEventHandler, SyncEvent } from '@authvader/sdk/server';
+import { AuthVitalEventHandler, SyncEvent } from '@authvital/sdk/server';
 import { prisma } from '../lib/prisma';
 import { sendWelcomeEmail, notifySlack, provisionResources } from '../lib/services';
 
-class MyCustomHandler extends AuthVaderEventHandler {
+class MyCustomHandler extends AuthVitalEventHandler {
   // ═══════════════════════════════════════════════════════════════════════════
   // Called for EVERY event (useful for logging/metrics)
   // ═══════════════════════════════════════════════════════════════════════════
   async onEvent(event: SyncEvent) {
-    console.log(`[AuthVader] Received: ${event.event}`, {
+    console.log(`[AuthVital] Received: ${event.event}`, {
       sub: event.data.sub,
       tenant: event.data.tenant_id,
     });
     
     // Track event metrics
-    await metrics.increment(`authvader.events.${event.event}`);
+    await metrics.increment(`authvital.events.${event.event}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1008,14 +1008,14 @@ class MyCustomHandler extends AuthVaderEventHandler {
 // Use the custom handler
 const router = new WebhookRouter({
   handler: new MyCustomHandler(),
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
 });
 ```
 
 ### Available Event Handler Methods
 
 ```typescript
-class AuthVaderEventHandler {
+class AuthVitalEventHandler {
   // Generic (called for every event)
   onEvent(event: SyncEvent): Promise<void>
   
@@ -1059,7 +1059,7 @@ Over time, expired sessions accumulate in your database. The SDK provides utilit
 ### Programmatic Cleanup
 
 ```typescript
-import { cleanupSessions } from '@authvader/sdk/server';
+import { cleanupSessions } from '@authvital/sdk/server';
 import { prisma } from '../lib/prisma';
 
 // Run this via a scheduled job (cron, etc.)
@@ -1097,7 +1097,7 @@ async function runSessionCleanup() {
 For PostgreSQL with pg_cron, get the raw cleanup SQL:
 
 ```typescript
-import { getCleanupSQL } from '@authvader/sdk/server';
+import { getCleanupSQL } from '@authvital/sdk/server';
 
 const sql = getCleanupSQL({ expiredOlderThanDays: 30 });
 console.log(sql);
@@ -1130,7 +1130,7 @@ SELECT cron.unschedule('cleanup-identity-sessions');
 
 ```typescript
 import cron from 'node-cron';
-import { cleanupSessions } from '@authvader/sdk/server';
+import { cleanupSessions } from '@authvital/sdk/server';
 import { prisma } from './lib/prisma';
 
 // Run daily at 3 AM
@@ -1153,20 +1153,20 @@ cron.schedule('0 3 * * *', async () => {
 
 ## Initial Sync
 
-For existing users in AuthVader, perform a bulk initial sync:
+For existing users in AuthVital, perform a bulk initial sync:
 
 ```typescript
 // scripts/initial-sync.ts
-import { createAuthVader } from '@authvader/sdk/server';
+import { createAuthVital } from '@authvital/sdk/server';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
 async function initialSync() {
-  const authvader = createAuthVader({
-    authVaderHost: process.env.AUTHVADER_HOST!,
-    clientId: process.env.AUTHVADER_CLIENT_ID!,
-    clientSecret: process.env.AUTHVADER_CLIENT_SECRET!,
+  const authvital = createAuthVital({
+    authVitalHost: process.env.AUTHVITAL_HOST!,
+    clientId: process.env.AUTHVITAL_CLIENT_ID!,
+    clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
   });
 
   console.log('Starting initial identity sync...');
@@ -1176,7 +1176,7 @@ async function initialSync() {
   
   // Paginate through all users
   do {
-    const response = await authvader.admin.listSubjects({
+    const response = await authvital.admin.listSubjects({
       limit: 100,
       cursor,
     });
@@ -1412,7 +1412,7 @@ Add app-specific fields to the Identity model:
 
 ```prisma
 model Identity {
-  // ... all the AuthVader-synced fields above ...
+  // ... all the AuthVital-synced fields above ...
   
   // ═══════════════════════════════════════════════════════════════════════════
   // YOUR APP-SPECIFIC FIELDS BELOW
@@ -1422,7 +1422,7 @@ model Identity {
   stripeCustomerId    String?   @unique @map("stripe_customer_id")
   subscriptionTier    String?   @map("subscription_tier")
   
-  // Preferences (stored locally, not synced to AuthVader)
+  // Preferences (stored locally, not synced to AuthVital)
   preferences         Json      @default("{}")
   theme               String    @default("system")
   emailNotifications  Boolean   @default(true) @map("email_notifications")
@@ -1442,11 +1442,11 @@ model Identity {
 }
 ```
 
-### Important: Don't Duplicate AuthVader Fields!
+### Important: Don't Duplicate AuthVital Fields!
 
-Don't add fields that AuthVader already manages (email, name, etc.) as separate columns. Use the synced fields instead. If you need additional profile data:
+Don't add fields that AuthVital already manages (email, name, etc.) as separate columns. Use the synced fields instead. If you need additional profile data:
 
-1. **For OIDC standard claims** → Request it from AuthVader, they'll sync it
+1. **For OIDC standard claims** → Request it from AuthVital, they'll sync it
 2. **For app-specific data** → Add it to your local schema
 3. **For preferences** → Use a JSON column or separate settings table
 
@@ -1459,12 +1459,12 @@ Don't add fields that AuthVader already manages (email, name, etc.) as separate 
 ```typescript
 const router = new WebhookRouter({
   handler: syncHandler,
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
 });
 ```
 
 The SDK automatically:
-- Validates the RSA-SHA256 signature in `X-AuthVader-Signature` header (via JWKS)
+- Validates the RSA-SHA256 signature in `X-AuthVital-Signature` header (via JWKS)
 - Rejects requests with invalid or missing signatures
 - Protects against replay attacks using timestamps
 
@@ -1473,8 +1473,8 @@ The SDK automatically:
 Always use HTTPS for your webhook endpoint:
 
 ```
-✅ https://yourapp.com/api/webhooks/authvader
-❌ http://yourapp.com/api/webhooks/authvader
+✅ https://yourapp.com/api/webhooks/authvital
+❌ http://yourapp.com/api/webhooks/authvital
 ```
 
 ### 3. Handle Duplicates (At-Least-Once Delivery)
@@ -1546,16 +1546,16 @@ async onSubjectDeleted(event) {
 
 ### Webhook Not Receiving Events
 
-1. **Check webhook URL is correct** in AuthVader dashboard
-2. **Verify secret matches** between dashboard and `AUTHVADER_WEBHOOK_SECRET`
-3. **Check firewall rules** - AuthVader IPs must be allowed
-4. **Look at AuthVader webhook logs** for delivery failures
+1. **Check webhook URL is correct** in AuthVital dashboard
+2. **Verify secret matches** between dashboard and `AUTHVITAL_WEBHOOK_SECRET`
+3. **Check firewall rules** - AuthVital IPs must be allowed
+4. **Look at AuthVital webhook logs** for delivery failures
 
 ### Sync Out of Date
 
 1. **Check `syncedAt` timestamp** to see when last synced
 2. **Run initial sync script** to re-sync all identities
-3. **Check for webhook failures** in AuthVader dashboard
+3. **Check for webhook failures** in AuthVital dashboard
 
 ### "Identity Not Found" Errors
 
@@ -1568,8 +1568,8 @@ const identity = await prisma.identity.findUnique({
 });
 
 if (!identity) {
-  // Identity hasn't synced yet - fetch from AuthVader API
-  const subject = await authvader.admin.getSubject(userId);
+  // Identity hasn't synced yet - fetch from AuthVital API
+  const subject = await authvital.admin.getSubject(userId);
   // Create locally...
 }
 ```

@@ -104,7 +104,7 @@ export function ForgotPassword() {
             if (config.branding) {
               setBranding({
                 clientId: '',
-                name: config.branding.name || 'AuthVader',
+                name: config.branding.name || 'AuthVital',
                 logoUrl: config.branding.logoUrl,
                 primaryColor: config.branding.primaryColor,
               });
@@ -370,12 +370,12 @@ export function ForgotPassword() {
         <p className="mt-4 text-center text-xs text-muted-foreground/50">
           Secured by{' '}
           <a
-            href="https://www.authvader.com"
+            href="https://www.authvital.com"
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-muted-foreground transition-colors"
           >
-            AuthVader
+            AuthVital
           </a>
         </p>
       </div>

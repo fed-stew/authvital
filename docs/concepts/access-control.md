@@ -4,7 +4,7 @@
 
 ## Overview
 
-AuthVader implements a flexible **Role-Based Access Control (RBAC)** system with:
+AuthVital implements a flexible **Role-Based Access Control (RBAC)** system with:
 
 - **Tenant Roles**: Built-in roles for tenant management (Owner, Admin, Member)
 - **Application Roles**: Custom roles per application with permissions
@@ -15,7 +15,7 @@ AuthVader implements a flexible **Role-Based Access Control (RBAC)** system with
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                            AuthVader RBAC System                             │
+│                            AuthVital RBAC System                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  TENANT LEVEL                          APPLICATION LEVEL                     │
@@ -246,7 +246,7 @@ Control which users can access which applications:
 
 ```typescript
 // Grant access to user
-await authvader.appAccess.grant({
+await authvital.appAccess.grant({
   userId: 'user-id',
   tenantId: 'tenant-id',
   applicationId: 'app-id',
@@ -254,14 +254,14 @@ await authvader.appAccess.grant({
 });
 
 // Revoke access
-await authvader.appAccess.revoke({
+await authvital.appAccess.revoke({
   userId: 'user-id',
   tenantId: 'tenant-id',
   applicationId: 'app-id',
 });
 
 // Update roles
-await authvader.appAccess.updateRoles({
+await authvital.appAccess.updateRoles({
   userId: 'user-id',
   tenantId: 'tenant-id',
   applicationId: 'app-id',
@@ -275,7 +275,7 @@ await authvader.appAccess.updateRoles({
 
 ```typescript
 // Server-side
-const { allowed } = await authvader.permissions.check(req, {
+const { allowed } = await authvital.permissions.check(req, {
   permission: 'projects:delete',
 });
 
@@ -288,17 +288,17 @@ if (!allowed) {
 
 ```typescript
 // Check ALL permissions (must have all)
-const { allowed } = await authvader.permissions.checkAll(req, {
+const { allowed } = await authvital.permissions.checkAll(req, {
   permissions: ['projects:read', 'projects:update'],
 });
 
 // Check ANY permission (must have at least one)
-const { allowed } = await authvader.permissions.checkAny(req, {
+const { allowed } = await authvital.permissions.checkAny(req, {
   permissions: ['projects:delete', 'admin:*'],
 });
 
 // Get individual results
-const results = await authvader.permissions.checkMany(req, {
+const results = await authvital.permissions.checkMany(req, {
   permissions: ['projects:read', 'projects:write', 'admin:*'],
 });
 // { 'projects:read': true, 'projects:write': true, 'admin:*': false }
@@ -323,7 +323,7 @@ const isAdminOrManager = ['admin', 'manager'].some(
 ```typescript
 function requirePermission(...permissions: string[]) {
   return async (req, res, next) => {
-    const { allowed } = await authvader.permissions.checkAll(req, {
+    const { allowed } = await authvital.permissions.checkAll(req, {
       permissions,
     });
     
@@ -400,7 +400,7 @@ function HasPermission({
   children: React.ReactNode;
   fallback?: React.ReactNode;
 }) {
-  const { user } = useAuthVader();
+  const { user } = useAuthVital();
   
   const permissions = Array.isArray(permission) ? permission : [permission];
   const userPerms = user?.app_permissions || [];
@@ -435,7 +435,7 @@ function HasRole({
   children: React.ReactNode;
   fallback?: React.ReactNode;
 }) {
-  const { user } = useAuthVader();
+  const { user } = useAuthVital();
   
   const roles = Array.isArray(role) ? role : [role];
   const hasRole = roles.some(r => user?.app_roles?.includes(r));
@@ -453,7 +453,7 @@ function HasRole({
 
 ```tsx
 function usePermissions() {
-  const { user } = useAuthVader();
+  const { user } = useAuthVital();
   const userPerms = user?.app_permissions || [];
   
   const can = useCallback((permission: string) => {
@@ -492,7 +492,7 @@ function ProjectActions({ projectId }) {
 ### Create Custom Role
 
 ```typescript
-await authvader.roles.create({
+await authvital.roles.create({
   applicationId: 'app-id',
   name: 'Quality Assurance',
   slug: 'qa',
@@ -510,7 +510,7 @@ await authvader.roles.create({
 ### Update Role Permissions
 
 ```typescript
-await authvader.roles.update('role-id', {
+await authvital.roles.update('role-id', {
   permissions: [
     'projects:read',
     'projects:tasks:*', // Upgraded: full task access
@@ -523,13 +523,13 @@ await authvader.roles.update('role-id', {
 
 ```typescript
 // Via membership (tenant role)
-await authvader.memberships.setTenantRole({
+await authvital.memberships.setTenantRole({
   membershipId: 'membership-id',
   roleSlug: 'admin',
 });
 
 // Via app access (application role)
-await authvader.appAccess.updateRoles({
+await authvital.appAccess.updateRoles({
   userId: 'user-id',
   tenantId: 'tenant-id',
   applicationId: 'app-id',

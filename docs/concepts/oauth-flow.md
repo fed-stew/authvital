@@ -1,10 +1,10 @@
 # OAuth 2.0 / OIDC Flows
 
-> Complete guide to AuthVader's OAuth 2.0 and OpenID Connect implementation.
+> Complete guide to AuthVital's OAuth 2.0 and OpenID Connect implementation.
 
 ## Overview
 
-AuthVader implements the following OAuth 2.0 / OIDC standards:
+AuthVital implements the following OAuth 2.0 / OIDC standards:
 
 | Standard | Support |
 |----------|--------|
@@ -25,7 +25,7 @@ This is the recommended flow for Single Page Applications (SPAs) and mobile apps
 sequenceDiagram
     participant U as User Browser
     participant C as Your App
-    participant A as AuthVader
+    participant A as AuthVital
 
     Note over C: Generate PKCE pair
     C->>C: code_verifier = random(43-128 chars)
@@ -55,7 +55,7 @@ sequenceDiagram
 #### 1. Generate PKCE Challenge
 
 ```typescript
-import { generatePKCE } from '@authvader/sdk/server';
+import { generatePKCE } from '@authvital/sdk/server';
 
 // Or implement manually:
 function generatePKCE() {
@@ -79,10 +79,10 @@ sessionStorage.setItem('pkce_verifier', codeVerifier);
 #### 2. Build Authorization URL
 
 ```typescript
-import { buildAuthorizeUrl } from '@authvader/sdk/server';
+import { buildAuthorizeUrl } from '@authvital/sdk/server';
 
 const authorizeUrl = buildAuthorizeUrl({
-  authVaderHost: 'https://auth.yourapp.com',
+  authVitalHost: 'https://auth.yourapp.com',
   clientId: 'your-client-id',
   redirectUri: 'https://yourapp.com/callback',
   codeChallenge,
@@ -136,10 +136,10 @@ const codeVerifier = sessionStorage.getItem('pkce_verifier');
 #### 4. Exchange Code for Tokens
 
 ```typescript
-import { exchangeCodeForTokens } from '@authvader/sdk/server';
+import { exchangeCodeForTokens } from '@authvital/sdk/server';
 
 const tokens = await exchangeCodeForTokens({
-  authVaderHost: 'https://auth.yourapp.com',
+  authVitalHost: 'https://auth.yourapp.com',
   clientId: 'your-client-id',
   code,
   codeVerifier,
@@ -174,7 +174,7 @@ For multi-tenant applications, you can request tokens scoped to a specific tenan
 
 ```typescript
 const authorizeUrl = buildAuthorizeUrl({
-  authVaderHost: 'https://auth.yourapp.com',
+  authVitalHost: 'https://auth.yourapp.com',
   clientId: 'your-client-id',
   redirectUri: 'https://yourapp.com/callback',
   codeChallenge,
@@ -207,7 +207,7 @@ const response = await fetch('https://auth.yourapp.com/oauth/token', {
 });
 
 const { access_token, refresh_token } = await response.json();
-// Note: AuthVader rotates refresh tokens - always store the new one!
+// Note: AuthVital rotates refresh tokens - always store the new one!
 ```
 
 ## Client Credentials Flow (M2M)
@@ -237,7 +237,7 @@ const { access_token } = await response.json();
 
 ## OIDC Discovery
 
-AuthVader exposes standard OIDC discovery endpoints:
+AuthVital exposes standard OIDC discovery endpoints:
 
 ### OpenID Configuration
 
@@ -409,19 +409,19 @@ Token endpoint returns JSON errors:
 The SDK handles most of this automatically:
 
 ```tsx
-import { AuthVaderProvider, useAuthVader } from '@authvader/sdk/client';
+import { AuthVitalProvider, useAuthVital } from '@authvital/sdk/client';
 
 // Provider handles PKCE, token storage, refresh automatically
-<AuthVaderProvider
-  authVaderHost="https://auth.yourapp.com"
+<AuthVitalProvider
+  authVitalHost="https://auth.yourapp.com"
   clientId="your-client-id"
 >
   <App />
-</AuthVaderProvider>
+</AuthVitalProvider>
 
 // Hook handles the OAuth flow
 function LoginButton() {
-  const { login, logout, isAuthenticated } = useAuthVader();
+  const { login, logout, isAuthenticated } = useAuthVital();
   
   return isAuthenticated 
     ? <button onClick={logout}>Logout</button>

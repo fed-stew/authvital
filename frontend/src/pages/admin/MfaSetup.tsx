@@ -85,12 +85,12 @@ export default function MfaSetup() {
 
   function downloadBackupCodes() {
     if (!setupData) return;
-    const codesText = `AuthVader MFA Backup Codes\n${'='.repeat(30)}\n\nStore these codes in a safe place. Each code can only be used once.\n\n${setupData.backupCodes.join('\n')}\n\nGenerated: ${new Date().toISOString()}`;
+    const codesText = `AuthVital MFA Backup Codes\n${'='.repeat(30)}\n\nStore these codes in a safe place. Each code can only be used once.\n\n${setupData.backupCodes.join('\n')}\n\nGenerated: ${new Date().toISOString()}`;
     const blob = new Blob([codesText], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'authvader-backup-codes.txt';
+    a.download = 'authvital-backup-codes.txt';
     a.click();
     URL.revokeObjectURL(url);
   }

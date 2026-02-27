@@ -1,26 +1,26 @@
 /**
- * @authvader/sdk - Server-Side URL Builders
+ * @authvital/sdk - Server-Side URL Builders
  *
  * Simple URL builders for landing pages, emails, and other non-OAuth contexts.
- * Use these when you just need a link to the AuthVader login/signup page
+ * Use these when you just need a link to the AuthVital login/signup page
  * WITHOUT the full PKCE ceremony.
  *
  * For full OAuth flows with PKCE, use OAuthFlow from './oauth-flow' instead.
  *
  * @example
  * ```ts
- * import { getSignupUrl, getLoginUrl } from '@authvader/sdk/server';
+ * import { getSignupUrl, getLoginUrl } from '@authvital/sdk/server';
  *
  * // For a "Get Started" button on your landing page
  * const signupLink = getSignupUrl({
- *   authVaderHost: 'https://auth.myapp.com',
+ *   authVitalHost: 'https://auth.myapp.com',
  *   clientId: 'my-app',
  *   redirectUri: 'https://app.myapp.com/dashboard',
  * });
  *
  * // For an email CTA
  * const loginLink = getLoginUrl({
- *   authVaderHost: 'https://auth.myapp.com',
+ *   authVitalHost: 'https://auth.myapp.com',
  *   clientId: 'my-app',
  * });
  * ```
@@ -31,8 +31,8 @@
 // =============================================================================
 
 export interface AuthUrlOptions {
-  /** AuthVader server URL (e.g., https://auth.myapp.com) */
-  authVaderHost: string;
+  /** AuthVital server URL (e.g., https://auth.myapp.com) */
+  authVitalHost: string;
   /** OAuth client_id for your application */
   clientId: string;
   /** Optional: Where to redirect after auth completes */
@@ -61,40 +61,40 @@ export interface LoginUrlOptions extends AuthUrlOptions {
  * Build a signup URL for landing pages, emails, etc.
  *
  * This is a simple redirect - NOT a full OAuth flow.
- * AuthVader will handle the OAuth redirect internally after signup.
+ * AuthVital will handle the OAuth redirect internally after signup.
  *
  * @example
  * ```ts
  * // Basic signup link
  * const url = getSignupUrl({
- *   authVaderHost: 'https://auth.myapp.com',
+ *   authVitalHost: 'https://auth.myapp.com',
  *   clientId: 'my-app',
  * });
  *
  * // With redirect after signup
  * const url = getSignupUrl({
- *   authVaderHost: 'https://auth.myapp.com',
+ *   authVitalHost: 'https://auth.myapp.com',
  *   clientId: 'my-app',
  *   redirectUri: 'https://app.myapp.com/onboarding',
  * });
  *
  * // With pre-filled email (e.g., from waitlist)
  * const url = getSignupUrl({
- *   authVaderHost: 'https://auth.myapp.com',
+ *   authVitalHost: 'https://auth.myapp.com',
  *   clientId: 'my-app',
  *   email: 'user@example.com',
  * });
  *
  * // For team invite acceptance
  * const url = getSignupUrl({
- *   authVaderHost: 'https://auth.myapp.com',
+ *   authVitalHost: 'https://auth.myapp.com',
  *   clientId: 'my-app',
  *   inviteToken: 'abc123',
  * });
  * ```
  */
 export function getSignupUrl(options: SignupUrlOptions): string {
-  const url = new URL(`${options.authVaderHost}/auth/signup`);
+  const url = new URL(`${options.authVitalHost}/auth/signup`);
 
   url.searchParams.set('client_id', options.clientId);
 
@@ -117,33 +117,33 @@ export function getSignupUrl(options: SignupUrlOptions): string {
  * Build a login URL for landing pages, emails, etc.
  *
  * This is a simple redirect - NOT a full OAuth flow.
- * AuthVader will handle the OAuth redirect internally after login.
+ * AuthVital will handle the OAuth redirect internally after login.
  *
  * @example
  * ```ts
  * // Basic login link
  * const url = getLoginUrl({
- *   authVaderHost: 'https://auth.myapp.com',
+ *   authVitalHost: 'https://auth.myapp.com',
  *   clientId: 'my-app',
  * });
  *
  * // With redirect after login
  * const url = getLoginUrl({
- *   authVaderHost: 'https://auth.myapp.com',
+ *   authVitalHost: 'https://auth.myapp.com',
  *   clientId: 'my-app',
  *   redirectUri: 'https://app.myapp.com/dashboard',
  * });
  *
  * // With tenant hint (for multi-tenant apps)
  * const url = getLoginUrl({
- *   authVaderHost: 'https://auth.myapp.com',
+ *   authVitalHost: 'https://auth.myapp.com',
  *   clientId: 'my-app',
  *   tenantHint: 'acme-corp',
  * });
  * ```
  */
 export function getLoginUrl(options: LoginUrlOptions): string {
-  const url = new URL(`${options.authVaderHost}/auth/login`);
+  const url = new URL(`${options.authVitalHost}/auth/login`);
 
   url.searchParams.set('client_id', options.clientId);
 
@@ -168,14 +168,14 @@ export function getLoginUrl(options: LoginUrlOptions): string {
  * @example
  * ```ts
  * const url = getPasswordResetUrl({
- *   authVaderHost: 'https://auth.myapp.com',
+ *   authVitalHost: 'https://auth.myapp.com',
  *   clientId: 'my-app',
  *   email: 'user@example.com',
  * });
  * ```
  */
 export function getPasswordResetUrl(options: AuthUrlOptions & { email?: string }): string {
-  const url = new URL(`${options.authVaderHost}/auth/reset-password`);
+  const url = new URL(`${options.authVitalHost}/auth/reset-password`);
 
   url.searchParams.set('client_id', options.clientId);
 
@@ -198,7 +198,7 @@ export function getPasswordResetUrl(options: AuthUrlOptions & { email?: string }
  * @example
  * ```ts
  * const url = getInviteAcceptUrl({
- *   authVaderHost: 'https://auth.myapp.com',
+ *   authVitalHost: 'https://auth.myapp.com',
  *   clientId: 'my-app',
  *   inviteToken: 'abc123xyz',
  * });
@@ -207,7 +207,7 @@ export function getPasswordResetUrl(options: AuthUrlOptions & { email?: string }
 export function getInviteAcceptUrl(
   options: AuthUrlOptions & { inviteToken: string },
 ): string {
-  const url = new URL(`${options.authVaderHost}/auth/accept-invite`);
+  const url = new URL(`${options.authVitalHost}/auth/accept-invite`);
 
   url.searchParams.set('client_id', options.clientId);
   url.searchParams.set('token', options.inviteToken);
@@ -220,8 +220,8 @@ export function getInviteAcceptUrl(
 }
 
 export interface LogoutUrlOptions {
-  /** AuthVader server URL (e.g., https://auth.myapp.com) */
-  authVaderHost: string;
+  /** AuthVital server URL (e.g., https://auth.myapp.com) */
+  authVitalHost: string;
   /** Optional: Where to redirect after logout completes. If not provided, shows IDP's logged-out page. */
   postLogoutRedirectUri?: string;
 }
@@ -236,19 +236,19 @@ export interface LogoutUrlOptions {
  * ```ts
  * // In your logout endpoint - show IDP's logged out page:
  * const logoutUrl = getLogoutUrl({
- *   authVaderHost: 'https://auth.myapp.com',
+ *   authVitalHost: 'https://auth.myapp.com',
  * });
  * res.redirect(logoutUrl);
  *
  * // Or redirect back to your app after logout:
  * const logoutUrl = getLogoutUrl({
- *   authVaderHost: 'https://auth.myapp.com',
+ *   authVitalHost: 'https://auth.myapp.com',
  *   postLogoutRedirectUri: 'https://myapp.com/',
  * });
  * ```
  */
 export function getLogoutUrl(options: LogoutUrlOptions): string {
-  const url = new URL(`${options.authVaderHost}/api/auth/logout/redirect`);
+  const url = new URL(`${options.authVitalHost}/api/auth/logout/redirect`);
   if (options.postLogoutRedirectUri) {
     url.searchParams.set('post_logout_redirect_uri', options.postLogoutRedirectUri);
   }
@@ -262,15 +262,15 @@ export function getLogoutUrl(options: LogoutUrlOptions): string {
 /**
  * Get URL for user account settings page (standalone version)
  *
- * RECOMMENDED: Use authvader.getAccountSettingsUrl() instead for consistency.
- * This standalone function is for cases where you don't have an AuthVader client.
+ * RECOMMENDED: Use authvital.getAccountSettingsUrl() instead for consistency.
+ * This standalone function is for cases where you don't have an AuthVital client.
  *
  * @example
  * ```typescript
- * const url = getAccountSettingsUrl(authVaderHost);
+ * const url = getAccountSettingsUrl(authVitalHost);
  * // Returns: https://auth.example.com/account/settings
  * ```
  */
-export function getAccountSettingsUrl(authVaderHost: string): string {
-  return `${authVaderHost.replace(/\/$/, '')}/account/settings`;
+export function getAccountSettingsUrl(authVitalHost: string): string {
+  return `${authVitalHost.replace(/\/$/, '')}/account/settings`;
 }

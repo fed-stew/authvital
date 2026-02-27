@@ -10,12 +10,12 @@
 
 ```typescript
 import express from 'express';
-import { WebhookRouter, AuthVaderEventHandler } from '@authvader/sdk/webhooks';
+import { WebhookRouter, AuthVitalEventHandler } from '@authvital/sdk/webhooks';
 
 const app = express();
 
 // Your event handler
-class MyEventHandler extends AuthVaderEventHandler {
+class MyEventHandler extends AuthVitalEventHandler {
   async onSubjectCreated(event) {
     console.log('New user:', event.data.email);
   }
@@ -27,7 +27,7 @@ class MyEventHandler extends AuthVaderEventHandler {
 
 // Create webhook router
 const webhookRouter = new WebhookRouter({
-  authVaderHost: process.env.AV_HOST!, // Or set AV_HOST env var
+  authVitalHost: process.env.AV_HOST!, // Or set AV_HOST env var
   handler: new MyEventHandler(),
   maxTimestampAge: 300,    // 5 min replay protection
   keysCacheTtl: 3600000,   // 1 hour JWKS cache
@@ -36,13 +36,13 @@ const webhookRouter = new WebhookRouter({
 // IMPORTANT: Use express.raw() for signature verification!
 // The body must be the raw buffer, not parsed JSON.
 app.post(
-  '/webhooks/authvader',
+  '/webhooks/authvital',
   express.raw({ type: 'application/json' }),
   webhookRouter.expressHandler()
 );
 
 app.listen(3000, () => {
-  console.log('Webhook endpoint ready at http://localhost:3000/webhooks/authvader');
+  console.log('Webhook endpoint ready at http://localhost:3000/webhooks/authvital');
 });
 ```
 
@@ -52,24 +52,24 @@ If you have `express.json()` globally, exclude the webhook route:
 
 ```typescript
 import express from 'express';
-import { WebhookRouter, AuthVaderEventHandler } from '@authvader/sdk/webhooks';
+import { WebhookRouter, AuthVitalEventHandler } from '@authvital/sdk/webhooks';
 
 const app = express();
 
-class MyEventHandler extends AuthVaderEventHandler {
+class MyEventHandler extends AuthVitalEventHandler {
   async onSubjectCreated(event) {
     console.log('New user:', event.data.email);
   }
 }
 
 const webhookRouter = new WebhookRouter({
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   handler: new MyEventHandler(),
 });
 
 // Register webhook BEFORE global JSON parser
 app.post(
-  '/webhooks/authvader',
+  '/webhooks/authvital',
   express.raw({ type: 'application/json' }),
   webhookRouter.expressHandler()
 );
@@ -88,11 +88,11 @@ app.get('/api/users', (req, res) => {
 ## Next.js (App Router)
 
 ```typescript
-// app/api/webhooks/authvader/route.ts
-import { WebhookRouter, AuthVaderEventHandler } from '@authvader/sdk/webhooks';
+// app/api/webhooks/authvital/route.ts
+import { WebhookRouter, AuthVitalEventHandler } from '@authvital/sdk/webhooks';
 import type { NextRequest } from 'next/server';
 
-class MyEventHandler extends AuthVaderEventHandler {
+class MyEventHandler extends AuthVitalEventHandler {
   async onSubjectCreated(event) {
     console.log('New user:', event.data.email);
     // Sync to your database
@@ -108,7 +108,7 @@ class MyEventHandler extends AuthVaderEventHandler {
 }
 
 const webhookRouter = new WebhookRouter({
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   handler: new MyEventHandler(),
   maxTimestampAge: 300,
   keysCacheTtl: 3600000,
@@ -127,11 +127,11 @@ export const runtime = 'nodejs';
 ## Next.js (Pages Router)
 
 ```typescript
-// pages/api/webhooks/authvader.ts
+// pages/api/webhooks/authvital.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { WebhookRouter, AuthVaderEventHandler } from '@authvader/sdk/webhooks';
+import { WebhookRouter, AuthVitalEventHandler } from '@authvital/sdk/webhooks';
 
-class MyEventHandler extends AuthVaderEventHandler {
+class MyEventHandler extends AuthVitalEventHandler {
   async onSubjectCreated(event) {
     console.log('New user:', event.data.email);
   }
@@ -142,7 +142,7 @@ class MyEventHandler extends AuthVaderEventHandler {
 }
 
 const webhookRouter = new WebhookRouter({
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   handler: new MyEventHandler(),
 });
 
@@ -191,16 +191,16 @@ export class WebhooksModule {}
 ```typescript
 // src/webhooks/webhook-event-handler.ts
 import { Injectable } from '@nestjs/common';
-import { AuthVaderEventHandler } from '@authvader/sdk/webhooks';
+import { AuthVitalEventHandler } from '@authvital/sdk/webhooks';
 import type {
   SubjectCreatedEvent,
   MemberJoinedEvent,
   LicenseAssignedEvent,
-} from '@authvader/sdk/webhooks';
+} from '@authvital/sdk/webhooks';
 import { UsersService } from '../users/users.service';
 
 @Injectable()
-export class WebhookEventHandler extends AuthVaderEventHandler {
+export class WebhookEventHandler extends AuthVitalEventHandler {
   constructor(private readonly usersService: UsersService) {
     super();
   }
@@ -238,7 +238,7 @@ export class WebhookEventHandler extends AuthVaderEventHandler {
 import { Controller, Post, Req, Res, RawBodyRequest } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
-import { WebhookRouter } from '@authvader/sdk/webhooks';
+import { WebhookRouter } from '@authvital/sdk/webhooks';
 import { WebhookEventHandler } from './webhook-event-handler';
 
 @Controller('webhooks')
@@ -250,14 +250,14 @@ export class WebhooksController {
     private readonly configService: ConfigService
   ) {
     this.webhookRouter = new WebhookRouter({
-      authVaderHost: this.configService.getOrThrow('AV_HOST'),
+      authVitalHost: this.configService.getOrThrow('AV_HOST'),
       handler: this.eventHandler,
       maxTimestampAge: 300,
       keysCacheTtl: 3600000,
     });
   }
 
-  @Post('authvader')
+  @Post('authvital')
   async handleWebhook(
     @Req() req: RawBodyRequest<Request>,
     @Res() res: Response
@@ -290,20 +290,20 @@ bootstrap();
 
 ```typescript
 import Fastify from 'fastify';
-import { WebhookRouter, AuthVaderEventHandler } from '@authvader/sdk/webhooks';
+import { WebhookRouter, AuthVitalEventHandler } from '@authvital/sdk/webhooks';
 
 const fastify = Fastify({
   logger: true,
 });
 
-class MyEventHandler extends AuthVaderEventHandler {
+class MyEventHandler extends AuthVitalEventHandler {
   async onSubjectCreated(event) {
     console.log('New user:', event.data.email);
   }
 }
 
 const webhookRouter = new WebhookRouter({
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   handler: new MyEventHandler(),
 });
 
@@ -316,13 +316,13 @@ fastify.addContentTypeParser(
   }
 );
 
-fastify.post('/webhooks/authvader', async (request, reply) => {
+fastify.post('/webhooks/authvital', async (request, reply) => {
   return webhookRouter.fastifyHandler()(request, reply);
 });
 
 fastify.listen({ port: 3000 }, (err, address) => {
   if (err) throw err;
-  console.log(`Webhook endpoint ready at ${address}/webhooks/authvader`);
+  console.log(`Webhook endpoint ready at ${address}/webhooks/authvital`);
 });
 ```
 
@@ -332,22 +332,22 @@ fastify.listen({ port: 3000 }, (err, address) => {
 
 ```typescript
 import { Hono } from 'hono';
-import { WebhookRouter, AuthVaderEventHandler } from '@authvader/sdk/webhooks';
+import { WebhookRouter, AuthVitalEventHandler } from '@authvital/sdk/webhooks';
 
 const app = new Hono();
 
-class MyEventHandler extends AuthVaderEventHandler {
+class MyEventHandler extends AuthVitalEventHandler {
   async onSubjectCreated(event) {
     console.log('New user:', event.data.email);
   }
 }
 
 const webhookRouter = new WebhookRouter({
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   handler: new MyEventHandler(),
 });
 
-app.post('/webhooks/authvader', async (c) => {
+app.post('/webhooks/authvital', async (c) => {
   return webhookRouter.honoHandler()(c);
 });
 
@@ -361,30 +361,30 @@ export default app;
 ```typescript
 import Koa from 'koa';
 import Router from '@koa/router';
-import { WebhookRouter, AuthVaderEventHandler } from '@authvader/sdk/webhooks';
+import { WebhookRouter, AuthVitalEventHandler } from '@authvital/sdk/webhooks';
 
 const app = new Koa();
 const router = new Router();
 
-class MyEventHandler extends AuthVaderEventHandler {
+class MyEventHandler extends AuthVitalEventHandler {
   async onSubjectCreated(event) {
     console.log('New user:', event.data.email);
   }
 }
 
 const webhookRouter = new WebhookRouter({
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   handler: new MyEventHandler(),
 });
 
-router.post('/webhooks/authvader', async (ctx) => {
+router.post('/webhooks/authvital', async (ctx) => {
   return webhookRouter.koaHandler()(ctx);
 });
 
 app.use(router.routes()).use(router.allowedMethods());
 
 app.listen(3000, () => {
-  console.log('Webhook endpoint ready at http://localhost:3000/webhooks/authvader');
+  console.log('Webhook endpoint ready at http://localhost:3000/webhooks/authvital');
 });
 ```
 

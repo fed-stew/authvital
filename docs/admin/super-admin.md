@@ -1,10 +1,10 @@
 # Super Admin Guide
 
-> Managing your AuthVader instance as a super administrator.
+> Managing your AuthVital instance as a super administrator.
 
 ## Overview
 
-Super Admins have full control over the AuthVader instance:
+Super Admins have full control over the AuthVital instance:
 
 - Manage applications and OAuth clients
 - Configure instance-wide settings
@@ -18,11 +18,11 @@ Super Admins have full control over the AuthVader instance:
 
 ### Initial Setup
 
-When AuthVader starts with `SUPER_ADMIN_EMAIL` configured:
+When AuthVital starts with `SUPER_ADMIN_EMAIL` configured:
 
 1. A super admin account is created automatically
 2. A password reset email is sent (or logged to console in dev)
-3. Navigate to `https://your-authvader.com/admin`
+3. Navigate to `https://your-authvital.com/admin`
 4. Click "Reset Password" and check your email
 5. Set a strong password
 6. **Enable MFA immediately**
@@ -30,7 +30,7 @@ When AuthVader starts with `SUPER_ADMIN_EMAIL` configured:
 ### Accessing Admin Panel
 
 ```
-https://your-authvader.com/admin
+https://your-authvital.com/admin
 ```
 
 Login with your super admin credentials. If MFA is required, you'll be prompted for a TOTP code.

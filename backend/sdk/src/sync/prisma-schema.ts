@@ -1,5 +1,5 @@
 /**
- * @authvader/sdk - Prisma Schema Snippets
+ * @authvital/sdk - Prisma Schema Snippets
  * 
  * Copy these model definitions into your schema.prisma file.
  * The sync handler expects these exact field names.
@@ -7,16 +7,16 @@
 
 export const IDENTITY_SCHEMA = `
 // =============================================================================
-// AUTHVADER IDENTITY (synced from IDP)
+// AUTHVITAL IDENTITY (synced from IDP)
 // =============================================================================
 // Copy this into your schema.prisma and customize as needed.
 // The sync handler only touches these base fields.
 
 model Identity {
   // ─────────────────────────────────────────────────────────────────────────────
-  // CORE IDENTITY (synced from AuthVader - OIDC Standard Claims)
+  // CORE IDENTITY (synced from AuthVital - OIDC Standard Claims)
   // ─────────────────────────────────────────────────────────────────────────────
-  id                String    @id                      // AuthVader subject ID (sub claim)
+  id                String    @id                      // AuthVital subject ID (sub claim)
   username          String?   @unique                  // Unique handle (@janesmith)
   displayName       String?   @map("display_name")     // Full name (OIDC: name)
   givenName         String?   @map("given_name")       // First name
@@ -82,7 +82,7 @@ model Identity {
 
 export const IDENTITY_SESSION_SCHEMA = `
 // =============================================================================
-// AUTHVADER IDENTITY SESSION (optional - for session management)
+// AUTHVITAL IDENTITY SESSION (optional - for session management)
 // =============================================================================
 
 model IdentitySession {
@@ -90,7 +90,7 @@ model IdentitySession {
   identityId      String    @map("identity_id")
   identity        Identity  @relation(fields: [identityId], references: [id], onDelete: Cascade)
   
-  authSessionId   String?   @map("auth_session_id")   // AuthVader session ID
+  authSessionId   String?   @map("auth_session_id")   // AuthVital session ID
   deviceInfo      String?   @map("device_info")       // Parsed device info
   ipAddress       String?   @map("ip_address")
   userAgent       String?   @map("user_agent")
@@ -116,7 +116,7 @@ export const FULL_SCHEMA = `${IDENTITY_SCHEMA}\n\n${IDENTITY_SESSION_SCHEMA}`;
  */
 export function printSchema(): void {
   console.log('// ============================================================================');
-  console.log('// AUTHVADER SDK - PRISMA SCHEMA SNIPPET');
+  console.log('// AUTHVITAL SDK - PRISMA SCHEMA SNIPPET');
   console.log('// Copy the following into your schema.prisma file');
   console.log('// ============================================================================');
   console.log(FULL_SCHEMA);

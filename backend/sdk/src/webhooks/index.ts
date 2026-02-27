@@ -1,20 +1,20 @@
 // =============================================================================
-// AUTHVADER WEBHOOKS SDK
+// AUTHVITAL WEBHOOKS SDK
 // =============================================================================
 //
-// The recommended way to handle AuthVader webhooks:
+// The recommended way to handle AuthVital webhooks:
 //
-// 1. Set AV_HOST environment variable (or pass authVaderHost in options)
-// 2. Extend AuthVaderEventHandler
+// 1. Set AV_HOST environment variable (or pass authVitalHost in options)
+// 2. Extend AuthVitalEventHandler
 // 3. Override the methods you need (IDE autocomplete shows all options)
 // 4. Create a WebhookRouter with your handler
 // 5. Use router.expressHandler() in your route
 //
 // Example:
 // ```typescript
-// import { AuthVaderEventHandler, WebhookRouter } from '@authvader/sdk/server';
+// import { AuthVitalEventHandler, WebhookRouter } from '@authvital/sdk/server';
 //
-// class MyHandler extends AuthVaderEventHandler {
+// class MyHandler extends AuthVitalEventHandler {
 //   async onSubjectCreated(event) {
 //     await db.users.create({ id: event.data.sub, email: event.data.email });
 //   }
@@ -73,7 +73,7 @@ export {
 
 // Main API: Abstract base classes to extend
 export {
-  AuthVaderEventHandler,
+  AuthVitalEventHandler,
   // Granular handlers for specific event categories
   InviteEventHandler,
   SubjectEventHandler,
@@ -84,7 +84,7 @@ export {
 
 // Handler interfaces (for typing)
 export type {
-  IAuthVaderEventHandler,
+  IAuthVitalEventHandler,
   IInviteEventHandler,
   ISubjectEventHandler,
   IMemberEventHandler,
@@ -96,8 +96,8 @@ export type {
 export { WebhookRouter, type WebhookRouterOptions } from './webhook-router';
 
 // Low-level verifier (for advanced use cases only)
-// Most users should use WebhookRouter + AuthVaderEventHandler instead
+// Most users should use WebhookRouter + AuthVitalEventHandler instead
 export {
-  AuthVaderWebhooks as WebhookVerifier,
+  AuthVitalWebhooks as WebhookVerifier,
   type WebhookHandlerOptions as WebhookVerifierOptions,
 } from './webhook-handler';

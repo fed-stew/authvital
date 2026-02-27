@@ -1,7 +1,7 @@
 /**
- * @authvader/sdk - Server-Side Types
+ * @authvital/sdk - Server-Side Types
  *
- * Clean, well-organized type definitions for the AuthVader server SDK.
+ * Clean, well-organized type definitions for the AuthVital server SDK.
  *
  * ╔════════════════════════════════════════════════════════════════════════════╗
  * ║  IMPORTANT: CANONICAL TYPE SYNCHRONIZATION                                  ║
@@ -124,9 +124,9 @@ export interface TenantLicenseOverview {
 // CLIENT CONFIGURATION
 // =============================================================================
 
-export interface AuthVaderClientConfig {
-  /** AuthVader server URL (e.g., https://auth.yourapp.com) */
-  authVaderHost: string;
+export interface AuthVitalClientConfig {
+  /** AuthVital server URL (e.g., https://auth.yourapp.com) */
+  authVitalHost: string;
   /** OAuth client_id for your application */
   clientId: string;
   /** OAuth client_secret for your application */
@@ -136,8 +136,8 @@ export interface AuthVaderClientConfig {
 }
 
 export interface OAuthFlowConfig {
-  /** AuthVader server URL */
-  authVaderHost: string;
+  /** AuthVital server URL */
+  authVitalHost: string;
   /** OAuth client_id */
   clientId: string;
   /** OAuth client_secret (optional for public clients) */
@@ -180,7 +180,7 @@ export interface JwtLicenseInfo {
 /**
  * Enhanced JWT payload with OIDC standard claims
  * 
- * This represents the decoded JWT token contents from AuthVader.
+ * This represents the decoded JWT token contents from AuthVital.
  * Claims are included based on requested OAuth scopes.
  */
 export interface EnhancedJwtPayload {
@@ -191,7 +191,7 @@ export interface EnhancedJwtPayload {
   sub: string;
   /** Audience (client ID) */
   aud: string | string[];
-  /** Issuer (AuthVader URL) */
+  /** Issuer (AuthVital URL) */
   iss: string;
   /** Issued at (unix timestamp) */
   iat: number;
@@ -245,7 +245,7 @@ export interface EnhancedJwtPayload {
   phone_number_verified?: boolean;
   
   // ═══════════════════════════════════════════════════════════════════════════
-  // TENANT CONTEXT (AuthVader-specific)
+  // TENANT CONTEXT (AuthVital-specific)
   // ═══════════════════════════════════════════════════════════════════════════
   /** Current tenant ID (when token is tenant-scoped) */
   tenant_id?: string;
@@ -253,7 +253,7 @@ export interface EnhancedJwtPayload {
   tenant_subdomain?: string;
   
   // ═══════════════════════════════════════════════════════════════════════════
-  // AUTHORIZATION (AuthVader-specific)
+  // AUTHORIZATION (AuthVital-specific)
   // ═══════════════════════════════════════════════════════════════════════════
   /** Tenant-level roles (from TenantRole) */
   tenant_roles?: string[];
@@ -267,7 +267,7 @@ export interface EnhancedJwtPayload {
   groups?: string[];
   
   // ═══════════════════════════════════════════════════════════════════════════
-  // LICENSE (AuthVader-specific)
+  // LICENSE (AuthVital-specific)
   // ═══════════════════════════════════════════════════════════════════════════
   /** License info for current app */
   license?: JwtLicenseInfo;
@@ -322,7 +322,7 @@ export interface SendInvitationParams {
   familyName?: string;
   /** 
    * Tenant role ID to assign when invitation is accepted.
-   * Required. Get available role IDs from `authvader.memberships.getTenantRoles()`.
+   * Required. Get available role IDs from `authvital.memberships.getTenantRoles()`.
    */
   roleId: string;
   expiresInDays?: number;

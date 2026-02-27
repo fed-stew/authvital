@@ -35,7 +35,7 @@ export class MfaService {
     private readonly keyEncryption: KeyEncryptionService,
     private readonly configService: ConfigService,
   ) {
-    this.issuerName = this.configService.get<string>('MFA_ISSUER_NAME', 'AuthVader');
+    this.issuerName = this.configService.get<string>('MFA_ISSUER_NAME', 'AuthVital');
     
     // Configure otplib - allow 1 step window for clock drift
     authenticator.options = {

@@ -1,8 +1,8 @@
-# AuthVader Deployment Architecture
+# AuthVital Deployment Architecture
 
 ## Overview
 
-AuthVader uses a **two-mode deployment** pattern that separates database migrations from API startup for faster, safer deployments.
+AuthVital uses a **two-mode deployment** pattern that separates database migrations from API startup for faster, safer deployments.
 
 ## Deployment Modes
 

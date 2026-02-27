@@ -1,7 +1,7 @@
 /**
- * @authvader/sdk - Base Client
+ * @authvital/sdk - Base Client
  *
- * Shared HTTP utilities, token management, and JWT validation for the AuthVader SDK.
+ * Shared HTTP utilities, token management, and JWT validation for the AuthVital SDK.
  * All namespaces extend from this base to access authenticated API calls.
  */
 
@@ -12,9 +12,9 @@ import type { TokenResponse } from './types';
 // CONFIGURATION
 // =============================================================================
 
-export interface AuthVaderConfig {
-  /** AuthVader IDP URL (e.g., "https://auth.example.com") */
-  authVaderHost: string;
+export interface AuthVitalConfig {
+  /** AuthVital IDP URL (e.g., "https://auth.example.com") */
+  authVitalHost: string;
   /** OAuth client_id for your application */
   clientId: string;
   /** OAuth client_secret for your application */
@@ -113,27 +113,27 @@ export function appendClientIdToUri(uri: string | null, clientId: string): strin
  * - JWT validation and claims extraction
  */
 export class BaseClient {
-  readonly config: AuthVaderConfig;
+  readonly config: AuthVitalConfig;
   readonly jwtValidator: JwtValidator;
   private accessToken: string | null = null;
   private tokenExpiresAt: number = 0;
 
-  constructor(config: AuthVaderConfig) {
+  constructor(config: AuthVitalConfig) {
     // Validate required config
-    if (!config.authVaderHost) {
+    if (!config.authVitalHost) {
       throw new Error(
-        'authVaderHost is required. Pass it in config or set AV_HOST environment variable.',
+        'authVitalHost is required. Pass it in config or set AV_HOST environment variable.',
       );
     }
 
     this.config = {
       ...config,
-      authVaderHost: config.authVaderHost.replace(/\/$/, ''), // Remove trailing slash
+      authVitalHost: config.authVitalHost.replace(/\/$/, ''), // Remove trailing slash
     };
 
     // Initialize JWT validator with JWKS caching
     this.jwtValidator = new JwtValidator({
-      authVaderHost: this.config.authVaderHost,
+      authVitalHost: this.config.authVitalHost,
       cacheTtl: config.jwksCacheTtl,
       audience: config.audience ?? config.clientId,
     });
@@ -155,7 +155,7 @@ export class BaseClient {
    * ```ts
    * // Express
    * app.get('/api/auth/me', async (req, res) => {
-   *   const { authenticated, user, error } = await authvader.getCurrentUser(req);
+   *   const { authenticated, user, error } = await authvital.getCurrentUser(req);
    *   if (!authenticated) return res.status(401).json({ error });
    *   res.json(user);
    * });
@@ -224,8 +224,8 @@ export class BaseClient {
    * ```ts
    * // Express
    * app.get('/api/members', async (req, res) => {
-   *   const claims = await authvader.validateRequest(req);
-   *   const members = await authvader.memberships.listForApplication(claims);
+   *   const claims = await authvital.validateRequest(req);
+   *   const members = await authvital.memberships.listForApplication(claims);
    *   res.json(members);
    * });
    * ```
@@ -273,7 +273,7 @@ export class BaseClient {
       return this.accessToken;
     }
 
-    const response = await fetch(`${this.config.authVaderHost}/oauth/token`, {
+    const response = await fetch(`${this.config.authVitalHost}/oauth/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -311,7 +311,7 @@ export class BaseClient {
   ): Promise<T> {
     const token = await this.getAccessToken();
 
-    const response = await fetch(`${this.config.authVaderHost}${path}`, {
+    const response = await fetch(`${this.config.authVitalHost}${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${token}`,
@@ -376,7 +376,7 @@ export class BaseClient {
       options.body = JSON.stringify(body);
     }
 
-    const response = await fetch(`${this.config.authVaderHost}${path}`, options);
+    const response = await fetch(`${this.config.authVitalHost}${path}`, options);
 
     if (!response.ok) {
       const error = await response.text();

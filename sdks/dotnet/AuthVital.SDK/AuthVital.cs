@@ -1,14 +1,14 @@
-namespace AuthVader.SDK;
+namespace AuthVital.SDK;
 
 /// <summary>
-/// Official .NET SDK for AuthVader Identity Platform.
+/// Official .NET SDK for AuthVital Identity Platform.
 /// 
 /// <para><strong>Status: Coming Soon</strong></para>
 /// 
 /// <para>This package is a placeholder. The full SDK is under active development.
-/// Follow <see href="https://github.com/authvader/authvader">the main repository</see> for updates!</para>
+/// Follow <see href="https://github.com/authvital/authvital">the main repository</see> for updates!</para>
 /// </summary>
-public class AuthVaderClient
+public class AuthVitalClient
 {
     /// <summary>
     /// Current SDK version.
@@ -16,34 +16,34 @@ public class AuthVaderClient
     public const string Version = "0.0.1";
 
     /// <summary>
-    /// Creates a new AuthVader client builder.
+    /// Creates a new AuthVital client builder.
     /// </summary>
     /// <returns>A new builder instance.</returns>
     /// <exception cref="NotImplementedException">Always thrown as this is a placeholder.</exception>
-    public static AuthVaderClientBuilder Builder()
+    public static AuthVitalClientBuilder Builder()
     {
         throw new NotImplementedException(
-            "AuthVader .NET SDK is coming soon! " +
-            "Follow https://github.com/authvader/authvader for updates."
+            "AuthVital .NET SDK is coming soon! " +
+            "Follow https://github.com/authvital/authvital for updates."
         );
     }
 }
 
 /// <summary>
-/// Builder for creating AuthVader clients.
+/// Builder for creating AuthVital clients.
 /// </summary>
-public class AuthVaderClientBuilder
+public class AuthVitalClientBuilder
 {
     private string? _host;
     private string? _clientId;
     private string? _clientSecret;
 
     /// <summary>
-    /// Sets the AuthVader host URL.
+    /// Sets the AuthVital host URL.
     /// </summary>
     /// <param name="host">The host URL.</param>
     /// <returns>This builder instance.</returns>
-    public AuthVaderClientBuilder WithHost(string host)
+    public AuthVitalClientBuilder WithHost(string host)
     {
         _host = host;
         return this;
@@ -54,7 +54,7 @@ public class AuthVaderClientBuilder
     /// </summary>
     /// <param name="clientId">The client ID.</param>
     /// <returns>This builder instance.</returns>
-    public AuthVaderClientBuilder WithClientId(string clientId)
+    public AuthVitalClientBuilder WithClientId(string clientId)
     {
         _clientId = clientId;
         return this;
@@ -65,18 +65,18 @@ public class AuthVaderClientBuilder
     /// </summary>
     /// <param name="clientSecret">The client secret.</param>
     /// <returns>This builder instance.</returns>
-    public AuthVaderClientBuilder WithClientSecret(string clientSecret)
+    public AuthVitalClientBuilder WithClientSecret(string clientSecret)
     {
         _clientSecret = clientSecret;
         return this;
     }
 
     /// <summary>
-    /// Builds the AuthVader client.
+    /// Builds the AuthVital client.
     /// </summary>
     /// <returns>The client instance.</returns>
     /// <exception cref="NotImplementedException">Always thrown as this is a placeholder.</exception>
-    public AuthVaderClient Build()
+    public AuthVitalClient Build()
     {
         throw new NotImplementedException("Coming soon!");
     }

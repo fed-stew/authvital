@@ -1,29 +1,29 @@
-//! # AuthVader SDK for Rust
+//! # AuthVital SDK for Rust
 //!
-//! Official Rust SDK for AuthVader Identity Platform.
+//! Official Rust SDK for AuthVital Identity Platform.
 //!
 //! **Status: Coming Soon**
 //!
 //! This crate is a placeholder. The full SDK is under active development.
-//! Follow <https://github.com/authvader/authvader> for updates!
+//! Follow <https://github.com/authvital/authvital> for updates!
 
 #![doc = include_str!("../README.md")]
 
-/// Placeholder for the AuthVader client.
+/// Placeholder for the AuthVital client.
 /// 
 /// # Coming Soon
 /// 
 /// This SDK is under active development.
-pub struct AuthVader;
+pub struct AuthVital;
 
-impl AuthVader {
-    /// Creates a new AuthVader client.
+impl AuthVital {
+    /// Creates a new AuthVital client.
     /// 
     /// # Panics
     /// 
     /// This is a placeholder and will panic. The full SDK is coming soon!
     pub fn new() -> Self {
-        unimplemented!("AuthVader Rust SDK is coming soon! Follow https://github.com/authvader/authvader for updates.")
+        unimplemented!("AuthVital Rust SDK is coming soon! Follow https://github.com/authvital/authvital for updates.")
     }
 }
 

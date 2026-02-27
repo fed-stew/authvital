@@ -83,7 +83,7 @@ export interface ILicenseEventHandler {
  * Combined interface for all events
  * Extend this if you want to handle everything in one class
  */
-export interface IAuthVaderEventHandler
+export interface IAuthVitalEventHandler
   extends IInviteEventHandler,
     ISubjectEventHandler,
     IMemberEventHandler,
@@ -181,7 +181,7 @@ export abstract class LicenseEventHandler implements ILicenseEventHandler {
  *
  * @example
  * ```typescript
- * class MyEventHandler extends AuthVaderEventHandler {
+ * class MyEventHandler extends AuthVitalEventHandler {
  *   async onSubjectCreated(event: SubjectCreatedEvent) {
  *     // event.data.sub is the subject ID
  *     await this.db.subjects.create({ id: event.data.sub, email: event.data.email });
@@ -197,7 +197,7 @@ export abstract class LicenseEventHandler implements ILicenseEventHandler {
  * }
  * ```
  */
-export abstract class AuthVaderEventHandler implements IAuthVaderEventHandler {
+export abstract class AuthVitalEventHandler implements IAuthVitalEventHandler {
   // Invite events
   onInviteCreated?(_event: InviteCreatedEvent): Promise<void> | void {}
   onInviteAccepted?(_event: InviteAcceptedEvent): Promise<void> | void {}

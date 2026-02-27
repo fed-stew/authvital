@@ -1,30 +1,30 @@
 # Quick Start Guide
 
-> Get AuthVader integrated into your application in under 5 minutes.
+> Get AuthVital integrated into your application in under 5 minutes.
 
 ## Prerequisites
 
 - Node.js 18+ 
-- An AuthVader instance running (see [Installation](./installation.md))
-- An OAuth application created in AuthVader Admin Panel
+- An AuthVital instance running (see [Installation](./installation.md))
+- An OAuth application created in AuthVital Admin Panel
 
 ## Step 1: Install the SDK
 
 ```bash
-npm install @authvader/sdk
+npm install @authvital/sdk
 # or
-yarn add @authvader/sdk
+yarn add @authvital/sdk
 # or
-pnpm add @authvader/sdk
+pnpm add @authvital/sdk
 ```
 
 ## Step 2: Get Your Credentials
 
-From the AuthVader Admin Panel, create an application and note:
+From the AuthVital Admin Panel, create an application and note:
 
 | Credential | Example | Where to find |
 |------------|---------|---------------|
-| `AUTHVADER_HOST` | `https://auth.yourcompany.com` | Your AuthVader URL |
+| `AUTHVITAL_HOST` | `https://auth.yourcompany.com` | Your AuthVital URL |
 | `CLIENT_ID` | `a1b2c3d4-e5f6-...` | Application → Settings |
 | `CLIENT_SECRET` | `secret_xyz...` | Application → Settings (server only) |
 
@@ -33,13 +33,13 @@ From the AuthVader Admin Panel, create an application and note:
 ### 3a. Configure the SDK
 
 ```typescript
-// lib/authvader.ts
-import { createAuthVader } from '@authvader/sdk/server';
+// lib/authvital.ts
+import { createAuthVital } from '@authvital/sdk/server';
 
-export const authvader = createAuthVader({
-  authVaderHost: process.env.AUTHVADER_HOST!,
-  clientId: process.env.AUTHVADER_CLIENT_ID!,
-  clientSecret: process.env.AUTHVADER_CLIENT_SECRET!,
+export const authvital = createAuthVital({
+  authVitalHost: process.env.AUTHVITAL_HOST!,
+  clientId: process.env.AUTHVITAL_CLIENT_ID!,
+  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
 });
 ```
 
@@ -48,14 +48,14 @@ export const authvader = createAuthVader({
 ```typescript
 // middleware/auth.ts
 import { Request, Response, NextFunction } from 'express';
-import { authvader } from '../lib/authvader';
+import { authvital } from '../lib/authvital';
 
 export async function requireAuth(
   req: Request,
   res: Response,
   next: NextFunction
 ) {
-  const { authenticated, user, error } = await authvader.getCurrentUser(req);
+  const { authenticated, user, error } = await authvital.getCurrentUser(req);
   
   if (!authenticated) {
     return res.status(401).json({ 
@@ -98,7 +98,7 @@ router.get('/me', requireAuth, (req, res) => {
 
 // Permission-protected route
 router.post('/admin/users', requireAuth, async (req, res) => {
-  const { allowed } = await authvader.permissions.check(req, {
+  const { allowed } = await authvital.permissions.check(req, {
     permission: 'users:write',
   });
   
@@ -114,21 +114,21 @@ export default router;
 
 ## Step 4: Client-Side Setup (React)
 
-### 4a. Wrap Your App with AuthVaderProvider
+### 4a. Wrap Your App with AuthVitalProvider
 
 ```tsx
 // App.tsx
-import { AuthVaderProvider } from '@authvader/sdk/client';
+import { AuthVitalProvider } from '@authvital/sdk/client';
 import { Dashboard } from './pages/Dashboard';
 
 export function App() {
   return (
-    <AuthVaderProvider
-      authVaderHost={import.meta.env.VITE_AUTHVADER_HOST}
-      clientId={import.meta.env.VITE_AUTHVADER_CLIENT_ID}
+    <AuthVitalProvider
+      authVitalHost={import.meta.env.VITE_AUTHVITAL_HOST}
+      clientId={import.meta.env.VITE_AUTHVITAL_CLIENT_ID}
     >
       <Dashboard />
-    </AuthVaderProvider>
+    </AuthVitalProvider>
   );
 }
 ```
@@ -137,7 +137,7 @@ export function App() {
 
 ```tsx
 // pages/Dashboard.tsx
-import { useAuthVader } from '@authvader/sdk/client';
+import { useAuthVital } from '@authvital/sdk/client';
 
 export function Dashboard() {
   const { 
@@ -146,7 +146,7 @@ export function Dashboard() {
     isLoading, 
     login, 
     logout 
-  } = useAuthVader();
+  } = useAuthVital();
 
   if (isLoading) {
     return <div>Loading...</div>;
@@ -176,7 +176,7 @@ export function Dashboard() {
 
 ```tsx
 // components/ProtectedRoute.tsx
-import { ProtectedRoute } from '@authvader/sdk/client';
+import { ProtectedRoute } from '@authvital/sdk/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
 export function AppRoutes() {
@@ -211,16 +211,16 @@ export function AppRoutes() {
 ### Server (.env)
 
 ```bash
-AUTHVADER_HOST=https://auth.yourcompany.com
-AUTHVADER_CLIENT_ID=your-client-id
-AUTHVADER_CLIENT_SECRET=your-client-secret
+AUTHVITAL_HOST=https://auth.yourcompany.com
+AUTHVITAL_CLIENT_ID=your-client-id
+AUTHVITAL_CLIENT_SECRET=your-client-secret
 ```
 
 ### Client (.env)
 
 ```bash
-VITE_AUTHVADER_HOST=https://auth.yourcompany.com
-VITE_AUTHVADER_CLIENT_ID=your-client-id
+VITE_AUTHVITAL_HOST=https://auth.yourcompany.com
+VITE_AUTHVITAL_CLIENT_ID=your-client-id
 # Never expose CLIENT_SECRET to the client!
 ```
 
@@ -234,21 +234,21 @@ Here's a minimal full-stack example:
 // server.ts
 import express from 'express';
 import cookieParser from 'cookie-parser';
-import { createAuthVader } from '@authvader/sdk/server';
+import { createAuthVital } from '@authvital/sdk/server';
 
 const app = express();
 app.use(cookieParser());
 app.use(express.json());
 
-const authvader = createAuthVader({
-  authVaderHost: process.env.AUTHVADER_HOST!,
-  clientId: process.env.AUTHVADER_CLIENT_ID!,
-  clientSecret: process.env.AUTHVADER_CLIENT_SECRET!,
+const authvital = createAuthVital({
+  authVitalHost: process.env.AUTHVITAL_HOST!,
+  clientId: process.env.AUTHVITAL_CLIENT_ID!,
+  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
 });
 
 // Auth middleware
 const requireAuth = async (req, res, next) => {
-  const { authenticated, user } = await authvader.getCurrentUser(req);
+  const { authenticated, user } = await authvital.getCurrentUser(req);
   if (!authenticated) return res.status(401).json({ error: 'Unauthorized' });
   req.user = user;
   next();
@@ -260,7 +260,7 @@ app.get('/api/me', requireAuth, (req, res) => {
 });
 
 app.get('/api/tenants', requireAuth, async (req, res) => {
-  const tenants = await authvader.memberships.listUserTenants(req);
+  const tenants = await authvital.memberships.listUserTenants(req);
   res.json({ tenants });
 });
 
@@ -273,13 +273,13 @@ app.listen(3001, () => console.log('API running on :3001'));
 // main.tsx
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { AuthVaderProvider, useAuthVader } from '@authvader/sdk/client';
+import { AuthVitalProvider, useAuthVital } from '@authvital/sdk/client';
 
 function App() {
-  const { user, isAuthenticated, login, logout } = useAuthVader();
+  const { user, isAuthenticated, login, logout } = useAuthVital();
 
   if (!isAuthenticated) {
-    return <button onClick={login}>Login with AuthVader</button>;
+    return <button onClick={login}>Login with AuthVital</button>;
   }
 
   return (
@@ -291,12 +291,12 @@ function App() {
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <AuthVaderProvider
-    authVaderHost="https://auth.yourcompany.com"
+  <AuthVitalProvider
+    authVitalHost="https://auth.yourcompany.com"
     clientId="your-client-id"
   >
     <App />
-  </AuthVaderProvider>
+  </AuthVitalProvider>
 );
 ```
 
@@ -314,7 +314,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 
 ### "Invalid redirect URI"
 
-Ensure your redirect URI is registered in the AuthVader Admin Panel under your application's settings.
+Ensure your redirect URI is registered in the AuthVital Admin Panel under your application's settings.
 
 ### "CORS error"
 
@@ -322,7 +322,7 @@ Add your frontend origin to "Allowed Web Origins" in your application settings.
 
 ### "Token validation failed"
 
-1. Check `AUTHVADER_HOST` matches your AuthVader URL exactly
+1. Check `AUTHVITAL_HOST` matches your AuthVital URL exactly
 2. Ensure `CLIENT_ID` and `CLIENT_SECRET` are correct
 3. Verify the JWT hasn't expired
 

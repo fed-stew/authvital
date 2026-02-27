@@ -1,5 +1,5 @@
 /**
- * @authvader/sdk - Identity Sync Types
+ * @authvital/sdk - Identity Sync Types
  * 
  * TypeScript types matching the Prisma schema snippets.
  * Use these for type-safe operations with synced identities.
@@ -15,10 +15,10 @@
 // =============================================================================
 
 /**
- * Base identity fields synced from AuthVader (OIDC-compliant)
+ * Base identity fields synced from AuthVital (OIDC-compliant)
  */
 export interface IdentityBase {
-  /** AuthVader subject ID (sub claim in JWT) */
+  /** AuthVital subject ID (sub claim in JWT) */
   id: string;
   
   // ─────────────────────────────────────────────────────────────────────────────
@@ -174,7 +174,7 @@ export interface IdentityUpdate {
 export interface IdentitySessionBase {
   id: string;
   identityId: string;
-  /** AuthVader's session ID (for linking) */
+  /** AuthVital's session ID (for linking) */
   authSessionId: string | null;
   /** Parsed device info (e.g., "Chrome on macOS") */
   deviceInfo: string | null;

@@ -7,14 +7,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     
     <!-- Package metadata -->
-    <PackageId>AuthVader.SDK</PackageId>
+    <PackageId>AuthVital.SDK</PackageId>
     <Version>0.0.1</Version>
-    <Authors>AuthVader Contributors</Authors>
-    <Company>AuthVader</Company>
-    <Description>Official .NET SDK for AuthVader Identity Platform - Coming Soon</Description>
-    <PackageTags>authvader;authentication;identity;oauth;sdk;oidc</PackageTags>
-    <PackageProjectUrl>https://github.com/authvader/authvader</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/authvader/authvader</RepositoryUrl>
+    <Authors>AuthVital Contributors</Authors>
+    <Company>AuthVital</Company>
+    <Description>Official .NET SDK for AuthVital Identity Platform - Coming Soon</Description>
+    <PackageTags>authvital;authentication;identity;oauth;sdk;oidc</PackageTags>
+    <PackageProjectUrl>https://github.com/authvital/authvital</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/authvital/authvital</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -25,8 +25,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
-    <None Include="..\README.md" Pack="true" PackagePath="" />
+    <None Include="../../../LICENSE" Pack="true" PackagePath="" />
+    <None Include="../README.md" Pack="true" PackagePath="" />
   </ItemGroup>
 
 </Project>

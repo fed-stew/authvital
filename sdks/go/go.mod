@@ -1,3 +1,3 @@
-module github.com/authvader/authvader/sdks/go
+module github.com/authvital/authvital/sdks/go
 
 go 1.21

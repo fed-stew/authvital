@@ -1,6 +1,6 @@
 # Webhook Event Types & Payloads
 
-> Complete reference for all AuthVader webhook event types with TypeScript types and JSON payload examples.
+> Complete reference for all AuthVital webhook event types with TypeScript types and JSON payload examples.
 
 **See also:** [Webhooks Guide](./webhooks.md) | [Event Handler Reference](./webhooks-handler.md)
 
@@ -579,5 +579,5 @@ Fires when a user's license type changes. Includes previous license info.
 ## Related Documentation
 
 - [Webhooks Guide](./webhooks.md) - Overview and quick start
-- [Event Handler Reference](./webhooks-handler.md) - AuthVaderEventHandler class
+- [Event Handler Reference](./webhooks-handler.md) - AuthVitalEventHandler class
 - [Framework Integration](./webhooks-frameworks.md) - Express, Next.js, NestJS examples

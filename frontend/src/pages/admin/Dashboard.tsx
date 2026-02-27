@@ -61,7 +61,7 @@ export function Dashboard() {
             Welcome back, {adminName}!
           </h1>
           <p className="text-muted-foreground">
-            Here's what's happening with your AuthVader instance today.
+            Here's what's happening with your AuthVital instance today.
           </p>
         </div>
 

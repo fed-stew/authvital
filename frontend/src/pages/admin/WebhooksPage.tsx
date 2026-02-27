@@ -399,7 +399,7 @@ export function WebhooksPage() {
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground space-y-2">
             <p>
-              System webhooks notify external services when events occur in your AuthVader
+              System webhooks notify external services when events occur in your AuthVital
               instance. Each webhook request is signed using RSA-SHA256 with the platform's
               signing key (same keys used for JWTs).
             </p>

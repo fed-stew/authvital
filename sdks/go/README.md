@@ -1,21 +1,21 @@
-# AuthVader SDK for Go
+# AuthVital SDK for Go
 
 > **🚧 Coming Soon**
 
-Official Go SDK for [AuthVader](https://github.com/authvader/authvader) Identity Platform.
+Official Go SDK for [AuthVital](https://github.com/authvital/authvital) Identity Platform.
 
 ## Installation
 
 ```bash
-go get github.com/authvader/authvader/sdks/go
+go get github.com/authvital/authvital/sdks/go
 ```
 
 ## Status
 
 This package is a placeholder. The full SDK is under active development.
 
-Follow the [main repository](https://github.com/authvader/authvader) for updates!
+Follow the [main repository](https://github.com/authvital/authvital) for updates!
 
 ## License
 
-AuthVader Community License v1.0 - See [LICENSE](https://github.com/authvader/authvader/blob/main/LICENSE)
+AuthVital Community License v1.0 - See [LICENSE](https://github.com/authvital/authvital/blob/main/LICENSE)

@@ -1,12 +1,12 @@
-# AuthVader
+# AuthVital
 
 > **Pronounced "Auth-vah-der"** (rhymes with "odder", not like "invader")
 
-**AuthVader is your own fully-featured identity platform**.. think Auth0 or Clerk, but self-hosted and completely under your control.
+**AuthVital is your own fully-featured identity platform**.. think Auth0 or Clerk, but self-hosted and completely under your control.
 
 ## What Is It?
 
-Building a B2B SaaS app? You need authentication, organizations, roles, permissions, and probably licensing too. AuthVader gives you all of that in one package:
+Building a B2B SaaS app? You need authentication, organizations, roles, permissions, and probably licensing too. AuthVital gives you all of that in one package:
 
 | Feature | What You Get |
 |---------|--------------|
@@ -33,7 +33,7 @@ Building a B2B SaaS app? You need authentication, organizations, roles, permissi
           │ (OAuth redirect)      │ Check permissions    │ (webhooks)
           ▼                       ▼                      │
 ┌─────────────────────────────────────────────────────────────────┐
-│                      AUTHVADER                                   │
+│                      AUTHVITAL                                   │
 │                                                                  │
 │   • Handles all auth flows (login, signup, MFA, SSO)            │
 │   • Issues JWT tokens with roles, permissions, license info     │
@@ -44,24 +44,24 @@ Building a B2B SaaS app? You need authentication, organizations, roles, permissi
 ```
 
 **The flow is simple:**
-1. User clicks "Login" → Redirected to AuthVader
-2. AuthVader handles auth (password, SSO, MFA, etc.)
+1. User clicks "Login" → Redirected to AuthVital
+2. AuthVital handles auth (password, SSO, MFA, etc.)
 3. User sent back to your app with a JWT token
 4. Your backend validates the token using the SDK
 5. The JWT contains everything: user info, tenant, roles, permissions, license
 
 ## What Does the SDK Do?
 
-The SDK makes integrating AuthVader dead simple. Install it with:
+The SDK makes integrating AuthVital dead simple. Install it with:
 
 ```bash
-npm install @authvader/sdk
+npm install @authvital/sdk
 ```
 
 ### Frontend (React)
 
 ```tsx
-import { AuthVaderProvider, useAuth } from '@authvader/sdk/client';
+import { AuthVitalProvider, useAuth } from '@authvital/sdk/client';
 
 function App() {
   const { user, login, logout, isAuthenticated } = useAuth();
@@ -75,16 +75,16 @@ function App() {
 ### Backend (Node.js)
 
 ```typescript
-import { createAuthVader } from '@authvader/sdk/server';
+import { createAuthVital } from '@authvital/sdk/server';
 
-const authvader = createAuthVader({
-  authVaderHost: process.env.AUTHVADER_HOST,
-  clientId: process.env.AUTHVADER_CLIENT_ID,
-  clientSecret: process.env.AUTHVADER_CLIENT_SECRET,
+const authvital = createAuthVital({
+  authVitalHost: process.env.AUTHVITAL_HOST,
+  clientId: process.env.AUTHVITAL_CLIENT_ID,
+  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET,
 });
 
 // Validate tokens and get user info
-const { authenticated, user } = await authvader.getCurrentUser(req);
+const { authenticated, user } = await authvital.getCurrentUser(req);
 
 // Check permissions right from the JWT
 if (hasPermission(user, 'documents:write')) {
@@ -92,23 +92,23 @@ if (hasPermission(user, 'documents:write')) {
 }
 
 // Use built-in namespaces for common tasks
-await authvader.invitations.send({ email, tenantId, roleId });
-await authvader.memberships.setTenantRole({ membershipId, roleSlug });
-await authvader.licenses.check(req, { applicationId });
+await authvital.invitations.send({ email, tenantId, roleId });
+await authvital.memberships.setTenantRole({ membershipId, roleSlug });
+await authvital.licenses.check(req, { applicationId });
 ```
 
 ### Webhooks (Keep Your DB in Sync)
 
 ```typescript
-import { WebhookRouter, IdentitySyncHandler } from '@authvader/sdk/server';
+import { WebhookRouter, IdentitySyncHandler } from '@authvital/sdk/server';
 
-// Auto-sync AuthVader users to your local database
+// Auto-sync AuthVital users to your local database
 const router = new WebhookRouter({
-  authVaderHost: process.env.AUTHVADER_HOST,
+  authVitalHost: process.env.AUTHVITAL_HOST,
   handler: new IdentitySyncHandler(prisma),
 });
 
-app.post('/webhooks/authvader', router.expressHandler());
+app.post('/webhooks/authvital', router.expressHandler());
 ```
 
 ## Tech Stack
@@ -123,9 +123,9 @@ app.post('/webhooks/authvader', router.expressHandler());
 
 ## Status
 
-⚠️ **This project is in active development and not yet production-ready.**
+🚧 **AuthVital is in active development** — bugs may be expected as we're still rapidly adding features.
 
-I'm building AuthVader for a specific need I have: full control over identity management that existing solutions don't provide. Use at your own risk, and expect breaking changes,
+I'm building AuthVital for a specific need I have: full control over identity management that existing solutions don't provide. Expect exciting new features landing frequently!
 
 ## Roadmap
 

@@ -228,15 +228,15 @@ export class SyncEventService {
 
       const headers = {
         'Content-Type': 'application/json',
-        'X-AuthVader-Signature': signature,
-        'X-AuthVader-Key-Id': kid,
-        'X-AuthVader-Timestamp': timestamp,
-        'X-AuthVader-Event-Id': eventId,
-        'X-AuthVader-Event-Type': event.eventType,
+        'X-AuthVital-Signature': signature,
+        'X-AuthVital-Key-Id': kid,
+        'X-AuthVital-Timestamp': timestamp,
+        'X-AuthVital-Event-Id': eventId,
+        'X-AuthVital-Event-Type': event.eventType,
       };
 
       this.logger.debug(
-        `[Webhook] Sending POST to ${application.webhookUrl} with headers: ${JSON.stringify({ ...headers, 'X-AuthVader-Signature': '[REDACTED]' })}`,
+        `[Webhook] Sending POST to ${application.webhookUrl} with headers: ${JSON.stringify({ ...headers, 'X-AuthVital-Signature': '[REDACTED]' })}`,
       );
 
       // Send the webhook

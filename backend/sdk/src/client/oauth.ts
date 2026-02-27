@@ -1,5 +1,5 @@
 /**
- * @authvader/sdk - Browser OAuth Utilities
+ * @authvital/sdk - Browser OAuth Utilities
  * 
  * Handles PKCE, authorization flow, and token exchange for browser-based apps.
  * 
@@ -16,7 +16,7 @@ import type {
   OAuthConfig,
   TokenResponse,
   StandaloneAuthOptions,
-  LoginToAuthVaderOptions,
+  LoginToAuthVitalOptions,
 } from './types';
 
 // =============================================================================
@@ -58,26 +58,26 @@ export function decodeState(state: string): { csrf: string; codeVerifier: string
 // =============================================================================
 
 /**
- * Simple redirect to AuthVader login/signup page.
+ * Simple redirect to AuthVital login/signup page.
  * Use this on landing pages where you just want to send users to login.
  * 
  * @example
  * ```tsx
- * import { loginToAuthVader } from '@authvader/sdk';
+ * import { loginToAuthVital } from '@authvital/sdk';
  * 
- * <button onClick={() => loginToAuthVader('http://auth.myapp.com', { clientId: 'my-app' })}>
+ * <button onClick={() => loginToAuthVital('http://auth.myapp.com', { clientId: 'my-app' })}>
  *   Sign In
  * </button>
  * ```
  */
-export function loginToAuthVader(
-  authVaderHost: string,
-  options?: LoginToAuthVaderOptions,
+export function loginToAuthVital(
+  authVitalHost: string,
+  options?: LoginToAuthVitalOptions,
 ): void {
   const screen = options?.screen || 'login';
   const page = screen === 'signup' ? '/auth/signup' : '/auth/login';
   
-  const url = new URL(`${authVaderHost}${page}`);
+  const url = new URL(`${authVitalHost}${page}`);
   if (options?.clientId) {
     url.searchParams.set('client_id', options.clientId);
   }
@@ -88,11 +88,11 @@ export function loginToAuthVader(
 /**
  * Convenience function for signup redirect.
  */
-export function signupAtAuthVader(
-  authVaderHost: string,
-  options?: Omit<LoginToAuthVaderOptions, 'screen'>,
+export function signupAtAuthVital(
+  authVitalHost: string,
+  options?: Omit<LoginToAuthVitalOptions, 'screen'>,
 ): void {
-  loginToAuthVader(authVaderHost, { ...options, screen: 'signup' });
+  loginToAuthVital(authVitalHost, { ...options, screen: 'signup' });
 }
 
 // =============================================================================
@@ -140,7 +140,7 @@ export interface AuthorizeParams {
 }
 
 // Rate limiting for login attempts
-const LOGIN_ATTEMPT_KEY = 'authvader_login_attempt';
+const LOGIN_ATTEMPT_KEY = 'authvital_login_attempt';
 const LOGIN_COOLDOWN_MS = 5000;
 
 function canAttemptLogin(): boolean {
@@ -160,7 +160,7 @@ function clearLoginAttempt(): void {
 /**
  * Start the OAuth authorization flow with PKCE
  * 
- * After successful auth, AuthVader sets httpOnly cookies.
+ * After successful auth, AuthVital sets httpOnly cookies.
  * Use checkAuthStatus() to verify if user is authenticated.
  */
 export async function startAuthorizationFlow(
@@ -178,7 +178,7 @@ export async function startAuthorizationFlow(
   const csrf = params.state || generateCodeVerifier().substring(0, 16);
   const state = encodeState(csrf, codeVerifier);
   
-  const authorizeUrl = new URL(`${config.authVaderHost}/oauth/authorize`);
+  const authorizeUrl = new URL(`${config.authVitalHost}/oauth/authorize`);
   authorizeUrl.searchParams.set('client_id', config.clientId);
   authorizeUrl.searchParams.set('redirect_uri', config.redirectUri);
   authorizeUrl.searchParams.set('response_type', 'code');
@@ -203,7 +203,7 @@ export async function startAuthorizationFlow(
 export async function startLogin(options: StandaloneAuthOptions): Promise<void> {
   await startAuthorizationFlow(
     {
-      authVaderHost: options.authVaderHost,
+      authVitalHost: options.authVitalHost,
       clientId: options.clientId,
       redirectUri: options.redirectUri,
       scope: options.scope,
@@ -218,7 +218,7 @@ export async function startLogin(options: StandaloneAuthOptions): Promise<void> 
 export async function startSignup(options: StandaloneAuthOptions): Promise<void> {
   await startAuthorizationFlow(
     {
-      authVaderHost: options.authVaderHost,
+      authVitalHost: options.authVitalHost,
       clientId: options.clientId,
       redirectUri: options.redirectUri,
       scope: options.scope,
@@ -321,7 +321,7 @@ export async function exchangeCodeForTokens(
   code: string,
   codeVerifier: string,
 ): Promise<TokenResponse> {
-  const response = await fetch(`${config.authVaderHost}/oauth/token`, {
+  const response = await fetch(`${config.authVitalHost}/oauth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include', // Important: receive and send cookies
@@ -360,9 +360,9 @@ export interface AuthStatus {
  * Check if user is authenticated by calling the auth status endpoint.
  * Auth state is in httpOnly cookies, so we must ask the server.
  */
-export async function checkAuthStatus(authVaderHost: string): Promise<AuthStatus> {
+export async function checkAuthStatus(authVitalHost: string): Promise<AuthStatus> {
   try {
-    const response = await fetch(`${authVaderHost}/api/auth/me`, {
+    const response = await fetch(`${authVitalHost}/api/auth/me`, {
       method: 'GET',
       credentials: 'include', // Send cookies
     });
@@ -389,7 +389,7 @@ export async function checkAuthStatus(authVaderHost: string): Promise<AuthStatus
  * Logout - clears the httpOnly session cookie via server redirect
  */
 export async function logout(
-  authVaderHost: string,
+  authVitalHost: string,
   options?: {
     postLogoutRedirectUri?: string;
   }
@@ -398,7 +398,7 @@ export async function logout(
   sessionStorage.removeItem(LOGIN_ATTEMPT_KEY);
   
   // Redirect to logout endpoint (clears httpOnly cookie)
-  const logoutUrl = new URL(`${authVaderHost}/api/auth/logout/redirect`);
+  const logoutUrl = new URL(`${authVitalHost}/api/auth/logout/redirect`);
   if (options?.postLogoutRedirectUri) {
     logoutUrl.searchParams.set('post_logout_redirect_uri', options.postLogoutRedirectUri);
   }

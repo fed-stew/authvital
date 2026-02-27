@@ -1,12 +1,12 @@
 /**
- * @authvader/sdk - Identity Sync Handler
+ * @authvital/sdk - Identity Sync Handler
  * 
- * Pre-built webhook handler that syncs AuthVader identities to your local database.
+ * Pre-built webhook handler that syncs AuthVital identities to your local database.
  * Supports all OIDC standard claims.
  * 
  * @example Single database (shared or single-tenant)
  * ```typescript
- * import { IdentitySyncHandler, WebhookRouter } from '@authvader/sdk/server';
+ * import { IdentitySyncHandler, WebhookRouter } from '@authvital/sdk/server';
  * import { prisma } from './prisma';
  * 
  * const handler = new IdentitySyncHandler(prisma);
@@ -15,7 +15,7 @@
  * 
  * @example Tenant-isolated databases
  * ```typescript
- * import { IdentitySyncHandler, WebhookRouter } from '@authvader/sdk/server';
+ * import { IdentitySyncHandler, WebhookRouter } from '@authvital/sdk/server';
  * import { getTenantPrisma } from './db';
  * 
  * // Pass a resolver function that returns the correct client per tenant
@@ -24,7 +24,7 @@
  * ```
  */
 
-import { AuthVaderEventHandler } from '../webhooks/event-interfaces';
+import { AuthVitalEventHandler } from '../webhooks/event-interfaces';
 import type {
   SubjectCreatedEvent,
   SubjectUpdatedEvent,
@@ -100,7 +100,7 @@ function extractOidcFields(data: OidcEventData): Partial<IdentityCreate> {
 }
 
 /**
- * Pre-built webhook handler for syncing identities from AuthVader
+ * Pre-built webhook handler for syncing identities from AuthVital
  * 
  * Supports two modes:
  * 1. **Shared DB**: Pass a single Prisma client
@@ -118,7 +118,7 @@ function extractOidcFields(data: OidcEventData): Partial<IdentityCreate> {
  * - app_access.revoked → Clears identity's app role
  * - app_access.role_changed → Updates identity's app role
  */
-export class IdentitySyncHandler extends AuthVaderEventHandler {
+export class IdentitySyncHandler extends AuthVitalEventHandler {
   private readonly isResolver: boolean;
 
   /**

@@ -1,6 +1,6 @@
 # Tenant Admin Guide
 
-> Managing your organization's AuthVader tenant.
+> Managing your organization's AuthVital tenant.
 
 ## Overview
 
@@ -25,7 +25,7 @@ Your application may provide a tenant settings page. Look for:
 
 ```typescript
 // Check if user is tenant admin
-const { user, memberships } = await authvader.getCurrentUser(req);
+const { user, memberships } = await authvital.getCurrentUser(req);
 const membership = memberships.find(m => m.tenantId === currentTenantId);
 const isAdmin = ['owner', 'admin'].includes(membership?.role);
 ```
@@ -36,7 +36,7 @@ const isAdmin = ['owner', 'admin'].includes(membership?.role);
 
 ```typescript
 // List all tenant members
-const members = await authvader.memberships.list({
+const members = await authvital.memberships.list({
   tenantId: 'tenant-id',
   includeUser: true,
 });
@@ -47,7 +47,7 @@ const members = await authvader.memberships.list({
 
 ```typescript
 // Send invitation
-await authvader.invitations.create({
+await authvital.invitations.create({
   tenantId: 'tenant-id',
   email: 'newuser@example.com',
   role: 'member', // or 'admin'
@@ -70,28 +70,28 @@ Invitee receives email with link to accept.
 
 ```typescript
 // List pending invitations
-const invitations = await authvader.invitations.list({
+const invitations = await authvital.invitations.list({
   tenantId: 'tenant-id',
   status: 'PENDING',
 });
 
 // Resend invitation
-await authvader.invitations.resend('invitation-id');
+await authvital.invitations.resend('invitation-id');
 
 // Revoke invitation
-await authvader.invitations.revoke('invitation-id');
+await authvital.invitations.revoke('invitation-id');
 ```
 
 ### Changing Member Roles
 
 ```typescript
 // Change to admin
-await authvader.memberships.updateRole('membership-id', {
+await authvital.memberships.updateRole('membership-id', {
   role: 'admin',
 });
 
 // Demote to member
-await authvader.memberships.updateRole('membership-id', {
+await authvital.memberships.updateRole('membership-id', {
   role: 'member',
 });
 ```
@@ -105,17 +105,17 @@ await authvader.memberships.updateRole('membership-id', {
 
 ```typescript
 // Suspend a member (blocks access without removing)
-await authvader.memberships.suspend('membership-id');
+await authvital.memberships.suspend('membership-id');
 
 // Reactivate suspended member
-await authvader.memberships.reactivate('membership-id');
+await authvital.memberships.reactivate('membership-id');
 ```
 
 ### Removing Members
 
 ```typescript
 // Remove from tenant
-await authvader.memberships.remove('membership-id');
+await authvital.memberships.remove('membership-id');
 ```
 
 ## SSO Configuration
@@ -126,7 +126,7 @@ Configure your organization's own SSO:
 
 ```typescript
 // Configure Microsoft SSO for your Azure AD
-await authvader.tenants.configureSso('tenant-id', {
+await authvital.tenants.configureSso('tenant-id', {
   provider: 'MICROSOFT',
   enabled: true,
   clientId: 'your-azure-app-id',
@@ -140,7 +140,7 @@ await authvader.tenants.configureSso('tenant-id', {
 Disable password login, require SSO:
 
 ```typescript
-await authvader.tenants.configureSso('tenant-id', {
+await authvital.tenants.configureSso('tenant-id', {
   provider: 'MICROSOFT',
   enabled: true,
   enforced: true, // Password login disabled
@@ -156,7 +156,7 @@ When enforced:
 ### Viewing SSO Configuration
 
 ```typescript
-const ssoConfig = await authvader.tenants.getSsoConfig('tenant-id');
+const ssoConfig = await authvital.tenants.getSsoConfig('tenant-id');
 // {
 //   google: { enabled: false },
 //   microsoft: { enabled: true, enforced: true, allowedDomains: [...] }
@@ -169,18 +169,18 @@ const ssoConfig = await authvader.tenants.getSsoConfig('tenant-id');
 
 ```typescript
 // Require MFA for all members
-await authvader.tenants.update('tenant-id', {
+await authvital.tenants.update('tenant-id', {
   mfaPolicy: 'REQUIRED',
 });
 
 // Require after grace period
-await authvader.tenants.update('tenant-id', {
+await authvital.tenants.update('tenant-id', {
   mfaPolicy: 'ENFORCED_AFTER_GRACE',
   mfaGracePeriodDays: 14, // 2 weeks to enable MFA
 });
 
 // Optional (default)
-await authvader.tenants.update('tenant-id', {
+await authvital.tenants.update('tenant-id', {
   mfaPolicy: 'OPTIONAL',
 });
 ```
@@ -189,7 +189,7 @@ await authvader.tenants.update('tenant-id', {
 
 ```typescript
 // Get MFA status for all members
-const members = await authvader.memberships.list({
+const members = await authvital.memberships.list({
   tenantId: 'tenant-id',
   includeUser: true,
 });
@@ -211,7 +211,7 @@ Verify your company's domain to:
 ### Adding a Domain
 
 ```typescript
-await authvader.domains.create({
+await authvital.domains.create({
   tenantId: 'tenant-id',
   domain: 'yourcompany.com',
 });
@@ -222,13 +222,13 @@ await authvader.domains.create({
 
 Add TXT record to DNS:
 ```
-authvader-verification=verify-token-here
+authvital-verification=verify-token-here
 ```
 
 Then verify:
 
 ```typescript
-await authvader.domains.verify('domain-id');
+await authvital.domains.verify('domain-id');
 // { verified: true, verifiedAt: '2024-01-15T...' }
 ```
 
@@ -237,7 +237,7 @@ await authvader.domains.verify('domain-id');
 Enable automatic tenant membership for verified domains:
 
 ```typescript
-await authvader.domains.update('domain-id', {
+await authvital.domains.update('domain-id', {
   autoJoin: true,
   defaultRole: 'member',
 });
@@ -250,7 +250,7 @@ New users with `@yourcompany.com` email automatically join.
 ### Viewing Subscription
 
 ```typescript
-const subscription = await authvader.subscriptions.get({
+const subscription = await authvital.subscriptions.get({
   tenantId: 'tenant-id',
   applicationId: 'app-id',
 });
@@ -265,7 +265,7 @@ const subscription = await authvader.subscriptions.get({
 ### Viewing License Assignments
 
 ```typescript
-const assignments = await authvader.licenses.list({
+const assignments = await authvital.licenses.list({
   tenantId: 'tenant-id',
   applicationId: 'app-id',
 });
@@ -276,7 +276,7 @@ const assignments = await authvader.licenses.list({
 
 ```typescript
 // Assign to user
-await authvader.licenses.assign({
+await authvital.licenses.assign({
   tenantId: 'tenant-id',
   applicationId: 'app-id',
   userId: 'user-id',
@@ -287,7 +287,7 @@ await authvader.licenses.assign({
 
 ```typescript
 // Free up a seat
-await authvader.licenses.unassign({
+await authvital.licenses.unassign({
   tenantId: 'tenant-id',
   applicationId: 'app-id',
   userId: 'user-id',
@@ -297,7 +297,7 @@ await authvader.licenses.unassign({
 ### License Statistics
 
 ```typescript
-const stats = await authvader.licenses.getStats({
+const stats = await authvital.licenses.getStats({
   tenantId: 'tenant-id',
   applicationId: 'app-id',
 });
@@ -313,7 +313,7 @@ const stats = await authvader.licenses.getStats({
 ### Updating Tenant Info
 
 ```typescript
-await authvader.tenants.update('tenant-id', {
+await authvital.tenants.update('tenant-id', {
   name: 'New Company Name',
   settings: {
     timezone: 'America/New_York',
@@ -327,7 +327,7 @@ await authvader.tenants.update('tenant-id', {
 Configure where users are sent to log in:
 
 ```typescript
-await authvader.tenants.update('tenant-id', {
+await authvital.tenants.update('tenant-id', {
   initiateLoginUri: 'https://acme.yourapp.com/login',
 });
 ```
@@ -338,7 +338,7 @@ await authvader.tenants.update('tenant-id', {
 
 ```typescript
 // Transfer ownership to another admin
-await authvader.tenants.transferOwnership({
+await authvital.tenants.transferOwnership({
   tenantId: 'tenant-id',
   newOwnerId: 'user-id', // Must be existing admin
 });
@@ -353,7 +353,7 @@ After transfer:
 View recent activity in your tenant:
 
 ```typescript
-const events = await authvader.audit.list({
+const events = await authvital.audit.list({
   tenantId: 'tenant-id',
   limit: 50,
 });
@@ -371,7 +371,7 @@ const events = await authvader.audit.list({
 ```tsx
 function TenantAdminPanel() {
   const { tenantId } = useCurrentTenant();
-  const { user } = useAuthVader();
+  const { user } = useAuthVital();
   
   // Check admin access
   const membership = user.memberships.find(m => m.tenantId === tenantId);

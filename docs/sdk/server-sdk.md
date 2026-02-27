@@ -1,22 +1,22 @@
 # Server SDK Guide
 
-> Complete reference for integrating AuthVader into your Node.js backend.
+> Complete reference for integrating AuthVital into your Node.js backend.
 
 ## Installation
 
 ```bash
-npm install @authvader/sdk
+npm install @authvital/sdk
 ```
 
 ## Quick Setup
 
 ```typescript
-import { createAuthVader } from '@authvader/sdk/server';
+import { createAuthVital } from '@authvital/sdk/server';
 
-const authvader = createAuthVader({
-  authVaderHost: process.env.AUTHVADER_HOST!,
-  clientId: process.env.AUTHVADER_CLIENT_ID!,
-  clientSecret: process.env.AUTHVADER_CLIENT_SECRET!,
+const authvital = createAuthVital({
+  authVitalHost: process.env.AUTHVITAL_HOST!,
+  clientId: process.env.AUTHVITAL_CLIENT_ID!,
+  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
 });
 ```
 
@@ -24,7 +24,7 @@ const authvader = createAuthVader({
 
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
-| `authVaderHost` | `string` | Yes | AuthVader server URL |
+| `authVitalHost` | `string` | Yes | AuthVital server URL |
 | `clientId` | `string` | Yes | OAuth client ID |
 | `clientSecret` | `string` | Yes | OAuth client secret |
 | `scope` | `string` | No | Default scopes (default: `system:admin`) |
@@ -36,13 +36,13 @@ const authvader = createAuthVader({
 Extracts and validates the JWT from an incoming request. This is a **soft validation** - it returns a result object rather than throwing.
 
 ```typescript
-import { createAuthVader } from '@authvader/sdk/server';
+import { createAuthVital } from '@authvital/sdk/server';
 import { Request, Response, NextFunction } from 'express';
 
-const authvader = createAuthVader({ /* config */ });
+const authvital = createAuthVital({ /* config */ });
 
 async function authMiddleware(req: Request, res: Response, next: NextFunction) {
-  const { authenticated, user, error } = await authvader.getCurrentUser(req);
+  const { authenticated, user, error } = await authvital.getCurrentUser(req);
   
   if (!authenticated) {
     return res.status(401).json({ error: error || 'Unauthorized' });
@@ -77,7 +77,7 @@ interface ValidatedClaims {
 app.get('/api/members', async (req, res) => {
   try {
     // This THROWS if not authenticated or missing tenant_id
-    const claims = await authvader.validateRequest(req);
+    const claims = await authvital.validateRequest(req);
     
     // claims.tenantId is guaranteed to exist here!
     console.log('User:', claims.sub);
@@ -87,10 +87,10 @@ app.get('/api/members', async (req, res) => {
     // Access full JWT if needed
     console.log('License:', claims.payload.license);
     
-    const members = await authvader.memberships.listForTenant(req);
+    const members = await authvital.memberships.listForTenant(req);
     res.json(members);
   } catch (error) {
-    // AuthVaderError with descriptive message
+    // AuthVitalError with descriptive message
     res.status(401).json({ error: error.message });
   }
 });
@@ -159,7 +159,7 @@ fetch('/api/me', {
   headers: { 'Authorization': 'Bearer eyJ...' }
 });
 
-// Or with cookies (set by AuthVader login)
+// Or with cookies (set by AuthVital login)
 fetch('/api/me', {
   credentials: 'include'
 });
@@ -179,19 +179,19 @@ Check if the user has a specific tenant-level permission. Supports wildcard matc
 
 ```typescript
 // Exact permission check
-if (await authvader.hasTenantPermission(req, 'members:invite')) {
+if (await authvital.hasTenantPermission(req, 'members:invite')) {
   // User can invite members to the tenant
 }
 
 // Wildcard matching - checks if user has ANY license permission
-if (await authvader.hasTenantPermission(req, 'licenses:*')) {
+if (await authvital.hasTenantPermission(req, 'licenses:*')) {
   // User has some license permission (licenses:view, licenses:manage, etc.)
 }
 
 // Common patterns
-await authvader.hasTenantPermission(req, 'billing:manage');    // Can manage billing
-await authvader.hasTenantPermission(req, 'settings:*');        // Any settings access
-await authvader.hasTenantPermission(req, 'members:remove');    // Can remove members
+await authvital.hasTenantPermission(req, 'billing:manage');    // Can manage billing
+await authvital.hasTenantPermission(req, 'settings:*');        // Any settings access
+await authvital.hasTenantPermission(req, 'members:remove');    // Can remove members
 ```
 
 **Wildcard Rules:**
@@ -205,16 +205,16 @@ Check if the user has a specific application-level permission.
 
 ```typescript
 // Check app-specific permissions (defined in your application roles)
-if (await authvader.hasAppPermission(req, 'projects:create')) {
+if (await authvital.hasAppPermission(req, 'projects:create')) {
   // User can create projects in your app
 }
 
-if (await authvader.hasAppPermission(req, 'reports:export')) {
+if (await authvital.hasAppPermission(req, 'reports:export')) {
   // User can export reports
 }
 
 // Also supports wildcards
-if (await authvader.hasAppPermission(req, 'admin:*')) {
+if (await authvital.hasAppPermission(req, 'admin:*')) {
   // User has some admin permission
 }
 ```
@@ -234,21 +234,21 @@ Check if the tenant's license includes a specific feature - directly from the JW
 
 ```typescript
 // Check for SSO feature
-if (await authvader.hasFeatureFromJwt(req, 'sso')) {
+if (await authvital.hasFeatureFromJwt(req, 'sso')) {
   // Show SSO configuration options
 }
 
 // Feature gating example
-if (await authvader.hasFeatureFromJwt(req, 'advanced-analytics')) {
+if (await authvital.hasFeatureFromJwt(req, 'advanced-analytics')) {
   return renderAdvancedDashboard();
 } else {
   return renderBasicDashboard();
 }
 
 // Multiple feature checks
-const hasSso = await authvader.hasFeatureFromJwt(req, 'sso');
-const hasApi = await authvader.hasFeatureFromJwt(req, 'api-access');
-const hasAudit = await authvader.hasFeatureFromJwt(req, 'audit-logs');
+const hasSso = await authvital.hasFeatureFromJwt(req, 'sso');
+const hasApi = await authvital.hasFeatureFromJwt(req, 'api-access');
+const hasAudit = await authvital.hasFeatureFromJwt(req, 'audit-logs');
 ```
 
 #### getLicenseTypeFromJwt()
@@ -256,7 +256,7 @@ const hasAudit = await authvader.hasFeatureFromJwt(req, 'audit-logs');
 Get the user's license type directly from the JWT.
 
 ```typescript
-const licenseType = await authvader.getLicenseTypeFromJwt(req);
+const licenseType = await authvital.getLicenseTypeFromJwt(req);
 
 switch (licenseType) {
   case 'enterprise':
@@ -291,7 +291,7 @@ Get all permissions/roles at once for complex authorization logic.
 #### getTenantPermissions()
 
 ```typescript
-const tenantPermissions = await authvader.getTenantPermissions(req);
+const tenantPermissions = await authvital.getTenantPermissions(req);
 // Returns: ['members:invite', 'members:remove', 'settings:view', ...]
 
 // Use for custom permission logic
@@ -301,7 +301,7 @@ const canManageAnything = tenantPermissions.some(p => p.endsWith(':manage'));
 #### getAppPermissions()
 
 ```typescript
-const appPermissions = await authvader.getAppPermissions(req);
+const appPermissions = await authvital.getAppPermissions(req);
 // Returns: ['projects:create', 'projects:delete', 'reports:view', ...]
 
 // Build a permission map for the frontend
@@ -314,7 +314,7 @@ res.json({
 #### getTenantRoles()
 
 ```typescript
-const tenantRoles = await authvader.getTenantRoles(req);
+const tenantRoles = await authvital.getTenantRoles(req);
 // Returns: ['owner'] or ['admin'] or ['member']
 
 // Check role hierarchy
@@ -324,7 +324,7 @@ const isOwnerOrAdmin = tenantRoles.some(r => ['owner', 'admin'].includes(r));
 #### getAppRoles()
 
 ```typescript
-const appRoles = await authvader.getAppRoles(req);
+const appRoles = await authvital.getAppRoles(req);
 // Returns: ['editor', 'viewer'] - your app's custom roles
 
 // Role-based logic
@@ -338,19 +338,19 @@ if (appRoles.includes('editor')) {
 ```typescript
 app.get('/api/analytics/advanced', async (req, res) => {
   // 1. Validate authentication (throws if invalid)
-  const claims = await authvader.validateRequest(req);
+  const claims = await authvital.validateRequest(req);
   
   // 2. Check license feature (no API call!)
-  if (!await authvader.hasFeatureFromJwt(req, 'advanced-analytics')) {
+  if (!await authvital.hasFeatureFromJwt(req, 'advanced-analytics')) {
     return res.status(402).json({
       error: 'Feature requires Pro license',
       feature: 'advanced-analytics',
-      upgradeUrl: await authvader.getSettingsUrl(req),
+      upgradeUrl: await authvital.getSettingsUrl(req),
     });
   }
   
   // 3. Check permission (no API call!)
-  if (!await authvader.hasAppPermission(req, 'analytics:view')) {
+  if (!await authvital.hasAppPermission(req, 'analytics:view')) {
     return res.status(403).json({
       error: 'Missing permission: analytics:view',
     });
@@ -364,14 +364,14 @@ app.get('/api/analytics/advanced', async (req, res) => {
 
 ## Management URLs
 
-Generate URLs to AuthVader management pages for your users.
+Generate URLs to AuthVital management pages for your users.
 
 ### getManagementUrls()
 
 Get all management URLs at once - perfect for building navigation!
 
 ```typescript
-const urls = await authvader.getManagementUrls(req);
+const urls = await authvital.getManagementUrls(req);
 
 console.log(urls);
 // {
@@ -410,13 +410,13 @@ For when you only need one URL:
 
 ```typescript
 // Tenant-scoped URLs (require req for tenant context)
-const membersUrl = await authvader.getMembersUrl(req);
-const applicationsUrl = await authvader.getApplicationsUrl(req);
-const settingsUrl = await authvader.getSettingsUrl(req);
-const overviewUrl = await authvader.getOverviewUrl(req);
+const membersUrl = await authvital.getMembersUrl(req);
+const applicationsUrl = await authvital.getApplicationsUrl(req);
+const settingsUrl = await authvital.getSettingsUrl(req);
+const overviewUrl = await authvital.getOverviewUrl(req);
 
 // Account settings URL (no req needed - it's user-specific!)
-const accountUrl = authvader.getAccountSettingsUrl();
+const accountUrl = authvital.getAccountSettingsUrl();
 ```
 
 **Why getAccountSettingsUrl() doesn't need req:**
@@ -427,9 +427,9 @@ The account settings URL is the same for all users (`/account/settings`) - it do
 
 ```typescript
 app.get('/api/navigation', async (req, res) => {
-  const claims = await authvader.validateRequest(req);
-  const urls = await authvader.getManagementUrls(req);
-  const tenantRoles = await authvader.getTenantRoles(req);
+  const claims = await authvital.validateRequest(req);
+  const urls = await authvital.getManagementUrls(req);
+  const tenantRoles = await authvital.getTenantRoles(req);
   
   const nav = {
     account: {
@@ -462,10 +462,10 @@ app.get('/api/navigation', async (req, res) => {
 Create a ready-to-use Express middleware that validates JWTs and attaches the payload to `req.user`.
 
 ```typescript
-import { createJwtMiddleware } from '@authvader/sdk/server';
+import { createJwtMiddleware } from '@authvital/sdk/server';
 
 const requireAuth = createJwtMiddleware({
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   audience: 'my-client-id', // Optional but recommended for extra validation
 });
 
@@ -490,7 +490,7 @@ apiRouter.get('/settings', (req, res) => { /* ... */ });
 
 ```typescript
 interface JwtMiddlewareOptions {
-  authVaderHost: string;    // Required: AuthVader server URL
+  authVitalHost: string;    // Required: AuthVital server URL
   audience?: string;        // Optional: Expected JWT audience (client ID)
   issuer?: string;          // Optional: Override expected issuer
   algorithms?: string[];    // Optional: Allowed algorithms (default: RS256)
@@ -515,11 +515,11 @@ For apps using Passport.js, get pre-configured JWT strategy options.
 ```typescript
 import passport from 'passport';
 import { Strategy as JwtStrategy } from 'passport-jwt';
-import { createPassportJwtOptions } from '@authvader/sdk/server';
+import { createPassportJwtOptions } from '@authvital/sdk/server';
 
 // Get options (fetches JWKS automatically)
 const jwtOptions = await createPassportJwtOptions({
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   audience: 'my-client-id',
 });
 
@@ -553,21 +553,21 @@ interface PassportJwtOptions {
 }
 ```
 
-**Note:** The `secretOrKeyProvider` automatically fetches and caches the JWKS from AuthVader for signature verification.
+**Note:** The `secretOrKeyProvider` automatically fetches and caches the JWKS from AuthVital for signature verification.
 
 ### Combining with Permission Helpers
 
 ```typescript
-import { createJwtMiddleware } from '@authvader/sdk/server';
+import { createJwtMiddleware } from '@authvital/sdk/server';
 
 const requireAuth = createJwtMiddleware({
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
 });
 
 // Create a permission-checking middleware factory
 const requireAppPermission = (permission: string) => {
   return async (req, res, next) => {
-    if (!await authvader.hasAppPermission(req, permission)) {
+    if (!await authvital.hasAppPermission(req, permission)) {
       return res.status(403).json({
         error: 'Forbidden',
         required: permission,
@@ -596,7 +596,7 @@ The SDK provides namespaced methods for different operations:
 
 ```typescript
 // Send an invitation
-await authvader.invitations.send({
+await authvital.invitations.send({
   email: 'newuser@example.com',
   tenantId: 'tenant-123',
   roleId: 'role-member',        // Optional: default tenant role
@@ -605,11 +605,11 @@ await authvader.invitations.send({
 });
 
 // List pending invitations for a tenant
-const pending = await authvader.invitations.listPending('tenant-123');
+const pending = await authvital.invitations.listPending('tenant-123');
 // Returns: [{ id, email, status, expiresAt, invitedBy, ... }]
 
 // Revoke an invitation
-await authvader.invitations.revoke('invitation-id');
+await authvital.invitations.revoke('invitation-id');
 ```
 
 ### Memberships
@@ -620,11 +620,11 @@ List all members of a tenant with their roles and details.
 
 ```typescript
 // Basic usage
-const { memberships } = await authvader.memberships.listForTenant(req);
+const { memberships } = await authvital.memberships.listForTenant(req);
 // Uses tenant from JWT automatically!
 
 // With explicit tenant ID
-const { memberships } = await authvader.memberships.listForTenant(req, {
+const { memberships } = await authvital.memberships.listForTenant(req, {
   tenantId: 'tenant-123',
   status: 'ACTIVE', // or 'PENDING', 'SUSPENDED', 'ALL'
 });
@@ -667,10 +667,10 @@ Get all tenants a user belongs to - perfect for building an **org picker**!
 
 ```typescript
 // Basic usage
-const { tenants } = await authvader.memberships.listTenantsForUser(req);
+const { tenants } = await authvital.memberships.listTenantsForUser(req);
 
 // With OAuth redirect URLs ready
-const { tenants } = await authvader.memberships.listTenantsForUser(req, {
+const { tenants } = await authvital.memberships.listTenantsForUser(req, {
   status: 'ACTIVE',
   appendClientId: true, // 🔥 Magic sauce!
 });
@@ -703,7 +703,7 @@ interface TenantsForUserResponse {
 
 ```typescript
 app.get('/api/my-organizations', async (req, res) => {
-  const { tenants } = await authvader.memberships.listTenantsForUser(req, {
+  const { tenants } = await authvital.memberships.listTenantsForUser(req, {
     appendClientId: true,
   });
   
@@ -724,7 +724,7 @@ app.get('/api/my-organizations', async (req, res) => {
 Get members who have access to YOUR specific app (not just any tenant member).
 
 ```typescript
-const { memberships } = await authvader.memberships.listForApplication(req, {
+const { memberships } = await authvital.memberships.listForApplication(req, {
   status: 'ACTIVE',
   appendClientId: true,
 });
@@ -744,10 +744,10 @@ memberships.forEach(m => {
 
 #### getTenantRoles() vs getApplicationRoles()
 
-**Tenant Roles** are IDP-level roles (owner, admin, member) - they control what users can do in the AuthVader tenant management UI.
+**Tenant Roles** are IDP-level roles (owner, admin, member) - they control what users can do in the AuthVital tenant management UI.
 
 ```typescript
-const { roles } = await authvader.memberships.getTenantRoles();
+const { roles } = await authvital.memberships.getTenantRoles();
 
 console.log(roles);
 // [
@@ -760,7 +760,7 @@ console.log(roles);
 **Application Roles** are YOUR app's custom roles - they control what users can do in YOUR application.
 
 ```typescript
-const { roles } = await authvader.memberships.getApplicationRoles();
+const { roles } = await authvital.memberships.getApplicationRoles();
 // Uses clientId from SDK config automatically!
 
 console.log(roles);
@@ -783,7 +783,7 @@ Application Roles (Your App): Defined by you!
 Change a member's tenant role with **built-in permission validation**!
 
 ```typescript
-const result = await authvader.memberships.setMemberRole(
+const result = await authvital.memberships.setMemberRole(
   req,
   'membership-123',
   'admin' // role slug
@@ -808,9 +808,9 @@ The SDK automatically validates permissions before making the API call:
 
 ```typescript
 try {
-  await authvader.memberships.setMemberRole(req, membershipId, 'owner');
+  await authvital.memberships.setMemberRole(req, membershipId, 'owner');
 } catch (error) {
-  // AuthVaderError with descriptive messages:
+  // AuthVitalError with descriptive messages:
   // - "Insufficient permissions: admin cannot promote to owner"
   // - "Cannot modify your own role"
   // - "Only owners can promote to owner role"
@@ -823,7 +823,7 @@ try {
 Change a member's role in YOUR application.
 
 ```typescript
-await authvader.memberships.setApplicationRole(
+await authvital.memberships.setApplicationRole(
   req,
   'membership-123',
   'editor' // your app's role slug
@@ -835,10 +835,10 @@ await authvader.memberships.setApplicationRole(
 Remove a member from a tenant entirely.
 
 ```typescript
-await authvader.memberships.remove(req, 'membership-123');
+await authvital.memberships.remove(req, 'membership-123');
 
 // With confirmation
-const result = await authvader.memberships.remove(req, membershipId);
+const result = await authvital.memberships.remove(req, membershipId);
 if (result.success) {
   console.log('Member removed');
 }
@@ -848,7 +848,7 @@ if (result.success) {
 
 ```typescript
 // Check a single permission
-const { allowed } = await authvader.permissions.check(req, {
+const { allowed } = await authvital.permissions.check(req, {
   permission: 'documents:write',
 });
 
@@ -857,18 +857,18 @@ if (!allowed) {
 }
 
 // Check multiple permissions at once
-const results = await authvader.permissions.checkMany(req, {
+const results = await authvital.permissions.checkMany(req, {
   permissions: ['documents:read', 'documents:write', 'admin:access'],
 });
 // Returns: { 'documents:read': true, 'documents:write': true, 'admin:access': false }
 
 // Check if user has ANY of the permissions
-const { allowed: hasAny } = await authvader.permissions.checkAny(req, {
+const { allowed: hasAny } = await authvital.permissions.checkAny(req, {
   permissions: ['documents:write', 'documents:admin'],
 });
 
 // Check if user has ALL of the permissions
-const { allowed: hasAll } = await authvader.permissions.checkAll(req, {
+const { allowed: hasAll } = await authvital.permissions.checkAll(req, {
   permissions: ['documents:read', 'documents:write'],
 });
 ```
@@ -879,18 +879,18 @@ const { allowed: hasAll } = await authvader.permissions.checkAll(req, {
 
 ```typescript
 // Check if user has a license for an application
-const { hasLicense, licenseType, features } = await authvader.licenses.check(req, {
+const { hasLicense, licenseType, features } = await authvital.licenses.check(req, {
   applicationId: 'app-123',
 });
 
 // Check for a specific feature
-const { hasFeature } = await authvader.licenses.hasFeature(req, {
+const { hasFeature } = await authvital.licenses.hasFeature(req, {
   applicationId: 'app-123',
   feature: 'advanced-analytics',
 });
 
 // Get user's full license details
-const license = await authvader.licenses.getUserLicense(req, {
+const license = await authvital.licenses.getUserLicense(req, {
   applicationId: 'app-123',
 });
 // Returns: { type, name, features, assignedAt, expiresAt, ... }
@@ -902,18 +902,18 @@ Convenience wrapper to get just the license type.
 
 ```typescript
 // For current user
-const type = await authvader.licenses.getUserLicenseType(req);
+const type = await authvital.licenses.getUserLicenseType(req);
 // Returns: 'enterprise' | 'pro' | 'free' | undefined
 
 // For a specific user and application
-const type = await authvader.licenses.getUserLicenseType(
+const type = await authvital.licenses.getUserLicenseType(
   req,
   'user-123',           // userId (undefined = current user)
   'app-456'             // applicationId (undefined = current app from config)
 );
 
 // Practical usage
-const licenseType = await authvader.licenses.getUserLicenseType(req);
+const licenseType = await authvital.licenses.getUserLicenseType(req);
 if (licenseType === 'enterprise') {
   enableEnterpriseFeatures();
 }
@@ -924,7 +924,7 @@ if (licenseType === 'enterprise') {
 Get ALL licenses for a user across all applications.
 
 ```typescript
-const licenses = await authvader.licenses.listForUser(req, 'user-123');
+const licenses = await authvital.licenses.listForUser(req, 'user-123');
 
 console.log(licenses);
 // [
@@ -934,7 +934,7 @@ console.log(licenses);
 
 // Use case: Admin viewing user's entitlements
 app.get('/admin/users/:id/licenses', async (req, res) => {
-  const licenses = await authvader.licenses.listForUser(req, req.params.id);
+  const licenses = await authvital.licenses.listForUser(req, req.params.id);
   res.json({ licenses });
 });
 ```
@@ -943,7 +943,7 @@ app.get('/admin/users/:id/licenses', async (req, res) => {
 
 ```typescript
 // Grant a license to a user
-await authvader.licenses.grant(req, {
+await authvital.licenses.grant(req, {
   userId: 'user-123',
   applicationId: 'app-123',
   licenseTypeId: 'license-pro',
@@ -951,7 +951,7 @@ await authvader.licenses.grant(req, {
 });
 
 // Revoke a license
-await authvader.licenses.revoke(req, {
+await authvital.licenses.revoke(req, {
   userId: 'user-123',
   applicationId: 'app-123',
   tenantId: 'tenant-123',
@@ -963,7 +963,7 @@ await authvader.licenses.revoke(req, {
 Upgrade or downgrade a user's license type.
 
 ```typescript
-await authvader.licenses.changeType(req, {
+await authvital.licenses.changeType(req, {
   userId: 'user-123',
   applicationId: 'app-456',
   newLicenseTypeId: 'license-enterprise',
@@ -971,12 +971,12 @@ await authvader.licenses.changeType(req, {
 
 // Practical usage: Upgrade flow
 app.post('/api/billing/upgrade', async (req, res) => {
-  const claims = await authvader.validateRequest(req);
+  const claims = await authvital.validateRequest(req);
   
   // Process payment...
   
   // Upgrade license
-  await authvader.licenses.changeType(req, {
+  await authvital.licenses.changeType(req, {
     userId: claims.sub,
     applicationId: process.env.APP_ID!,
     newLicenseTypeId: 'license-enterprise',
@@ -991,7 +991,7 @@ app.post('/api/billing/upgrade', async (req, res) => {
 Get all license holders for an application - useful for admin dashboards.
 
 ```typescript
-const holders = await authvader.licenses.getHolders(req, 'app-456');
+const holders = await authvital.licenses.getHolders(req, 'app-456');
 
 console.log(holders);
 // [
@@ -1008,11 +1008,11 @@ const enterpriseUsers = holders.filter(h => h.licenseType === 'enterprise');
 Get a count of licensed users - great for dashboards!
 
 ```typescript
-const { count } = await authvader.licenses.countLicensedUsers(req, 'app-456');
+const { count } = await authvital.licenses.countLicensedUsers(req, 'app-456');
 console.log(`You have ${count} licensed users`);
 
 // With breakdown
-const { count, breakdown } = await authvader.licenses.countLicensedUsers(req, 'app-456', {
+const { count, breakdown } = await authvital.licenses.countLicensedUsers(req, 'app-456', {
   includeBreakdown: true,
 });
 console.log(breakdown);
@@ -1024,7 +1024,7 @@ console.log(breakdown);
 Get license change history for compliance and debugging.
 
 ```typescript
-const auditLog = await authvader.licenses.getAuditLog(req, {
+const auditLog = await authvital.licenses.getAuditLog(req, {
   userId: 'user-123',  // Optional: filter by user
   limit: 50,           // Optional: default 20
   offset: 0,           // Optional: for pagination
@@ -1070,7 +1070,7 @@ Track license usage for billing and analytics.
 ##### getUsageOverview()
 
 ```typescript
-const overview = await authvader.licenses.getUsageOverview(req);
+const overview = await authvital.licenses.getUsageOverview(req);
 
 console.log(overview);
 // {
@@ -1089,7 +1089,7 @@ console.log(overview);
 
 ```typescript
 // Get usage trends for the last 30 days
-const trends = await authvader.licenses.getUsageTrends(req, 30);
+const trends = await authvital.licenses.getUsageTrends(req, 30);
 
 console.log(trends);
 // {
@@ -1117,7 +1117,7 @@ const chartData = trends.dataPoints.map(d => ({
 ```typescript
 app.get('/api/admin/license-dashboard', async (req, res) => {
   // Verify admin permission
-  if (!await authvader.hasTenantPermission(req, 'licenses:manage')) {
+  if (!await authvital.hasTenantPermission(req, 'licenses:manage')) {
     return res.status(403).json({ error: 'Admin access required' });
   }
   
@@ -1131,11 +1131,11 @@ app.get('/api/admin/license-dashboard', async (req, res) => {
     trends,
     auditLog,
   ] = await Promise.all([
-    authvader.licenses.countLicensedUsers(req, appId, { includeBreakdown: true }),
-    authvader.licenses.getHolders(req, appId),
-    authvader.licenses.getUsageOverview(req),
-    authvader.licenses.getUsageTrends(req, 30),
-    authvader.licenses.getAuditLog(req, { limit: 10 }),
+    authvital.licenses.countLicensedUsers(req, appId, { includeBreakdown: true }),
+    authvital.licenses.getHolders(req, appId),
+    authvital.licenses.getUsageOverview(req),
+    authvital.licenses.getUsageTrends(req, 30),
+    authvital.licenses.getAuditLog(req, { limit: 10 }),
   ]);
   
   res.json({
@@ -1156,17 +1156,17 @@ app.get('/api/admin/license-dashboard', async (req, res) => {
 
 ```typescript
 // List user's active sessions
-const { sessions } = await authvader.sessions.list(req);
+const { sessions } = await authvital.sessions.list(req);
 // Returns: [{ id, userAgent, ipAddress, createdAt, lastActiveAt, current: boolean }]
 
 // Revoke a specific session
-await authvader.sessions.revoke(req, 'session-id');
+await authvital.sessions.revoke(req, 'session-id');
 
 // Logout from all devices
-await authvader.sessions.revokeAll(req);
+await authvital.sessions.revokeAll(req);
 
 // Get current session info
-const currentSession = await authvader.sessions.current(req);
+const currentSession = await authvital.sessions.current(req);
 ```
 
 ### Entitlements
@@ -1175,7 +1175,7 @@ Check what a user is entitled to across the system:
 
 ```typescript
 // Get all entitlements for current user
-const entitlements = await authvader.entitlements.get(req);
+const entitlements = await authvital.entitlements.get(req);
 // Returns: {
 //   tenants: [{ id, name, role, permissions }],
 //   applications: [{ id, name, roles, license }],
@@ -1183,7 +1183,7 @@ const entitlements = await authvader.entitlements.get(req);
 // }
 
 // Check specific entitlement
-const { entitled } = await authvader.entitlements.check(req, {
+const { entitled } = await authvital.entitlements.check(req, {
   type: 'feature',
   key: 'advanced-analytics',
 });
@@ -1194,12 +1194,12 @@ const { entitled } = await authvader.entitlements.check(req, {
 ### Basic Auth Middleware
 
 ```typescript
-import { createAuthVader } from '@authvader/sdk/server';
+import { createAuthVital } from '@authvital/sdk/server';
 
-const authvader = createAuthVader({ /* config */ });
+const authvital = createAuthVital({ /* config */ });
 
 export const requireAuth = async (req, res, next) => {
-  const { authenticated, user, error } = await authvader.getCurrentUser(req);
+  const { authenticated, user, error } = await authvital.getCurrentUser(req);
   
   if (!authenticated) {
     return res.status(401).json({ 
@@ -1218,7 +1218,7 @@ export const requireAuth = async (req, res, next) => {
 ```typescript
 export const requirePermission = (...permissions: string[]) => {
   return async (req, res, next) => {
-    const { allowed } = await authvader.permissions.checkAll(req, {
+    const { allowed } = await authvital.permissions.checkAll(req, {
       permissions,
     });
     
@@ -1247,7 +1247,7 @@ app.delete('/api/users/:id',
 export const requireLicense = (applicationId: string, feature?: string) => {
   return async (req, res, next) => {
     if (feature) {
-      const { hasFeature } = await authvader.licenses.hasFeature(req, {
+      const { hasFeature } = await authvital.licenses.hasFeature(req, {
         applicationId,
         feature,
       });
@@ -1260,7 +1260,7 @@ export const requireLicense = (applicationId: string, feature?: string) => {
         });
       }
     } else {
-      const { hasLicense } = await authvader.licenses.check(req, {
+      const { hasLicense } = await authvital.licenses.check(req, {
         applicationId,
       });
       
@@ -1301,7 +1301,7 @@ export const requireTenantAccess = async (req, res, next) => {
   }
   
   // Or check membership
-  const tenants = await authvader.memberships.listUserTenants(req);
+  const tenants = await authvital.memberships.listUserTenants(req);
   const hasAccess = tenants.some(t => t.id === tenantId);
   
   if (!hasAccess) {
@@ -1320,19 +1320,19 @@ export const requireTenantAccess = async (req, res, next) => {
 ```typescript
 // guards/auth.guard.ts
 import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
-import { createAuthVader } from '@authvader/sdk/server';
+import { createAuthVital } from '@authvital/sdk/server';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
-  private authvader = createAuthVader({
-    authVaderHost: process.env.AUTHVADER_HOST!,
-    clientId: process.env.AUTHVADER_CLIENT_ID!,
-    clientSecret: process.env.AUTHVADER_CLIENT_SECRET!,
+  private authvital = createAuthVital({
+    authVitalHost: process.env.AUTHVITAL_HOST!,
+    clientId: process.env.AUTHVITAL_CLIENT_ID!,
+    clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
   });
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    const { authenticated, user } = await this.authvader.getCurrentUser(request);
+    const { authenticated, user } = await this.authvital.getCurrentUser(request);
     
     if (!authenticated) {
       return false;
@@ -1398,14 +1398,14 @@ import {
   buildAuthorizeUrl,
   exchangeCodeForTokens,
   refreshAccessToken,
-} from '@authvader/sdk/server';
+} from '@authvital/sdk/server';
 
 // Generate PKCE challenge pair
 const { codeVerifier, codeChallenge } = await generatePKCE();
 
 // Build authorization URL
 const authorizeUrl = buildAuthorizeUrl({
-  authVaderHost: 'https://auth.yourapp.com',
+  authVitalHost: 'https://auth.yourapp.com',
   clientId: 'your-client-id',
   redirectUri: 'https://yourapp.com/callback',
   codeChallenge,
@@ -1415,7 +1415,7 @@ const authorizeUrl = buildAuthorizeUrl({
 
 // Exchange code for tokens (after callback)
 const tokens = await exchangeCodeForTokens({
-  authVaderHost: 'https://auth.yourapp.com',
+  authVitalHost: 'https://auth.yourapp.com',
   clientId: 'your-client-id',
   clientSecret: 'your-client-secret',
   code: authorizationCode,
@@ -1425,7 +1425,7 @@ const tokens = await exchangeCodeForTokens({
 
 // Refresh an access token
 const newTokens = await refreshAccessToken({
-  authVaderHost: 'https://auth.yourapp.com',
+  authVitalHost: 'https://auth.yourapp.com',
   clientId: 'your-client-id',
   clientSecret: 'your-client-secret',
   refreshToken: tokens.refresh_token,
@@ -1442,31 +1442,31 @@ import {
   getSignupUrl,
   getLogoutUrl,
   getPasswordResetUrl,
-} from '@authvader/sdk/server';
+} from '@authvital/sdk/server';
 
 // Login URL (starts OAuth flow)
 const loginUrl = getLoginUrl({
-  authVaderHost: 'https://auth.yourapp.com',
+  authVitalHost: 'https://auth.yourapp.com',
   clientId: 'your-client-id',
   redirectUri: 'https://yourapp.com/callback',
 });
 
 // Signup URL
 const signupUrl = getSignupUrl({
-  authVaderHost: 'https://auth.yourapp.com',
+  authVitalHost: 'https://auth.yourapp.com',
   clientId: 'your-client-id',
   redirectUri: 'https://yourapp.com/callback',
 });
 
 // Logout URL
 const logoutUrl = getLogoutUrl({
-  authVaderHost: 'https://auth.yourapp.com',
+  authVitalHost: 'https://auth.yourapp.com',
   postLogoutRedirectUri: 'https://yourapp.com',
 });
 
 // Password reset URL
 const resetUrl = getPasswordResetUrl({
-  authVaderHost: 'https://auth.yourapp.com',
+  authVitalHost: 'https://auth.yourapp.com',
   email: 'user@example.com',
 });
 ```
@@ -1474,18 +1474,18 @@ const resetUrl = getPasswordResetUrl({
 ## Error Handling
 
 ```typescript
-import { AuthVaderError } from '@authvader/sdk/server';
+import { AuthVitalError } from '@authvital/sdk/server';
 
 try {
-  const { authenticated, user, error } = await authvader.getCurrentUser(req);
+  const { authenticated, user, error } = await authvital.getCurrentUser(req);
   
   if (!authenticated) {
     // error contains: 'token_expired', 'invalid_signature', 'no_token', etc.
     console.log('Auth failed:', error);
   }
 } catch (err) {
-  if (err instanceof AuthVaderError) {
-    console.error('AuthVader error:', err.code, err.message);
+  if (err instanceof AuthVitalError) {
+    console.error('AuthVital error:', err.code, err.message);
   }
 }
 ```
@@ -1497,7 +1497,7 @@ All types are exported for type-safe development:
 ```typescript
 import type {
   // Configuration
-  AuthVaderClientConfig,
+  AuthVitalClientConfig,
   OAuthFlowConfig,
   JwtMiddlewareOptions,
   PassportJwtOptions,
@@ -1545,7 +1545,7 @@ import type {
   // Entitlements  
   EntitlementsResponse,
   EntitlementCheckResult,
-} from '@authvader/sdk/server';
+} from '@authvital/sdk/server';
 ```
 
 ### Key Type Definitions
@@ -1656,12 +1656,12 @@ interface LicenseUsageTrends {
 
 ```typescript
 // ✅ FAST: Use JWT helpers for real-time UI decisions
-if (await authvader.hasAppPermission(req, 'projects:edit')) {
+if (await authvital.hasAppPermission(req, 'projects:edit')) {
   showEditButton();
 }
 
 // ✅ ACCURATE: Use API for critical operations
-const { allowed } = await authvader.permissions.check(req, {
+const { allowed } = await authvital.permissions.check(req, {
   permission: 'billing:manage',
 });
 if (allowed) {

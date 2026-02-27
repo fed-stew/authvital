@@ -1,6 +1,6 @@
 # Security Best Practices
 
-> Recommendations for securely deploying and integrating AuthVader.
+> Recommendations for securely deploying and integrating AuthVital.
 
 ## Authentication Security
 
@@ -15,7 +15,7 @@
 
 ```typescript
 // ✅ Good: Token in memory, refresh via httpOnly cookie
-const { accessToken } = await getTokenFromAuthVader();
+const { accessToken } = await getTokenFromAuthVital();
 // Store in React state or module-level variable
 
 // ❌ Bad: Never store tokens in localStorage
@@ -53,7 +53,7 @@ Shorter lifetimes = less window for stolen tokens.
 ```typescript
 // ✅ Server validates JWT
 app.get('/api/admin', async (req, res) => {
-  const { authenticated, user } = await authvader.getCurrentUser(req);
+  const { authenticated, user } = await authvital.getCurrentUser(req);
   if (!authenticated || !user.app_permissions.includes('admin:*')) {
     return res.status(403).json({ error: 'Forbidden' });
   }
@@ -109,11 +109,11 @@ if (returnedState !== sessionStorage.getItem('oauth_state')) {
 ```bash
 # ✅ Server-side only
 # .env (backend)
-AUTHVADER_CLIENT_SECRET=secret_xxx
+AUTHVITAL_CLIENT_SECRET=secret_xxx
 
 # ❌ Never in client code
 # .env (frontend) - WRONG!
-VITE_AUTHVADER_CLIENT_SECRET=secret_xxx  # Exposed in browser!
+VITE_AUTHVITAL_CLIENT_SECRET=secret_xxx  # Exposed in browser!
 ```
 
 ## Infrastructure Security
@@ -162,8 +162,8 @@ CORS_ORIGINS=*  // Allows any origin!
 DB_PASSWORD=long-random-string-32-chars-minimum
 
 # ✅ Separate credentials per environment
-# dev: authvader_dev / dev-password
-# prod: authvader_prod / secure-prod-password
+# dev: authvital_dev / dev-password
+# prod: authvital_prod / secure-prod-password
 
 # ✅ Principle of least privilege
 # App user shouldn't have DROP TABLE permissions
@@ -188,7 +188,7 @@ DB_PASSWORD=long-random-string-32-chars-minimum
 ### Key Rotation
 
 ```bash
-# Rotate signing keys periodically (AuthVader does this automatically)
+# Rotate signing keys periodically (AuthVital does this automatically)
 KEY_ROTATION_INTERVAL_SECONDS=604800  # 7 days
 
 # ⚠️ Rotating SIGNING_KEY_SECRET invalidates all tokens!
@@ -201,7 +201,7 @@ KEY_ROTATION_INTERVAL_SECONDS=604800  # 7 days
 // ✅ Always verify webhook signatures
 const router = new WebhookRouter({
   handler: myHandler,
-  secret: process.env.AUTHVADER_WEBHOOK_SECRET!, // Required!
+  secret: process.env.AUTHVITAL_WEBHOOK_SECRET!, // Required!
 });
 
 // ❌ Never skip signature verification
@@ -253,12 +253,12 @@ app.get('/api/tenant/:tenantId/data', async (req, res) => {
 
 ```typescript
 // ✅ Require MFA for admins
-await authvader.admin.updateInstanceSettings({
+await authvital.admin.updateInstanceSettings({
   superAdminMfaRequired: true,
 });
 
 // ✅ Require MFA for tenant admins
-await authvader.tenants.update(tenantId, {
+await authvital.tenants.update(tenantId, {
   mfaPolicy: 'REQUIRED',
 });
 ```
@@ -279,7 +279,7 @@ await authvader.tenants.update(tenantId, {
 ```typescript
 // Log security events
 app.post('/api/auth/login', async (req, res) => {
-  const result = await authvader.auth.login(req.body);
+  const result = await authvital.auth.login(req.body);
   
   if (!result.success) {
     logger.warn('Failed login attempt', {

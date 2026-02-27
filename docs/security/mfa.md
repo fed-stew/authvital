@@ -4,7 +4,7 @@
 
 ## Overview
 
-AuthVader supports **TOTP-based MFA** (Time-based One-Time Passwords) compatible with:
+AuthVital supports **TOTP-based MFA** (Time-based One-Time Passwords) compatible with:
 - Google Authenticator
 - Authy
 - 1Password
@@ -35,7 +35,7 @@ AuthVader supports **TOTP-based MFA** (Time-based One-Time Passwords) compatible
 sequenceDiagram
     participant U as User
     participant A as App
-    participant AV as AuthVader
+    participant AV as AuthVital
 
     U->>A: Click "Enable MFA"
     A->>AV: POST /api/mfa/setup
@@ -54,7 +54,7 @@ sequenceDiagram
 sequenceDiagram
     participant U as User
     participant A as App
-    participant AV as AuthVader
+    participant AV as AuthVital
 
     U->>A: Login (email, password)
     A->>AV: POST /api/auth/login
@@ -72,7 +72,7 @@ sequenceDiagram
 
 ```typescript
 // Start MFA setup
-const setup = await authvader.mfa.setup(req);
+const setup = await authvital.mfa.setup(req);
 // {
 //   secret: "JBSWY3DPEHPK3PXP",
 //   qrCodeUrl: "data:image/png;base64,...",
@@ -85,7 +85,7 @@ const setup = await authvader.mfa.setup(req);
 
 ```typescript
 // Complete MFA setup with TOTP code
-const result = await authvader.mfa.verifySetup(req, {
+const result = await authvital.mfa.verifySetup(req, {
   code: '123456', // 6-digit code from authenticator
 });
 // { success: true, mfaEnabled: true }
@@ -95,7 +95,7 @@ const result = await authvader.mfa.verifySetup(req, {
 
 ```typescript
 // After login returns mfaRequired: true
-const tokens = await authvader.mfa.verifyChallenge({
+const tokens = await authvital.mfa.verifyChallenge({
   challengeToken: 'challenge-token-from-login',
   code: '123456', // TOTP code
 });
@@ -106,7 +106,7 @@ const tokens = await authvader.mfa.verifyChallenge({
 
 ```typescript
 // User must verify current code to disable
-const result = await authvader.mfa.disable(req, {
+const result = await authvital.mfa.disable(req, {
   code: '123456', // Current TOTP code
 });
 // { success: true, mfaEnabled: false }
@@ -116,7 +116,7 @@ const result = await authvader.mfa.disable(req, {
 
 ```typescript
 // When user can't access authenticator
-const tokens = await authvader.mfa.useBackupCode({
+const tokens = await authvital.mfa.useBackupCode({
   challengeToken: 'challenge-token-from-login',
   backupCode: '12345678',
 });
@@ -128,7 +128,7 @@ const tokens = await authvader.mfa.useBackupCode({
 
 ```typescript
 // Get new backup codes (invalidates old ones)
-const { backupCodes } = await authvader.mfa.regenerateBackupCodes(req, {
+const { backupCodes } = await authvital.mfa.regenerateBackupCodes(req, {
   code: '123456', // Current TOTP code for verification
 });
 // backupCodes: ["new-code-1", "new-code-2", ...]
@@ -140,10 +140,10 @@ const { backupCodes } = await authvader.mfa.regenerateBackupCodes(req, {
 
 ```tsx
 import { useState } from 'react';
-import { useAuthVader } from '@authvader/sdk/client';
+import { useAuthVital } from '@authvital/sdk/client';
 
 function MfaSetup() {
-  const { setupMfa, verifyMfaSetup } = useAuthVader();
+  const { setupMfa, verifyMfaSetup } = useAuthVital();
   const [setup, setSetup] = useState(null);
   const [code, setCode] = useState('');
   const [backupCodes, setBackupCodes] = useState([]);
@@ -208,7 +208,7 @@ function MfaSetup() {
 
 ```tsx
 function MfaChallenge({ challengeToken, onSuccess }) {
-  const { verifyMfaChallenge, useBackupCode } = useAuthVader();
+  const { verifyMfaChallenge, useBackupCode } = useAuthVital();
   const [code, setCode] = useState('');
   const [useBackup, setUseBackup] = useState(false);
   const [error, setError] = useState('');
@@ -277,7 +277,7 @@ function MfaChallenge({ challengeToken, onSuccess }) {
 
 ```tsx
 function Login() {
-  const { login } = useAuthVader();
+  const { login } = useAuthVital();
   const [mfaChallenge, setMfaChallenge] = useState(null);
   const navigate = useNavigate();
 
@@ -310,12 +310,12 @@ function Login() {
 
 ```typescript
 // Require MFA for all tenant members
-await authvader.tenants.update('tenant-id', {
+await authvital.tenants.update('tenant-id', {
   mfaPolicy: 'REQUIRED',
 });
 
 // Require after grace period
-await authvader.tenants.update('tenant-id', {
+await authvital.tenants.update('tenant-id', {
   mfaPolicy: 'ENFORCED_AFTER_GRACE',
   mfaGracePeriodDays: 14, // 14 days to enable MFA
 });
@@ -325,7 +325,7 @@ await authvader.tenants.update('tenant-id', {
 
 ```typescript
 // Instance setting
-await authvader.admin.updateInstanceSettings({
+await authvital.admin.updateInstanceSettings({
   superAdminMfaRequired: true,
 });
 ```
@@ -334,7 +334,7 @@ await authvader.admin.updateInstanceSettings({
 
 ```typescript
 // Get user's MFA status
-const { mfaEnabled, mfaVerifiedAt } = await authvader.users.getMfaStatus(userId);
+const { mfaEnabled, mfaVerifiedAt } = await authvital.users.getMfaStatus(userId);
 
 // In JWT, check mfa_enabled claim
 if (!user.mfa_enabled && tenantPolicy === 'REQUIRED') {
@@ -384,7 +384,7 @@ If user loses access to authenticator AND backup codes:
 
 ```typescript
 // Admin: Disable user's MFA (emergency only)
-await authvader.admin.disableUserMfa(userId, {
+await authvital.admin.disableUserMfa(userId, {
   reason: 'User lost access to authenticator',
   adminId: currentAdminId,
 });
@@ -400,7 +400,7 @@ await authvader.admin.disableUserMfa(userId, {
 | `mfa.backup_regenerated` | Backup codes regenerated |
 
 ```typescript
-class MyEventHandler extends AuthVaderEventHandler {
+class MyEventHandler extends AuthVitalEventHandler {
   async onMfaEnabled(event) {
     await audit.log({
       action: 'mfa_enabled',

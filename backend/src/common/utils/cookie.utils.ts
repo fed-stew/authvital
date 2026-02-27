@@ -1,5 +1,5 @@
 /**
- * Cookie utilities for AuthVader
+ * Cookie utilities for AuthVital
  *
  * Centralized cookie configuration to ensure consistent security settings.
  */
@@ -38,7 +38,7 @@ export function isSecureCookie(): boolean {
 }
 
 /**
- * Base cookie options for all AuthVader cookies.
+ * Base cookie options for all AuthVital cookies.
  *
  * By NOT setting a domain, the browser creates a "HostOnly" cookie
  * that is only sent to the exact hostname, not subdomains.

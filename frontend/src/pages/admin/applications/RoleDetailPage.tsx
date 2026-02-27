@@ -376,7 +376,7 @@ export function RoleDetailPage() {
             <div className="rounded-md border border-blue-500/20 bg-blue-500/10 p-4">
               <h4 className="font-medium text-blue-200 mb-2">About Roles</h4>
               <p className="text-sm text-blue-200/80">
-                Roles in AuthVader are simple identifiers (name, slug,
+                Roles in AuthVital are simple identifiers (name, slug,
                 description). The actual permission logic is handled by your
                 application based on the role slugs in the JWT token.
               </p>

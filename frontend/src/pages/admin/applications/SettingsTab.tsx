@@ -542,13 +542,13 @@ export function SettingsTab({ app, appId, onRefresh }: SettingsTabProps) {
             <Input
               id="webhookUrl"
               type="url"
-              placeholder="https://your-app.com/webhooks/authvader"
+              placeholder="https://your-app.com/webhooks/authvital"
               value={formData.webhookUrl || ''}
               onChange={handleChange('webhookUrl')}
               className="bg-card"
             />
             <p className="text-xs text-muted-foreground">
-              AuthVader will POST events to this URL. Events are signed using RSA-SHA256.
+              AuthVital will POST events to this URL. Events are signed using RSA-SHA256.
             </p>
           </div>
 

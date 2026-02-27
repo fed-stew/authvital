@@ -1,11 +1,11 @@
-# AuthVader Documentation
+# AuthVital Documentation
 
-> **AuthVader** is a B2B Identity Provider platform with OAuth 2.0/OIDC compliance, multi-tenancy, role-based access control, licensing, SSO, and MFA.
+> **AuthVital** is a B2B Identity Provider platform with OAuth 2.0/OIDC compliance, multi-tenancy, role-based access control, licensing, SSO, and MFA.
 
 ## 📚 Documentation Index
 
 ### Getting Started
-- [Installation & Deployment](./getting-started/installation.md) - Set up AuthVader
+- [Installation & Deployment](./getting-started/installation.md) - Set up AuthVital
 - [Quick Start Guide](./getting-started/quick-start.md) - Integrate in 5 minutes
 - [Configuration Reference](./getting-started/configuration.md) - Environment variables
 
@@ -24,7 +24,7 @@
 - **Webhooks Documentation:**
   - [Webhooks Overview](./sdk/webhooks.md) - Getting started with webhooks
   - [Event Types & Payloads](./sdk/webhooks-events.md) - All events with TypeScript types
-  - [Event Handler Reference](./sdk/webhooks-handler.md) - AuthVaderEventHandler class
+  - [Event Handler Reference](./sdk/webhooks-handler.md) - AuthVitalEventHandler class
   - [Framework Examples](./sdk/webhooks-frameworks.md) - Express, Next.js, NestJS
   - [Manual Verification](./sdk/webhooks-verification.md) - Low-level RSA verification
   - [Best Practices](./sdk/webhooks-advanced.md) - Error handling, idempotency, testing
@@ -58,7 +58,7 @@
 | I want to... | Go to... |
 |--------------|----------|
 | Get a complete integration guide | [Complete Setup Guide](./sdk/complete-setup-guide.md) |
-| Integrate AuthVader into my app | [Quick Start Guide](./getting-started/quick-start.md) |
+| Integrate AuthVital into my app | [Quick Start Guide](./getting-started/quick-start.md) |
 | Understand the OAuth flow | [OAuth 2.0 / OIDC Flows](./concepts/oauth-flow.md) |
 | Understand webhook events | [Event Types & Payloads](./sdk/webhooks-events.md) |
 | Sync users to my database | [Identity Sync Guide](./sdk/user-sync.md) |
@@ -76,7 +76,7 @@
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐         │
 │  │  React Client   │    │  Node.js API    │    │  Your Database  │         │
-│  │  (@authvader/   │    │  (@authvader/   │    │  (User Sync)    │         │
+│  │  (@authvital/   │    │  (@authvital/   │    │  (User Sync)    │         │
 │  │   sdk/client)   │    │   sdk/server)   │    │                 │         │
 │  └────────┬────────┘    └────────┬────────┘    └────────▲────────┘         │
 │           │                      │                      │                   │
@@ -86,7 +86,7 @@
             │                      │                      │
             ▼                      ▼                      │
 ┌─────────────────────────────────────────────────────────┴───────────────────┐
-│                            AuthVader Platform                                │
+│                            AuthVital Platform                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
 │  │    OAuth     │  │   Tenants    │  │  Licensing   │  │   Webhooks   │    │
@@ -116,4 +116,4 @@
 ## Support
 
 - **GitHub Issues**: Report bugs and request features
-- **SDK Package**: `npm install @authvader/sdk`
+- **SDK Package**: `npm install @authvital/sdk`

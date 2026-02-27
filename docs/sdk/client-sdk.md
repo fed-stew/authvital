@@ -1,28 +1,28 @@
 # Client SDK (React)
 
-> Complete guide for integrating AuthVader into React applications.
+> Complete guide for integrating AuthVital into React applications.
 
 ## Overview
 
-The AuthVader Client SDK provides React components and hooks for managing authentication state in your frontend application. It's designed for React/Next.js apps and handles:
+The AuthVital Client SDK provides React components and hooks for managing authentication state in your frontend application. It's designed for React/Next.js apps and handles:
 
 - 🔐 **Authentication state management** - Track user login status
 - 👤 **User data access** - Display user info, roles, permissions
 - 🏢 **Multi-tenant support** - Tenant selection and switching
 - 📨 **Invitation flows** - Accept and process team invitations
-- 🚀 **OAuth initiation** - Start login/signup flows that redirect to AuthVader
+- 🚀 **OAuth initiation** - Start login/signup flows that redirect to AuthVital
 
 ---
 
 ## ⚠️ IMPORTANT: Cookie-Based Authentication
 
-**The Client SDK does NOT call the AuthVader IDP directly!**
+**The Client SDK does NOT call the AuthVital IDP directly!**
 
 Auth state is managed via **httpOnly cookies** that your server sets. This is **intentional** for XSS protection:
 
 ```
 ┌─────────────┐         ┌─────────────┐         ┌─────────────┐
-│   Browser   │         │ Your Server │         │  AuthVader  │
+│   Browser   │         │ Your Server │         │  AuthVital  │
 │  (Client)   │         │   (API)     │         │    IDP      │
 └──────┬──────┘         └──────┬──────┘         └──────┬──────┘
        │                       │                       │
@@ -61,7 +61,7 @@ Auth state is managed via **httpOnly cookies** that your server sets. This is **
 ## Installation
 
 ```bash
-npm install @authvader/sdk
+npm install @authvital/sdk
 ```
 
 ---
@@ -69,21 +69,21 @@ npm install @authvader/sdk
 ## Quick Setup
 
 ```tsx
-import { AuthVaderProvider, useAuth } from '@authvader/sdk/client';
+import { AuthVitalProvider, useAuth } from '@authvital/sdk/client';
 
 function App() {
   // initialUser/initialTenants come from your server (SSR props, API call, etc.)
   const { initialUser, initialTenants } = useServerData();
 
   return (
-    <AuthVaderProvider
-      authVaderHost={import.meta.env.VITE_AUTHVADER_HOST}
-      clientId={import.meta.env.VITE_AUTHVADER_CLIENT_ID}
+    <AuthVitalProvider
+      authVitalHost={import.meta.env.VITE_AUTHVITAL_HOST}
+      clientId={import.meta.env.VITE_AUTHVITAL_CLIENT_ID}
       initialUser={initialUser}
       initialTenants={initialTenants}
     >
       <MyApp />
-    </AuthVaderProvider>
+    </AuthVitalProvider>
   );
 }
 
@@ -105,17 +105,17 @@ function MyApp() {
 
 ---
 
-## AuthVaderProvider
+## AuthVitalProvider
 
-Wrap your app with `AuthVaderProvider` to enable authentication:
+Wrap your app with `AuthVitalProvider` to enable authentication:
 
 ```tsx
-import { AuthVaderProvider } from '@authvader/sdk/client';
+import { AuthVitalProvider } from '@authvital/sdk/client';
 
 function App() {
   return (
-    <AuthVaderProvider
-      authVaderHost="https://auth.yourapp.com"
+    <AuthVitalProvider
+      authVitalHost="https://auth.yourapp.com"
       clientId="your-client-id"
       redirectUri="https://yourapp.com/api/auth/callback"  // Optional
       initialUser={null}                                   // From server
@@ -127,7 +127,7 @@ function App() {
       <Router>
         <Routes />
       </Router>
-    </AuthVaderProvider>
+    </AuthVitalProvider>
   );
 }
 ```
@@ -136,12 +136,12 @@ function App() {
 
 | Prop | Type | Required | Description |
 |------|------|----------|-------------|
-| `authVaderHost` | `string` | Yes | AuthVader server URL |
+| `authVitalHost` | `string` | Yes | AuthVital server URL |
 | `clientId` | `string` | Yes | OAuth client ID |
 | `redirectUri` | `string` | No | OAuth callback URL (default: `/api/auth/callback`) |
 | `scope` | `string` | No | OAuth scopes (default: `openid profile email`) |
-| `initialUser` | `AuthVaderUser \| null` | No | Pre-loaded user from server |
-| `initialTenants` | `AuthVaderTenant[]` | No | Pre-loaded tenants from server |
+| `initialUser` | `AuthVitalUser \| null` | No | Pre-loaded user from server |
+| `initialTenants` | `AuthVitalTenant[]` | No | Pre-loaded tenants from server |
 | `onAuthStateChange` | `function` | No | Callback when auth state changes |
 
 ---
@@ -151,7 +151,7 @@ function App() {
 The primary hook for accessing auth state and methods:
 
 ```tsx
-import { useAuth } from '@authvader/sdk/client';
+import { useAuth } from '@authvital/sdk/client';
 
 function Dashboard() {
   const {
@@ -160,9 +160,9 @@ function Dashboard() {
     isLoading,         // boolean: is auth state being determined?
     isSigningIn,       // boolean: is sign-in in progress?
     isSigningUp,       // boolean: is sign-up in progress?
-    user,              // AuthVaderUser | null
-    tenants,           // AuthVaderTenant[]
-    currentTenant,     // AuthVaderTenant | null
+    user,              // AuthVitalUser | null
+    tenants,           // AuthVitalTenant[]
+    currentTenant,     // AuthVitalTenant | null
     error,             // string | null
     
     // ============ AUTH METHODS (redirect to OAuth) ============
@@ -198,7 +198,7 @@ Since the Client SDK doesn't call the IDP directly, you need to update auth stat
 ### Setting Auth State (After Server Verification)
 
 ```tsx
-import { useAuth } from '@authvader/sdk/client';
+import { useAuth } from '@authvital/sdk/client';
 
 // After OAuth callback - your callback route handler
 function AuthCallbackPage() {
@@ -233,7 +233,7 @@ function AuthCallbackPage() {
 ### Clearing Auth State (On Logout)
 
 ```tsx
-import { useAuth } from '@authvader/sdk/client';
+import { useAuth } from '@authvital/sdk/client';
 
 function LogoutButton() {
   const { clearAuthState, logout } = useAuth();
@@ -260,27 +260,27 @@ function LogoutButton() {
 
 ```tsx
 // pages/_app.tsx (Next.js)
-import { AuthVaderProvider } from '@authvader/sdk/client';
+import { AuthVitalProvider } from '@authvital/sdk/client';
 
 function MyApp({ Component, pageProps }) {
   // Server passes user data via pageProps
   const { user, tenants } = pageProps;
   
   return (
-    <AuthVaderProvider
-      authVaderHost={process.env.NEXT_PUBLIC_AUTHVADER_HOST!}
-      clientId={process.env.NEXT_PUBLIC_AUTHVADER_CLIENT_ID!}
+    <AuthVitalProvider
+      authVitalHost={process.env.NEXT_PUBLIC_AUTHVITAL_HOST!}
+      clientId={process.env.NEXT_PUBLIC_AUTHVITAL_CLIENT_ID!}
       initialUser={user}
       initialTenants={tenants}
     >
       <Component {...pageProps} />
-    </AuthVaderProvider>
+    </AuthVitalProvider>
   );
 }
 
 // In getServerSideProps:
 export async function getServerSideProps(context) {
-  const { getCurrentUser } = await import('@authvader/sdk');
+  const { getCurrentUser } = await import('@authvital/sdk');
   
   // Server verifies the JWT from cookies
   const { user, tenants } = await getCurrentUser(context.req);
@@ -301,14 +301,14 @@ export async function getServerSideProps(context) {
 For custom OAuth flow control:
 
 ```tsx
-import { useOAuth } from '@authvader/sdk/client';
+import { useOAuth } from '@authvital/sdk/client';
 
 function LoginPage() {
   const {
     isAuthenticated,   // boolean
     isLoading,         // boolean
-    startLogin,        // (options?) => void - redirects to AuthVader login
-    startSignup,       // (options?) => void - redirects to AuthVader signup
+    startLogin,        // (options?) => void - redirects to AuthVital login
+    startSignup,       // (options?) => void - redirects to AuthVital signup
     logout,            // () => Promise<void>
   } = useOAuth({
     redirectUri: '/api/auth/callback', // optional, has default
@@ -369,7 +369,7 @@ interface StartSignupOptions {
 Complete invitation handling flow:
 
 ```tsx
-import { useInvitation } from '@authvader/sdk/client';
+import { useInvitation } from '@authvital/sdk/client';
 import { useParams, useNavigate } from 'react-router-dom';
 
 function AcceptInvitePage() {
@@ -567,18 +567,18 @@ interface UseInvitationOptions {
 
 ---
 
-## useAuthVaderConfig Hook
+## useAuthVitalConfig Hook
 
 Access provider configuration values:
 
 ```tsx
-import { useAuthVaderConfig } from '@authvader/sdk/client';
+import { useAuthVitalConfig } from '@authvital/sdk/client';
 
 function CustomOAuthButton() {
-  const { authVaderHost, clientId, redirectUri } = useAuthVaderConfig();
+  const { authVitalHost, clientId, redirectUri } = useAuthVitalConfig();
   
   // Build custom OAuth URL
-  const oauthUrl = `${authVaderHost}/oauth/authorize?` + new URLSearchParams({
+  const oauthUrl = `${authVitalHost}/oauth/authorize?` + new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
@@ -587,7 +587,7 @@ function CustomOAuthButton() {
   
   return (
     <a href={oauthUrl} className="custom-login-button">
-      Sign in with AuthVader
+      Sign in with AuthVital
     </a>
   );
 }
@@ -596,8 +596,8 @@ function CustomOAuthButton() {
 ### Config Values
 
 ```typescript
-interface AuthVaderConfig {
-  authVaderHost: string;   // e.g., "https://auth.yourapp.com"
+interface AuthVitalConfig {
+  authVitalHost: string;   // e.g., "https://auth.yourapp.com"
   clientId: string;        // OAuth client ID
   redirectUri: string;     // OAuth callback URL
   scope: string;           // OAuth scopes
@@ -613,10 +613,10 @@ Convenience hooks for common patterns:
 ### useUser
 
 ```tsx
-import { useUser } from '@authvader/sdk/client';
+import { useUser } from '@authvital/sdk/client';
 
 function ProfileCard() {
-  const user = useUser(); // AuthVaderUser | null
+  const user = useUser(); // AuthVitalUser | null
   
   if (!user) return null;
   
@@ -633,10 +633,10 @@ function ProfileCard() {
 ### useTenant
 
 ```tsx
-import { useTenant } from '@authvader/sdk/client';
+import { useTenant } from '@authvital/sdk/client';
 
 function TenantBanner() {
-  const tenant = useTenant(); // AuthVaderTenant | null (current tenant)
+  const tenant = useTenant(); // AuthVitalTenant | null (current tenant)
   
   if (!tenant) return null;
   
@@ -653,7 +653,7 @@ function TenantBanner() {
 ### useTenants
 
 ```tsx
-import { useTenants } from '@authvader/sdk/client';
+import { useTenants } from '@authvital/sdk/client';
 
 function TenantSwitcher() {
   const { tenants, currentTenant, switchTenant } = useTenants();
@@ -682,8 +682,8 @@ function TenantSwitcher() {
 ### How Cookie-Based Auth Works
 
 1. **User clicks "Login"** → Client calls `startLogin()` or `login()`
-2. **Redirect to AuthVader** → User authenticates on AuthVader's hosted pages
-3. **OAuth callback** → AuthVader redirects to your `redirectUri` with `code`
+2. **Redirect to AuthVital** → User authenticates on AuthVital's hosted pages
+3. **OAuth callback** → AuthVital redirects to your `redirectUri` with `code`
 4. **Your server exchanges code** → Server SDK's `exchangeCode()` gets JWT
 5. **Server sets httpOnly cookie** → JWT stored securely, inaccessible to JS
 6. **Server returns user data** → JSON response with user/tenants
@@ -692,7 +692,7 @@ function TenantSwitcher() {
 ### Example Server Callback (Express)
 
 ```typescript
-import { exchangeCode, getCurrentUser } from '@authvader/sdk';
+import { exchangeCode, getCurrentUser } from '@authvital/sdk';
 
 app.post('/api/auth/callback', async (req, res) => {
   const { code } = req.body;
@@ -726,7 +726,7 @@ app.post('/api/auth/callback', async (req, res) => {
 
 ```typescript
 // pages/api/auth/callback.ts
-import { exchangeCode, getCurrentUser } from '@authvader/sdk';
+import { exchangeCode, getCurrentUser } from '@authvital/sdk';
 import { NextApiRequest, NextApiResponse } from 'next';
 import { serialize } from 'cookie';
 
@@ -770,12 +770,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 ### Using ProtectedRoute Component
 
 ```tsx
-import { ProtectedRoute } from '@authvader/sdk/client';
+import { ProtectedRoute } from '@authvital/sdk/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
 function App() {
   return (
-    <AuthVaderProvider {...config}>
+    <AuthVitalProvider {...config}>
       <BrowserRouter>
         <Routes>
           {/* Public routes */}
@@ -813,7 +813,7 @@ function App() {
           />
         </Routes>
       </BrowserRouter>
-    </AuthVaderProvider>
+    </AuthVitalProvider>
   );
 }
 ```
@@ -831,7 +831,7 @@ function App() {
 ### Custom Protected Route
 
 ```tsx
-import { useAuth } from '@authvader/sdk/client';
+import { useAuth } from '@authvital/sdk/client';
 import { Navigate, useLocation } from 'react-router-dom';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -859,7 +859,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 ### Direct Permission Check
 
 ```tsx
-import { useAuth } from '@authvader/sdk/client';
+import { useAuth } from '@authvital/sdk/client';
 
 function AdminFeature() {
   const { user, currentTenant } = useAuth();
@@ -970,7 +970,7 @@ function FeatureGate({
 ### SignUpForm
 
 ```tsx
-import { SignUpForm } from '@authvader/sdk/client';
+import { SignUpForm } from '@authvital/sdk/client';
 
 function SignUpPage() {
   return (
@@ -993,7 +993,7 @@ function SignUpPage() {
 For completing signup after invitation:
 
 ```tsx
-import { CompleteSignupForm } from '@authvader/sdk/client';
+import { CompleteSignupForm } from '@authvital/sdk/client';
 
 function CompleteSignupPage() {
   const { token } = useParams(); // Invitation token from URL
@@ -1012,7 +1012,7 @@ function CompleteSignupPage() {
 ### VerifyEmail
 
 ```tsx
-import { VerifyEmail } from '@authvader/sdk/client';
+import { VerifyEmail } from '@authvital/sdk/client';
 
 function VerifyEmailPage() {
   const { token } = useParams();
@@ -1060,18 +1060,18 @@ function Dashboard() {
 
 ```typescript
 import type {
-  AuthVaderUser,
-  AuthVaderTenant,
-  AuthVaderProviderProps,
+  AuthVitalUser,
+  AuthVitalTenant,
+  AuthVitalProviderProps,
   AuthContextValue,
   InvitationDetails,
-} from '@authvader/sdk/client';
+} from '@authvital/sdk/client';
 ```
 
-### AuthVaderUser
+### AuthVitalUser
 
 ```typescript
-interface AuthVaderUser {
+interface AuthVitalUser {
   id: string;
   email: string | null;
   givenName: string | null;
@@ -1084,10 +1084,10 @@ interface AuthVaderUser {
 }
 ```
 
-### AuthVaderTenant
+### AuthVitalTenant
 
 ```typescript
-interface AuthVaderTenant {
+interface AuthVitalTenant {
   id: string;
   name: string;
   slug: string;
@@ -1105,9 +1105,9 @@ interface AuthContextValue {
   isLoading: boolean;
   isSigningIn: boolean;
   isSigningUp: boolean;
-  user: AuthVaderUser | null;
-  tenants: AuthVaderTenant[];
-  currentTenant: AuthVaderTenant | null;
+  user: AuthVitalUser | null;
+  tenants: AuthVitalTenant[];
+  currentTenant: AuthVitalTenant | null;
   error: string | null;
   
   // Auth methods (redirect to OAuth)
@@ -1126,7 +1126,7 @@ interface AuthContextValue {
   checkAuth: () => Promise<boolean>;
   
   // State setters
-  setAuthState: (user: AuthVaderUser | null, tenants?: AuthVaderTenant[]) => void;
+  setAuthState: (user: AuthVitalUser | null, tenants?: AuthVitalTenant[]) => void;
   clearAuthState: () => void;
 }
 ```
@@ -1156,16 +1156,16 @@ interface InvitationDetails {
 
 ```bash
 # .env (Vite)
-VITE_AUTHVADER_HOST=https://auth.yourapp.com
-VITE_AUTHVADER_CLIENT_ID=your-client-id
+VITE_AUTHVITAL_HOST=https://auth.yourapp.com
+VITE_AUTHVITAL_CLIENT_ID=your-client-id
 
 # .env (Create React App)
-REACT_APP_AUTHVADER_HOST=https://auth.yourapp.com
-REACT_APP_AUTHVADER_CLIENT_ID=your-client-id
+REACT_APP_AUTHVITAL_HOST=https://auth.yourapp.com
+REACT_APP_AUTHVITAL_CLIENT_ID=your-client-id
 
 # .env (Next.js - client-side)
-NEXT_PUBLIC_AUTHVADER_HOST=https://auth.yourapp.com
-NEXT_PUBLIC_AUTHVADER_CLIENT_ID=your-client-id
+NEXT_PUBLIC_AUTHVITAL_HOST=https://auth.yourapp.com
+NEXT_PUBLIC_AUTHVITAL_CLIENT_ID=your-client-id
 ```
 
 **⚠️ Never expose `CLIENT_SECRET` to the browser! The secret is only used server-side.**
@@ -1180,9 +1180,9 @@ NEXT_PUBLIC_AUTHVADER_CLIENT_ID=your-client-id
 ├─────────────────────────────────────────────────────────────────────────┤
 │  1. User clicks login                                                   │
 │  2. useAuth().login() or useOAuth().startLogin()                        │
-│  3. Redirect to AuthVader IDP                                           │
+│  3. Redirect to AuthVital IDP                                           │
 │                                  ↓                                      │
-│  4. User authenticates on AuthVader                                     │
+│  4. User authenticates on AuthVital                                     │
 │                                  ↓                                      │
 │  5. Redirect back to YOUR callback URL with `code`                      │
 │                                  ↓                                      │

@@ -67,7 +67,7 @@ export class BootstrapService implements OnModuleInit {
       await this.prisma.instanceMeta.create({
         data: {
           id: 'instance',
-          name: 'AuthVader IDP',
+          name: 'AuthVital IDP',
           allowSignUp: true,
           autoCreateTenant: true,
           allowGenericDomains: true,

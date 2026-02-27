@@ -108,7 +108,7 @@ model AdminSsoLink {
 model InstanceMeta {
   id           String @id @default("instance") // Singleton enforcement
   instanceUuid String @unique @default(uuid()) // Immutable fleet identifier
-  name         String @default("AuthVader IDP")
+  name         String @default("AuthVital IDP")
 
   // Sign-up configuration (migrated from Directory)
   allowSignUp          Boolean  @default(false)

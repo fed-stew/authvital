@@ -1,5 +1,5 @@
 /**
- * @authvader/sdk - Memberships Namespace
+ * @authvital/sdk - Memberships Namespace
  *
  * Manage tenant and application memberships, roles, and user access.
  */
@@ -34,7 +34,7 @@ export function createMembershipsNamespace(client: BaseClient) {
      * @example
      * ```ts
      * app.get('/api/team', async (req, res) => {
-     *   const members = await authvader.memberships.listForTenant(req, {
+     *   const members = await authvital.memberships.listForTenant(req, {
      *     status: 'ACTIVE',
      *   });
      *   res.json(members);
@@ -83,7 +83,7 @@ export function createMembershipsNamespace(client: BaseClient) {
      * @example
      * ```ts
      * app.get('/api/members', async (req, res) => {
-     *   const { memberships } = await authvader.memberships.listForApplication(req);
+     *   const { memberships } = await authvital.memberships.listForApplication(req);
      *   res.json(memberships);
      * });
      * ```
@@ -144,7 +144,7 @@ export function createMembershipsNamespace(client: BaseClient) {
      * @example
      * ```ts
      * app.get('/api/my-tenants', async (req, res) => {
-     *   const result = await authvader.memberships.listTenantsForUser(req, {
+     *   const result = await authvital.memberships.listTenantsForUser(req, {
      *     status: 'ACTIVE',
      *     appendClientId: true,
      *   });
@@ -196,7 +196,7 @@ export function createMembershipsNamespace(client: BaseClient) {
      * @example
      * ```ts
      * app.get('/api/roles', async (req, res) => {
-     *   const { roles } = await authvader.memberships.getTenantRoles();
+     *   const { roles } = await authvital.memberships.getTenantRoles();
      *   res.json(roles);
      *   // [{ slug: 'owner', name: 'Owner', ... }, { slug: 'admin', ... }, ...]
      * });
@@ -220,15 +220,15 @@ export function createMembershipsNamespace(client: BaseClient) {
      * @example
      * ```ts
      * app.get('/api/app-roles', async (req, res) => {
-     *   const { roles } = await authvader.memberships.getApplicationRoles();
+     *   const { roles } = await authvital.memberships.getApplicationRoles();
      *   res.json(roles);
      *   // [{ slug: 'admin', name: 'Admin', permissions: [...] }, ...]
      * });
      *
      * // Use in invite flow:
-     * const { roles } = await authvader.memberships.getApplicationRoles();
+     * const { roles } = await authvital.memberships.getApplicationRoles();
      * const editorRole = roles.find(r => r.slug === 'editor');
-     * await authvader.invitations.send(request, {
+     * await authvital.invitations.send(request, {
      *   email: 'user@example.com',
      *   roleId: editorRole?.id,
      * });
@@ -261,7 +261,7 @@ export function createMembershipsNamespace(client: BaseClient) {
      * @example
      * ```ts
      * app.put('/api/team/:membershipId/role', async (req, res) => {
-     *   const result = await authvader.memberships.setMemberRole(
+     *   const result = await authvital.memberships.setMemberRole(
      *     req,
      *     req.params.membershipId,
      *     req.body.role, // e.g., 'admin'

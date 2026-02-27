@@ -4,7 +4,7 @@
 
 ## Overview
 
-An **Application** in AuthVader is an OAuth client that users can authenticate with. Each application has:
+An **Application** in AuthVital is an OAuth client that users can authenticate with. Each application has:
 
 - OAuth credentials (client ID, optionally client secret)
 - Redirect URIs for OAuth callbacks
@@ -31,7 +31,7 @@ An **Application** in AuthVader is an OAuth client that users can authenticate w
 ### Via API
 
 ```typescript
-const app = await authvader.admin.createApplication({
+const app = await authvital.admin.createApplication({
   name: 'Project Manager',
   slug: 'project-manager',
   description: 'Manage your team projects',
@@ -318,7 +318,7 @@ Configure webhooks for this application's events:
 
 ```typescript
 {
-  webhookUrl: 'https://api.example.com/webhooks/authvader',
+  webhookUrl: 'https://api.example.com/webhooks/authvital',
   webhookEnabled: true,
   webhookEvents: [
     'subject.created',
@@ -332,7 +332,7 @@ Configure webhooks for this application's events:
 ## Complete Example
 
 ```typescript
-await authvader.admin.createApplication({
+await authvital.admin.createApplication({
   // Basic Info
   name: 'Project Manager Pro',
   slug: 'pm-pro',
@@ -378,7 +378,7 @@ await authvader.admin.createApplication({
   ],
   
   // Webhooks
-  webhookUrl: 'https://api.example.com/webhooks/authvader',
+  webhookUrl: 'https://api.example.com/webhooks/authvital',
   webhookEnabled: true,
   webhookEvents: ['subject.*', 'member.*', 'license.*'],
 });

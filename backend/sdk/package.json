@@ -1,7 +1,7 @@
 {
-  "name": "authvader-sdk",
+  "name": "authvital-sdk",
   "version": "0.1.0",
-  "description": "AuthVader authentication SDK for React and Node.js applications",
+  "description": "AuthVital authentication SDK for React and Node.js applications",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -52,7 +52,7 @@
     "auth",
     "oauth",
     "authentication",
-    "authvader",
+    "authvital",
     "identity",
     "idp",
     "multi-tenant",
@@ -61,11 +61,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/intersparkio/authvader",
+    "url": "https://github.com/intersparkio/authvital",
     "directory": "backend/sdk"
   },
-  "homepage": "https://github.com/intersparkio/authvader#readme",
+  "homepage": "https://github.com/intersparkio/authvital#readme",
   "bugs": {
-    "url": "https://github.com/intersparkio/authvader/issues"
+    "url": "https://github.com/intersparkio/authvital/issues"
   }
 }

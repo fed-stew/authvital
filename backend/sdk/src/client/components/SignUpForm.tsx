@@ -5,7 +5,7 @@
  */
 
 import React, { useState } from 'react';
-import { useAuthVaderConfig } from '../provider';
+import { useAuthVitalConfig } from '../provider';
 import { getStyles } from './styles';
 import type { AppearanceProps } from '../types';
 
@@ -32,7 +32,7 @@ export function SignUpForm({
   redirectUri,
   appearance,
 }: SignUpFormProps) {
-  const config = useAuthVaderConfig();
+  const config = useAuthVitalConfig();
   const styles = getStyles(appearance);
   
   const [email, setEmail] = useState('');
@@ -49,7 +49,7 @@ export function SignUpForm({
     setError(null);
 
     try {
-      const response = await fetch(`${config.authVaderHost}/api/signup/initiate`, {
+      const response = await fetch(`${config.authVitalHost}/api/signup/initiate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -86,7 +86,7 @@ export function SignUpForm({
   const handleResend = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${config.authVaderHost}/api/signup/resend`, {
+      const response = await fetch(`${config.authVitalHost}/api/signup/resend`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

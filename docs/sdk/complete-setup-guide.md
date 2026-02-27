@@ -1,8 +1,8 @@
-# Complete AuthVader SDK Setup Guide
+# Complete AuthVital SDK Setup Guide
 
-> 🚀 Walk through a **complete integration** of AuthVader into your application, from zero to production-ready.
+> 🚀 Walk through a **complete integration** of AuthVital into your application, from zero to production-ready.
 
-This guide takes you step-by-step through integrating AuthVader authentication, authorization, and identity sync into your application. By the end, you'll have:
+This guide takes you step-by-step through integrating AuthVital authentication, authorization, and identity sync into your application. By the end, you'll have:
 
 - ✅ OAuth 2.0 PKCE authentication flow
 - ✅ JWT validation and protected routes
@@ -20,7 +20,7 @@ This guide takes you step-by-step through integrating AuthVader authentication, 
 - [Installation](#installation)
 - [Backend Setup](#backend-setup)
   - [Environment Variables](#1-environment-variables)
-  - [Create AuthVader Client](#2-create-authvader-client)
+  - [Create AuthVital Client](#2-create-authvital-client)
   - [Auth API Routes (Express)](#3-auth-api-routes-express)
   - [Auth API Routes (Next.js)](#4-auth-api-routes-nextjs)
   - [Protected Middleware](#5-protected-middleware)
@@ -28,7 +28,7 @@ This guide takes you step-by-step through integrating AuthVader authentication, 
   - [Prisma Schema](#1-prisma-schema)
   - [Run Migration](#2-run-migration)
   - [Webhook Handler](#3-webhook-handler)
-  - [Configure in AuthVader Dashboard](#4-configure-in-authvader-dashboard)
+  - [Configure in AuthVital Dashboard](#4-configure-in-authvital-dashboard)
 - [Frontend Setup](#frontend-setup)
   - [Provider Wrapper](#1-provider-wrapper)
   - [Auth Hook Usage](#2-auth-hook-usage)
@@ -50,18 +50,18 @@ Before starting, ensure you have:
 | Requirement | Version | Notes |
 |-------------|---------|-------|
 | **Node.js** | 18.0+ | Required for ES modules and native fetch |
-| **AuthVader Application** | - | You need a `clientId` and `clientSecret` from the AuthVader dashboard |
+| **AuthVital Application** | - | You need a `clientId` and `clientSecret` from the AuthVital dashboard |
 | **Database** | PostgreSQL recommended | For identity sync; other Prisma-supported databases work too |
 | **Package Manager** | npm, yarn, or pnpm | Any works fine |
 
 ### Getting Your Credentials
 
-1. Log into the [AuthVader Dashboard](https://dashboard.authvader.com)
+1. Log into the [AuthVital Dashboard](https://dashboard.authvital.com)
 2. Navigate to **Applications** → **Create Application** (or select existing)
 3. Note your:
    - **Client ID**: `av_app_xxxxxxxx`
    - **Client Secret**: `av_secret_xxxxxxxx`
-   - **AuthVader Host**: `https://auth.yourcompany.com` (or your custom domain)
+   - **AuthVital Host**: `https://auth.yourcompany.com` (or your custom domain)
 4. Set up **Redirect URIs** for OAuth callbacks:
    - Development: `http://localhost:3000/api/auth/callback`
    - Production: `https://yourapp.com/api/auth/callback`
@@ -81,7 +81,7 @@ Here's how all the pieces fit together:
 │  │    (React/Next)     │         │  (Express/Next API) │                         │
 │  │                     │         │                     │                         │
 │  │  ┌───────────────┐  │  REST   │  ┌───────────────┐  │                         │
-│  │  │ AuthVader     │  │ ◄─────► │  │ Auth Routes   │  │                         │
+│  │  │ AuthVital     │  │ ◄─────► │  │ Auth Routes   │  │                         │
 │  │  │ Provider      │  │         │  │ /api/auth/*   │  │                         │
 │  │  └───────────────┘  │         │  └───────────────┘  │                         │
 │  │         │           │         │         │           │                         │
@@ -103,7 +103,7 @@ Here's how all the pieces fit together:
                     OAuth Flow + Webhooks   │
                                             ▼
                              ┌──────────────────────────┐
-                             │      AUTHVADER IDP       │
+                             │      AUTHVITAL IDP       │
                              │                          │
                              │  • User Authentication   │
                              │  • Token Issuance        │
@@ -118,40 +118,40 @@ Here's how all the pieces fit together:
 
 | Step | Action | Components Involved |
 |------|--------|--------------------|
-| 1️⃣ | User clicks "Sign In" | Frontend → Redirect to AuthVader |
-| 2️⃣ | User authenticates at AuthVader | AuthVader IDP |
-| 3️⃣ | AuthVader redirects back with code | AuthVader → Your Backend |
-| 4️⃣ | Backend exchanges code for tokens | Your Backend → AuthVader |
+| 1️⃣ | User clicks "Sign In" | Frontend → Redirect to AuthVital |
+| 2️⃣ | User authenticates at AuthVital | AuthVital IDP |
+| 3️⃣ | AuthVital redirects back with code | AuthVital → Your Backend |
+| 4️⃣ | Backend exchanges code for tokens | Your Backend → AuthVital |
 | 5️⃣ | Backend sets httpOnly cookie | Your Backend → Browser |
 | 6️⃣ | Frontend gets user data via API | Frontend → Your Backend |
-| 7️⃣ | Webhooks sync identity changes | AuthVader → Your Database |
+| 7️⃣ | Webhooks sync identity changes | AuthVital → Your Database |
 
 ---
 
 ## Installation
 
-Install the AuthVader SDK in your project:
+Install the AuthVital SDK in your project:
 
 ```bash
 # npm
-npm install @authvader/sdk
+npm install @authvital/sdk
 
 # yarn
-yarn add @authvader/sdk
+yarn add @authvital/sdk
 
 # pnpm
-pnpm add @authvader/sdk
+pnpm add @authvital/sdk
 ```
 
 The SDK includes both **server** and **client** modules:
 
 ```typescript
 // Server-side (Node.js backend)
-import { createAuthVader, OAuthFlow } from '@authvader/sdk/server';
-import { WebhookRouter, IdentitySyncHandler } from '@authvader/sdk/server';
+import { createAuthVital, OAuthFlow } from '@authvital/sdk/server';
+import { WebhookRouter, IdentitySyncHandler } from '@authvital/sdk/server';
 
 // Client-side (React frontend)
-import { AuthVaderProvider, useAuth } from '@authvader/sdk/client';
+import { AuthVitalProvider, useAuth } from '@authvital/sdk/client';
 ```
 
 ---
@@ -160,17 +160,17 @@ import { AuthVaderProvider, useAuth } from '@authvader/sdk/client';
 
 ### 1. Environment Variables
 
-Create a `.env` file with your AuthVader credentials:
+Create a `.env` file with your AuthVital credentials:
 
 ```bash
 # .env
 
-# AuthVader Configuration
+# AuthVital Configuration
 AV_HOST=https://auth.yourapp.com
 AV_CLIENT_ID=av_app_xxxxxxxxxxxxxxxx
 AV_CLIENT_SECRET=av_secret_xxxxxxxxxxxxxxxx
 
-# OAuth Redirect URI (must match AuthVader dashboard)
+# OAuth Redirect URI (must match AuthVital dashboard)
 OAUTH_REDIRECT_URI=http://localhost:3000/api/auth/callback
 
 # Database (for identity sync)
@@ -184,20 +184,20 @@ SESSION_SECRET=your-super-secret-key-at-least-32-chars
 
 ---
 
-### 2. Create AuthVader Client
+### 2. Create AuthVital Client
 
-Create a centralized AuthVader client instance:
+Create a centralized AuthVital client instance:
 
 ```typescript
-// lib/authvader.ts
-import { createAuthVader } from '@authvader/sdk/server';
+// lib/authvital.ts
+import { createAuthVital } from '@authvital/sdk/server';
 
 if (!process.env.AV_HOST) throw new Error('AV_HOST is required');
 if (!process.env.AV_CLIENT_ID) throw new Error('AV_CLIENT_ID is required');
 if (!process.env.AV_CLIENT_SECRET) throw new Error('AV_CLIENT_SECRET is required');
 
-export const authvader = createAuthVader({
-  authVaderHost: process.env.AV_HOST,
+export const authvital = createAuthVital({
+  authVitalHost: process.env.AV_HOST,
   clientId: process.env.AV_CLIENT_ID,
   clientSecret: process.env.AV_CLIENT_SECRET,
 });
@@ -207,10 +207,10 @@ export const authvader = createAuthVader({
 
 | Method | Purpose |
 |--------|--------|
-| `authvader.getCurrentUser(req)` | Soft validation - returns `{ authenticated, user, error }` |
-| `authvader.validateRequest(req)` | Strict validation - throws if not authenticated |
-| `authvader.memberships.*` | Tenant membership operations |
-| `authvader.tenants.*` | Tenant management operations |
+| `authvital.getCurrentUser(req)` | Soft validation - returns `{ authenticated, user, error }` |
+| `authvital.validateRequest(req)` | Strict validation - throws if not authenticated |
+| `authvital.memberships.*` | Tenant membership operations |
+| `authvital.tenants.*` | Tenant management operations |
 
 ---
 
@@ -221,14 +221,14 @@ Create OAuth routes for Express:
 ```typescript
 // routes/auth.ts
 import { Router } from 'express';
-import { OAuthFlow } from '@authvader/sdk/server';
-import { authvader } from '../lib/authvader';
+import { OAuthFlow } from '@authvital/sdk/server';
+import { authvital } from '../lib/authvital';
 
 const router = Router();
 
 // Initialize OAuth flow helper
 const oauth = new OAuthFlow({
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   clientId: process.env.AV_CLIENT_ID!,
   clientSecret: process.env.AV_CLIENT_SECRET!,
   redirectUri: process.env.OAUTH_REDIRECT_URI!,
@@ -253,13 +253,13 @@ router.get('/login', (req, res) => {
     req.session.returnTo = req.query.returnTo as string;
   }
 
-  // Redirect user to AuthVader login page
+  // Redirect user to AuthVital login page
   res.redirect(authorizeUrl);
 });
 
 /**
  * GET /api/auth/callback
- * Handles OAuth callback from AuthVader
+ * Handles OAuth callback from AuthVital
  */
 router.get('/callback', async (req, res) => {
   try {
@@ -319,7 +319,7 @@ router.get('/callback', async (req, res) => {
  * Returns current user data (or 401 if not authenticated)
  */
 router.get('/me', async (req, res) => {
-  const { authenticated, user, error } = await authvader.getCurrentUser(req);
+  const { authenticated, user, error } = await authvital.getCurrentUser(req);
 
   if (!authenticated) {
     return res.status(401).json({ 
@@ -436,10 +436,10 @@ For Next.js App Router, create route handlers:
 // app/api/auth/login/route.ts
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { OAuthFlow } from '@authvader/sdk/server';
+import { OAuthFlow } from '@authvital/sdk/server';
 
 const oauth = new OAuthFlow({
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   clientId: process.env.AV_CLIENT_ID!,
   clientSecret: process.env.AV_CLIENT_SECRET!,
   redirectUri: process.env.OAUTH_REDIRECT_URI!,
@@ -484,10 +484,10 @@ export async function GET(request: Request) {
 // app/api/auth/callback/route.ts
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { OAuthFlow } from '@authvader/sdk/server';
+import { OAuthFlow } from '@authvital/sdk/server';
 
 const oauth = new OAuthFlow({
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   clientId: process.env.AV_CLIENT_ID!,
   clientSecret: process.env.AV_CLIENT_SECRET!,
   redirectUri: process.env.OAUTH_REDIRECT_URI!,
@@ -554,10 +554,10 @@ export async function GET(request: Request) {
 ```typescript
 // app/api/auth/me/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { authvader } from '@/lib/authvader';
+import { authvital } from '@/lib/authvital';
 
 export async function GET(request: NextRequest) {
-  const { authenticated, user, error } = await authvader.getCurrentUser(request);
+  const { authenticated, user, error } = await authvital.getCurrentUser(request);
 
   if (!authenticated) {
     return NextResponse.json(
@@ -607,7 +607,7 @@ Create reusable middleware for protecting routes:
 ```typescript
 // middleware/auth.ts
 import { Request, Response, NextFunction } from 'express';
-import { authvader } from '../lib/authvader';
+import { authvital } from '../lib/authvital';
 
 // Extend Express Request type
 declare global {
@@ -637,7 +637,7 @@ export const requireAuth = async (
   res: Response,
   next: NextFunction
 ) => {
-  const { authenticated, user, error } = await authvader.getCurrentUser(req);
+  const { authenticated, user, error } = await authvital.getCurrentUser(req);
 
   if (!authenticated) {
     return res.status(401).json({ 
@@ -858,7 +858,7 @@ export async function middleware(request: NextRequest) {
   let isAuthenticated = false;
   if (token) {
     try {
-      // Note: For full verification, use authvader.getCurrentUser() in API routes
+      // Note: For full verification, use authvital.getCurrentUser() in API routes
       // This is a quick check for routing purposes only
       const jwksUrl = new URL('/.well-known/jwks.json', process.env.AV_HOST!);
       const jwks = await fetch(jwksUrl).then(r => r.json());
@@ -919,10 +919,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// Synced identity from AuthVader
+/// Synced identity from AuthVital
 /// This is the source of truth for user data in your app
 model Identity {
-  /// AuthVader subject ID (e.g., "usr_abc123")
+  /// AuthVital subject ID (e.g., "usr_abc123")
   id              String    @id @map("id")
 
   /// User email (unique when not null)
@@ -1043,7 +1043,7 @@ Set up webhook handling to sync identity changes:
 // routes/webhooks.ts (Express)
 import { Router } from 'express';
 import express from 'express';
-import { IdentitySyncHandler, WebhookRouter } from '@authvader/sdk/server';
+import { IdentitySyncHandler, WebhookRouter } from '@authvital/sdk/server';
 import { prisma } from '../lib/prisma';
 
 const router = Router();
@@ -1053,7 +1053,7 @@ const syncHandler = new IdentitySyncHandler(prisma);
 
 // Create the webhook router (handles signature verification + event routing)
 const webhookRouter = new WebhookRouter({
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   handler: syncHandler,
   // Optional: Customize timestamp tolerance for replay protection
   maxTimestampAge: 300, // 5 minutes (default)
@@ -1061,7 +1061,7 @@ const webhookRouter = new WebhookRouter({
 
 // IMPORTANT: Use express.raw() to get raw body for signature verification!
 router.post(
-  '/authvader',
+  '/authvital',
   express.raw({ type: 'application/json' }),
   webhookRouter.expressHandler()
 );
@@ -1085,14 +1085,14 @@ app.use(express.json());
 **Next.js App Router:**
 
 ```typescript
-// app/webhooks/authvader/route.ts
+// app/webhooks/authvital/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { IdentitySyncHandler, WebhookRouter } from '@authvader/sdk/server';
+import { IdentitySyncHandler, WebhookRouter } from '@authvital/sdk/server';
 import { prisma } from '@/lib/prisma';
 
 const syncHandler = new IdentitySyncHandler(prisma);
 const webhookRouter = new WebhookRouter({
-  authVaderHost: process.env.AV_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   handler: syncHandler,
 });
 
@@ -1116,9 +1116,9 @@ export async function POST(request: NextRequest) {
 }
 ```
 
-### 4. Configure in AuthVader Dashboard
+### 4. Configure in AuthVital Dashboard
 
-1. Log into [AuthVader Dashboard](https://dashboard.authvader.com)
+1. Log into [AuthVital Dashboard](https://dashboard.authvital.com)
 2. Navigate to **Settings** → **Webhooks**
 3. Click **Add Webhook**
 4. Configure:
@@ -1126,7 +1126,7 @@ export async function POST(request: NextRequest) {
    | Field | Value |
    |-------|-------|
    | **Name** | `Production User Sync` (or descriptive name) |
-   | **URL** | `https://yourapp.com/webhooks/authvader` |
+   | **URL** | `https://yourapp.com/webhooks/authvital` |
    | **Events** | Select the events you want to receive |
 
 5. **Recommended events for identity sync:**
@@ -1160,14 +1160,14 @@ export async function POST(request: NextRequest) {
 
 ### 1. Provider Wrapper
 
-Wrap your app with the AuthVader provider:
+Wrap your app with the AuthVital provider:
 
 ```tsx
 // app/providers.tsx (Next.js App Router)
 'use client';
 
-import { AuthVaderProvider } from '@authvader/sdk/client';
-import type { User, Tenant } from '@authvader/sdk/client';
+import { AuthVitalProvider } from '@authvital/sdk/client';
+import type { User, Tenant } from '@authvital/sdk/client';
 
 interface ProvidersProps {
   children: React.ReactNode;
@@ -1181,14 +1181,14 @@ export function Providers({
   initialTenants = [],
 }: ProvidersProps) {
   return (
-    <AuthVaderProvider
-      authVaderHost={process.env.NEXT_PUBLIC_AV_HOST!}
+    <AuthVitalProvider
+      authVitalHost={process.env.NEXT_PUBLIC_AV_HOST!}
       clientId={process.env.NEXT_PUBLIC_AV_CLIENT_ID!}
       initialUser={initialUser}
       initialTenants={initialTenants}
     >
       {children}
-    </AuthVaderProvider>
+    </AuthVitalProvider>
   );
 }
 ```
@@ -1199,7 +1199,7 @@ export function Providers({
 // app/layout.tsx
 import { cookies } from 'next/headers';
 import { Providers } from './providers';
-import { authvader } from '@/lib/authvader';
+import { authvital } from '@/lib/authvital';
 
 export default async function RootLayout({
   children,
@@ -1221,7 +1221,7 @@ export default async function RootLayout({
         headers: {},
       };
 
-      const { authenticated, user } = await authvader.getCurrentUser(mockReq as any);
+      const { authenticated, user } = await authvital.getCurrentUser(mockReq as any);
 
       if (authenticated && user) {
         initialUser = {
@@ -1236,7 +1236,7 @@ export default async function RootLayout({
         };
 
         // Optionally load tenants for multi-tenant apps
-        // initialTenants = await authvader.tenants.listForUser(user.sub);
+        // initialTenants = await authvital.tenants.listForUser(user.sub);
       }
     } catch (error) {
       console.error('Error loading initial user:', error);
@@ -1263,7 +1263,7 @@ Use the `useAuth` hook in your components:
 // components/UserMenu.tsx
 'use client';
 
-import { useAuth } from '@authvader/sdk/client';
+import { useAuth } from '@authvital/sdk/client';
 import { useState } from 'react';
 
 export function UserMenu() {
@@ -1343,7 +1343,7 @@ Create a wrapper for pages that require authentication:
 // components/ProtectedRoute.tsx
 'use client';
 
-import { useAuth } from '@authvader/sdk/client';
+import { useAuth } from '@authvital/sdk/client';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 
@@ -1529,7 +1529,7 @@ open http://localhost:3000
 # 3. Click "Sign In" or visit directly
 open http://localhost:3000/api/auth/login
 
-# 4. Login at AuthVader (you'll be redirected)
+# 4. Login at AuthVital (you'll be redirected)
 # 5. After login, you should be redirected to /dashboard
 # 6. Verify user data is loaded
 curl http://localhost:3000/api/auth/me -H "Cookie: access_token=..."
@@ -1570,16 +1570,16 @@ ngrok http 3000
 # Forwarding: https://abc123.ngrok.io -> http://localhost:3000
 ```
 
-**Update webhook URL in AuthVader:**
+**Update webhook URL in AuthVital:**
 
 1. Go to **Settings** → **Webhooks**
 2. Edit your webhook
-3. Update URL to: `https://abc123.ngrok.io/webhooks/authvader`
+3. Update URL to: `https://abc123.ngrok.io/webhooks/authvital`
 4. Save
 
 **Trigger a test event:**
 
-1. In AuthVader dashboard, go to **Users**
+1. In AuthVital dashboard, go to **Users**
 2. Update a user's profile
 3. Check your server logs for webhook receipt
 4. Verify identity was updated in your database:
@@ -1620,7 +1620,7 @@ For multi-tenant apps, let users switch between organizations:
 // components/TenantPicker.tsx
 'use client';
 
-import { useAuth } from '@authvader/sdk/client';
+import { useAuth } from '@authvital/sdk/client';
 import { useState, useEffect } from 'react';
 
 interface Tenant {
@@ -1693,7 +1693,7 @@ export function TenantPicker() {
 // routes/tenants.ts
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { authvader } from '../lib/authvader';
+import { authvital } from '../lib/authvital';
 
 const router = Router();
 
@@ -1701,7 +1701,7 @@ router.get('/mine', requireAuth, async (req, res) => {
   try {
     // listTenantsForUser with appendClientId automatically
     // filters to tenants where user has access to this app
-    const tenants = await authvader.tenants.listForUser(req.user!.sub, {
+    const tenants = await authvital.tenants.listForUser(req.user!.sub, {
       appendClientId: true,
     });
 
@@ -1723,7 +1723,7 @@ Conditionally render UI based on permissions:
 // components/PermissionGate.tsx
 'use client';
 
-import { useAuth } from '@authvader/sdk/client';
+import { useAuth } from '@authvital/sdk/client';
 
 interface PermissionGateProps {
   children: React.ReactNode;
@@ -1821,7 +1821,7 @@ Check license features for premium functionality:
 // components/FeatureGate.tsx
 'use client';
 
-import { useAuth } from '@authvader/sdk/client';
+import { useAuth } from '@authvital/sdk/client';
 
 interface FeatureGateProps {
   children: React.ReactNode;
@@ -1922,7 +1922,7 @@ export function ReportsPage() {
 |-------|-------|----------|
 | **"Missing tenant_id claim"** | Token is not tenant-scoped | User needs to select a tenant or use `tenant_hint` in OAuth flow |
 | **"Invalid signature"** | Wrong JWKS endpoint | Verify `AV_HOST` is correct and accessible |
-| **"CORS error on login"** | Redirect URI mismatch | Ensure redirect_uri matches exactly in AuthVader dashboard |
+| **"CORS error on login"** | Redirect URI mismatch | Ensure redirect_uri matches exactly in AuthVital dashboard |
 | **"State mismatch"** | Session lost during OAuth | Check session middleware is configured correctly |
 | **Webhook signature invalid** | Raw body not preserved | Use `express.raw()` BEFORE any JSON parsing |
 | **Identity not syncing** | Webhook not received | Check webhook URL is publicly accessible (use ngrok for local) |
@@ -1935,7 +1935,7 @@ export function ReportsPage() {
 echo $AV_HOST
 echo $AV_CLIENT_ID
 
-# 2. Test AuthVader connectivity
+# 2. Test AuthVital connectivity
 curl $AV_HOST/.well-known/jwks.json
 
 # 3. Check cookie is set after login
@@ -1945,7 +1945,7 @@ curl $AV_HOST/.well-known/jwks.json
 # 4. Decode JWT to inspect claims
 # Paste token at jwt.io to see claims
 
-# 5. Check webhook delivery in AuthVader
+# 5. Check webhook delivery in AuthVital
 # Dashboard → Settings → Webhooks → View Logs
 
 # 6. Check server logs for errors
@@ -1954,10 +1954,10 @@ npm run dev 2>&1 | grep -i error
 
 ### Getting Help
 
-- 📖 **Documentation**: [docs.authvader.com](https://docs.authvader.com)
-- 💬 **Discord**: [discord.gg/authvader](https://discord.gg/authvader)
-- 🐛 **Issues**: [github.com/authvader/sdk/issues](https://github.com/authvader/sdk/issues)
-- 📧 **Support**: support@authvader.com
+- 📖 **Documentation**: [docs.authvital.com](https://docs.authvital.com)
+- 💬 **Discord**: [discord.gg/authvital](https://discord.gg/authvital)
+- 🐛 **Issues**: [github.com/authvital/sdk/issues](https://github.com/authvital/sdk/issues)
+- 📧 **Support**: support@authvital.com
 
 ---
 
@@ -1978,7 +1978,7 @@ Now that you have a complete integration, explore these topics:
 
 ---
 
-🎉 **Congratulations!** You now have a fully integrated AuthVader authentication system with:
+🎉 **Congratulations!** You now have a fully integrated AuthVital authentication system with:
 
 - ✅ Secure OAuth 2.0 PKCE flow
 - ✅ JWT-based authentication

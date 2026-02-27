@@ -144,7 +144,7 @@ export function GeneralTab() {
             </label>
             <Input
               id="instance-name"
-              placeholder="My Awesome AuthVader Instance"
+              placeholder="My Awesome AuthVital Instance"
               value={instanceMeta.name || ''}
               onChange={handleNameChange}
               disabled={isLoading || isSaving}

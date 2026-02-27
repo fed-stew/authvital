@@ -1,19 +1,19 @@
 import type { SyncEvent } from './types';
-import type { IAuthVaderEventHandler } from './event-interfaces';
-import { AuthVaderWebhooks, WebhookHeaders } from './webhook-handler';
+import type { IAuthVitalEventHandler } from './event-interfaces';
+import { AuthVitalWebhooks, WebhookHeaders } from './webhook-handler';
 
 export interface WebhookRouterOptions {
   /**
-   * AuthVader base URL (from AV_HOST env var)
+   * AuthVital base URL (from AV_HOST env var)
    * Example: 'https://auth.example.com'
-   * JWKS endpoint is automatically derived as: {authVaderHost}/.well-known/jwks.json
+   * JWKS endpoint is automatically derived as: {authVitalHost}/.well-known/jwks.json
    */
-  authVaderHost?: string;
+  authVitalHost?: string;
 
   /**
-   * Event handler instance - extend AuthVaderEventHandler and implement methods
+   * Event handler instance - extend AuthVitalEventHandler and implement methods
    */
-  handler: IAuthVaderEventHandler;
+  handler: IAuthVitalEventHandler;
 
   /**
    * Maximum age of the timestamp in seconds (default: 300 = 5 minutes)
@@ -33,7 +33,7 @@ export interface WebhookRouterOptions {
  * @example
  * ```typescript
  * // 1. Create your handler by extending the base class
- * class MyHandler extends AuthVaderEventHandler {
+ * class MyHandler extends AuthVitalEventHandler {
  *   constructor(private db: Database, private slack: SlackClient) {
  *     super();
  *   }
@@ -58,27 +58,27 @@ export interface WebhookRouterOptions {
  * });
  *
  * // 3. Use in your Express app
- * app.post('/webhooks/authvader', router.expressHandler());
+ * app.post('/webhooks/authvital', router.expressHandler());
  * ```
  */
 export class WebhookRouter {
-  private readonly verifier: AuthVaderWebhooks;
-  private readonly handler: IAuthVaderEventHandler;
+  private readonly verifier: AuthVitalWebhooks;
+  private readonly handler: IAuthVitalEventHandler;
 
   constructor(options: WebhookRouterOptions) {
-    // Get authVaderHost from options or environment variable
-    const authVaderHost = options.authVaderHost || process.env.AV_HOST;
+    // Get authVitalHost from options or environment variable
+    const authVitalHost = options.authVitalHost || process.env.AV_HOST;
 
-    if (!authVaderHost) {
+    if (!authVitalHost) {
       throw new Error(
-        'AuthVader URL is required. Either pass authVaderHost in options or set AV_HOST environment variable.',
+        'AuthVital URL is required. Either pass authVitalHost in options or set AV_HOST environment variable.',
       );
     }
 
     // Derive JWKS URL from base URL
-    const jwksUrl = `${authVaderHost.replace(/\/$/, '')}/.well-known/jwks.json`;
+    const jwksUrl = `${authVitalHost.replace(/\/$/, '')}/.well-known/jwks.json`;
 
-    this.verifier = new AuthVaderWebhooks({
+    this.verifier = new AuthVitalWebhooks({
       jwksUrl,
       maxTimestampAge: options.maxTimestampAge,
       keysCacheTtl: options.keysCacheTtl,
@@ -182,7 +182,7 @@ export class WebhookRouter {
   /**
    * Get the underlying verifier
    */
-  getVerifier(): AuthVaderWebhooks {
+  getVerifier(): AuthVitalWebhooks {
     return this.verifier;
   }
 }

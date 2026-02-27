@@ -69,7 +69,7 @@ async function sendInitialPasswordEmail(email: string, password: string): Promis
 
   const loginUrl = `${baseUrl}/admin`;
   
-  const subject = 'Your AuthVader Super Admin Account';
+  const subject = 'Your AuthVital Super Admin Account';
   const text = `
 Your super admin account has been created.
 

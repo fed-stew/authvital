@@ -68,7 +68,7 @@ async function main() {
     update: {},
     create: {
       id: 'instance',
-      name: 'AuthVader IDP',
+      name: 'AuthVital IDP',
       allowSignUp: true,
       autoCreateTenant: true,
       allowGenericDomains: true,

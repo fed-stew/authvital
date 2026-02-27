@@ -1,32 +1,32 @@
 /**
- * @authvader/sdk
+ * @authvital/sdk
  * 
- * AuthVader authentication SDK for React applications.
+ * AuthVital authentication SDK for React applications.
  * 
  * @example
  * ```tsx
- * import { AuthVaderProvider, useAuth, UserButton } from '@authvader/sdk';
+ * import { AuthVitalProvider, useAuth, UserButton } from '@authvital/sdk';
  * 
  * function App() {
  *   return (
- *     <AuthVaderProvider
+ *     <AuthVitalProvider
  *       clientId="your-client-id"
- *       authVaderHost="http://localhost:3000"
+ *       authVitalHost="http://localhost:3000"
  *     >
  *       <YourApp />
- *     </AuthVaderProvider>
+ *     </AuthVitalProvider>
  *   );
  * }
  * ```
  * 
- * For server-side usage, import from '@authvader/sdk/server':
+ * For server-side usage, import from '@authvital/sdk/server':
  * ```ts
- * import { AuthVaderClient, OAuthFlow } from '@authvader/sdk/server';
+ * import { AuthVitalClient, OAuthFlow } from '@authvital/sdk/server';
  * ```
  */
 
 // Re-export everything from client
 export * from './client';
 
-// Webhook types and handler (also available from '@authvader/sdk/server')
+// Webhook types and handler (also available from '@authvital/sdk/server')
 export * from './webhooks';

@@ -1,10 +1,10 @@
 # Single Sign-On (SSO) Configuration
 
-> Configure Google and Microsoft SSO for your AuthVader instance.
+> Configure Google and Microsoft SSO for your AuthVital instance.
 
 ## Overview
 
-AuthVader supports SSO with:
+AuthVital supports SSO with:
 - **Google** - Google Workspace and personal accounts
 - **Microsoft** - Azure AD, Microsoft 365, personal Microsoft accounts
 
@@ -21,7 +21,7 @@ SSO can be configured at two levels:
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  AuthVader checks tenant SSO config                                          │
+│  AuthVital checks tenant SSO config                                          │
 │  ├─ Tenant has custom config? → Use tenant credentials                       │
 │  └─ No custom config? → Use instance-level credentials                       │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -38,7 +38,7 @@ SSO can be configured at two levels:
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  AuthVader receives OAuth callback                                           │
+│  AuthVital receives OAuth callback                                           │
 │  ├─ User exists? → Log them in                                               │
 │  ├─ Email matches existing user? → Link accounts (if autoLinkExisting)       │
 │  └─ New user? → Create account (if autoCreateUser)                           │
@@ -62,7 +62,7 @@ SSO can be configured at two levels:
 3. Fill in app information:
    - App name: Your app name
    - User support email: Your email
-   - Authorized domains: `yourapp.com`, `yourauthvader.com`
+   - Authorized domains: `yourapp.com`, `yourauthvital.com`
 4. Add scopes:
    - `openid`
    - `email`
@@ -79,7 +79,7 @@ SSO can be configured at two levels:
    ```
 5. Save the **Client ID** and **Client Secret**
 
-### 4. Configure in AuthVader
+### 4. Configure in AuthVital
 
 **Via Admin Panel:**
 
@@ -94,7 +94,7 @@ SSO can be configured at two levels:
 **Via API:**
 
 ```typescript
-await authvader.admin.configureSso({
+await authvital.admin.configureSso({
   provider: 'GOOGLE',
   enabled: true,
   clientId: 'your-google-client-id',
@@ -141,7 +141,7 @@ From **Overview** tab, note:
 - **Application (client) ID**
 - **Directory (tenant) ID** (if single-tenant)
 
-### 5. Configure in AuthVader
+### 5. Configure in AuthVital
 
 **Via Admin Panel:**
 
@@ -157,7 +157,7 @@ From **Overview** tab, note:
 **Via API:**
 
 ```typescript
-await authvader.admin.configureSso({
+await authvital.admin.configureSso({
   provider: 'MICROSOFT',
   enabled: true,
   clientId: 'your-azure-app-id',
@@ -192,7 +192,7 @@ Tenants can configure their own SSO credentials:
 **Via API:**
 
 ```typescript
-await authvader.tenants.configureSso('tenant-id', {
+await authvital.tenants.configureSso('tenant-id', {
   provider: 'MICROSOFT',
   enabled: true,
   clientId: 'tenant-specific-azure-app-id',
@@ -212,7 +212,7 @@ When SSO is **enforced** for a tenant:
 
 ```typescript
 // Check if tenant has enforced SSO
-const ssoConfig = await authvader.tenants.getSsoConfig('tenant-id', 'MICROSOFT');
+const ssoConfig = await authvital.tenants.getSsoConfig('tenant-id', 'MICROSOFT');
 if (ssoConfig.enforced) {
   // Hide password login, show only SSO button
 }
@@ -224,14 +224,14 @@ Restrict SSO to specific email domains:
 
 ```typescript
 // Instance-level: only allow company emails
-await authvader.admin.configureSso({
+await authvital.admin.configureSso({
   provider: 'GOOGLE',
   allowedDomains: ['yourcompany.com', 'subsidiary.com'],
   // ...
 });
 
 // Tenant-level: restrict to tenant's domain
-await authvader.tenants.configureSso('tenant-id', {
+await authvital.tenants.configureSso('tenant-id', {
   provider: 'MICROSOFT',
   allowedDomains: ['tenant-company.com'],
   // ...
@@ -247,7 +247,7 @@ If a user tries to SSO with an email outside allowed domains, they'll see an err
 When `autoLinkExisting: true` (default):
 
 1. User signs in with Google/Microsoft
-2. AuthVader checks for existing user with same email
+2. AuthVital checks for existing user with same email
 3. If found, links the SSO identity to existing account
 4. User can now sign in via password OR SSO
 
@@ -257,11 +257,11 @@ Users can link SSO accounts from their profile:
 
 ```typescript
 // Get available SSO providers
-const providers = await authvader.sso.getAvailableProviders();
+const providers = await authvital.sso.getAvailableProviders();
 // [{ provider: 'GOOGLE', enabled: true }, { provider: 'MICROSOFT', enabled: true }]
 
 // Initiate linking (returns OAuth URL)
-const { url } = await authvader.sso.initiateLink(req, {
+const { url } = await authvital.sso.initiateLink(req, {
   provider: 'GOOGLE',
   redirectUri: 'https://yourapp.com/settings/account',
 });
@@ -273,7 +273,7 @@ const { url } = await authvader.sso.initiateLink(req, {
 
 ```typescript
 // Remove SSO link (user must have password set)
-await authvader.sso.unlink(req, {
+await authvital.sso.unlink(req, {
   provider: 'GOOGLE',
 });
 ```
@@ -286,7 +286,7 @@ Show SSO options on login page:
 
 ```tsx
 function LoginPage() {
-  const { ssoProviders } = useAuthVader();
+  const { ssoProviders } = useAuthVital();
 
   return (
     <div>
@@ -303,7 +303,7 @@ function LoginPage() {
 }
 
 function SsoButtons({ providers }) {
-  const { loginWithSso } = useAuthVader();
+  const { loginWithSso } = useAuthVital();
 
   return (
     <div className="sso-buttons">

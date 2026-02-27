@@ -1,10 +1,10 @@
 # Webhooks Guide
 
-> Handle real-time events from AuthVader to keep your systems in sync.
+> Handle real-time events from AuthVital to keep your systems in sync.
 
 ## Overview
 
-AuthVader emits webhooks for key events across your identity system:
+AuthVital emits webhooks for key events across your identity system:
 
 - **Subject Events** - User, service account, and machine lifecycle
 - **Member Events** - Tenant membership changes
@@ -17,7 +17,7 @@ AuthVader emits webhooks for key events across your identity system:
 | Guide | Description |
 |-------|-------------|
 | [Event Types & Payloads](./webhooks-events.md) | All event types with full payload examples |
-| [Event Handler Reference](./webhooks-handler.md) | AuthVaderEventHandler class & examples |
+| [Event Handler Reference](./webhooks-handler.md) | AuthVitalEventHandler class & examples |
 | [Framework Integration](./webhooks-frameworks.md) | Express, Next.js, NestJS setup |
 | [Manual Verification](./webhooks-verification.md) | Low-level API & manual RSA verification |
 | [Best Practices](./webhooks-advanced.md) | Error handling, idempotency, testing |
@@ -28,7 +28,7 @@ AuthVader emits webhooks for key events across your identity system:
 
 ```
 ┌─────────────┐                           ┌─────────────┐
-│  AuthVader  │                           │  Your App   │
+│  AuthVital  │                           │  Your App   │
 │             │                           │             │
 │  Event      │   POST + RSA Signature    │  Webhook    │
 │  Triggered  │ ────────────────────────▶ │  Endpoint   │
@@ -50,15 +50,15 @@ AuthVader emits webhooks for key events across your identity system:
 
 ## Webhook Security
 
-> ⚠️ **IMPORTANT**: AuthVader uses **RSA-SHA256 with JWKS** for webhook signatures, NOT HMAC-SHA256!
+> ⚠️ **IMPORTANT**: AuthVital uses **RSA-SHA256 with JWKS** for webhook signatures, NOT HMAC-SHA256!
 
-AuthVader signs all webhook payloads using RSA private keys, and you verify them using the corresponding public keys from the JWKS endpoint.
+AuthVital signs all webhook payloads using RSA private keys, and you verify them using the corresponding public keys from the JWKS endpoint.
 
 ### How Signature Verification Works
 
-1. AuthVader creates a signature payload: `{timestamp}.{body}`
-2. AuthVader signs this payload using its RSA private key
-3. AuthVader sends the webhook with signature headers
+1. AuthVital creates a signature payload: `{timestamp}.{body}`
+2. AuthVital signs this payload using its RSA private key
+3. AuthVital sends the webhook with signature headers
 4. Your app fetches the public key from JWKS using the Key ID header
 5. Your app verifies the signature using the RSA public key
 
@@ -68,21 +68,21 @@ Every webhook request includes these headers:
 
 | Header | Description | Example |
 |--------|-------------|----------|
-| `X-AuthVader-Signature` | RSA-SHA256 signature (base64 encoded) | `MEUCIQDk7...` |
-| `X-AuthVader-Key-Id` | JWKS Key ID used for signing | `authvader-webhook-key-1` |
-| `X-AuthVader-Timestamp` | Unix timestamp (for replay protection) | `1705312200` |
-| `X-AuthVader-Event-Id` | Unique event identifier | `evt_abc123xyz` |
-| `X-AuthVader-Event-Type` | Event type string | `subject.created` |
+| `X-AuthVital-Signature` | RSA-SHA256 signature (base64 encoded) | `MEUCIQDk7...` |
+| `X-AuthVital-Key-Id` | JWKS Key ID used for signing | `authvital-webhook-key-1` |
+| `X-AuthVital-Timestamp` | Unix timestamp (for replay protection) | `1705312200` |
+| `X-AuthVital-Event-Id` | Unique event identifier | `evt_abc123xyz` |
+| `X-AuthVital-Event-Type` | Event type string | `subject.created` |
 
 ### JWKS Endpoint
 
 Public keys for signature verification are available at:
 
 ```
-https://{your-authvader-host}/.well-known/jwks.json
+https://{your-authvital-host}/.well-known/jwks.json
 ```
 
-The SDK automatically derives this URL from the `authVaderHost` configuration or `AV_HOST` environment variable.
+The SDK automatically derives this URL from the `authVitalHost` configuration or `AV_HOST` environment variable.
 
 ---
 
@@ -92,7 +92,7 @@ All webhook events follow this base structure:
 
 ```typescript
 interface BaseEvent<T extends string, D> {
-  id: string;             // Unique event ID (same as X-AuthVader-Event-Id header)
+  id: string;             // Unique event ID (same as X-AuthVital-Event-Id header)
   type: T;                // Event type (e.g., 'subject.created')
   timestamp: string;      // ISO 8601 timestamp
   tenant_id: string;      // Tenant ID where event occurred
@@ -129,24 +129,24 @@ interface BaseEvent<T extends string, D> {
 ### 1. Install the SDK
 
 ```bash
-npm install @authvader/sdk
+npm install @authvital/sdk
 # or
-yarn add @authvader/sdk
+yarn add @authvital/sdk
 # or
-pnpm add @authvader/sdk
+pnpm add @authvital/sdk
 ```
 
 ### 2. Create an Event Handler
 
 ```typescript
-import { AuthVaderEventHandler } from '@authvader/sdk/webhooks';
+import { AuthVitalEventHandler } from '@authvital/sdk/webhooks';
 import type {
   SubjectCreatedEvent,
   MemberJoinedEvent,
   LicenseAssignedEvent,
-} from '@authvader/sdk/webhooks';
+} from '@authvital/sdk/webhooks';
 
-class MyEventHandler extends AuthVaderEventHandler {
+class MyEventHandler extends AuthVitalEventHandler {
   async onSubjectCreated(event: SubjectCreatedEvent): Promise<void> {
     console.log('New user:', event.data.email);
     // Sync to your database...
@@ -165,12 +165,12 @@ class MyEventHandler extends AuthVaderEventHandler {
 ### 3. Configure the WebhookRouter
 
 ```typescript
-import { WebhookRouter } from '@authvader/sdk/webhooks';
+import { WebhookRouter } from '@authvital/sdk/webhooks';
 
 const router = new WebhookRouter({
-  // AuthVader host - used to derive JWKS URL automatically
+  // AuthVital host - used to derive JWKS URL automatically
   // Falls back to AV_HOST environment variable if not provided
-  authVaderHost: process.env.AV_HOST,
+  authVitalHost: process.env.AV_HOST,
   
   // Your event handler implementation
   handler: new MyEventHandler(),
@@ -195,19 +195,19 @@ const app = express();
 // IMPORTANT: Use express.raw() for signature verification!
 // The body must be the raw buffer, not parsed JSON.
 app.post(
-  '/webhooks/authvader',
+  '/webhooks/authvital',
   express.raw({ type: 'application/json' }),
   router.expressHandler()
 );
 
 app.listen(3000, () => {
-  console.log('Webhook endpoint ready at http://localhost:3000/webhooks/authvader');
+  console.log('Webhook endpoint ready at http://localhost:3000/webhooks/authvital');
 });
 ```
 
 ➡️ **See [Framework Integration](./webhooks-frameworks.md) for Next.js, NestJS, and more.**
 
-### 5. Register Your Webhook in AuthVader
+### 5. Register Your Webhook in AuthVital
 
 **Via Admin Panel:**
 
@@ -222,16 +222,16 @@ app.listen(3000, () => {
 **Via API:**
 
 ```typescript
-import { AuthVaderAdmin } from '@authvader/sdk/admin';
+import { AuthVitalAdmin } from '@authvital/sdk/admin';
 
-const admin = new AuthVaderAdmin({
+const admin = new AuthVitalAdmin({
   host: process.env.AV_HOST!,
   apiKey: process.env.AV_ADMIN_API_KEY!,
 });
 
 const webhook = await admin.webhooks.create({
   name: 'User Sync Webhook',
-  url: 'https://myapp.com/webhooks/authvader',
+  url: 'https://myapp.com/webhooks/authvital',
   events: [
     'subject.created',
     'subject.updated',
@@ -252,12 +252,12 @@ const webhook = await admin.webhooks.create({
 
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
-| `authVaderHost` | `string` | No* | `process.env.AV_HOST` | AuthVader host URL |
-| `handler` | `AuthVaderEventHandler` | Yes | - | Your event handler instance |
+| `authVitalHost` | `string` | No* | `process.env.AV_HOST` | AuthVital host URL |
+| `handler` | `AuthVitalEventHandler` | Yes | - | Your event handler instance |
 | `maxTimestampAge` | `number` | No | `300` | Max age in seconds for replay protection |
 | `keysCacheTtl` | `number` | No | `3600000` | JWKS cache TTL in milliseconds |
 
-*Either `authVaderHost` or `AV_HOST` environment variable must be set.
+*Either `authVitalHost` or `AV_HOST` environment variable must be set.
 
 ---
 
@@ -292,9 +292,9 @@ const webhook = await admin.webhooks.create({
 ## Related Documentation
 
 - [Event Types & Payloads](./webhooks-events.md) - All events with TypeScript types and JSON examples
-- [Event Handler Reference](./webhooks-handler.md) - AuthVaderEventHandler class documentation
+- [Event Handler Reference](./webhooks-handler.md) - AuthVitalEventHandler class documentation
 - [Framework Integration](./webhooks-frameworks.md) - Express, Next.js, NestJS examples
-- [Manual Verification](./webhooks-verification.md) - Low-level AuthVaderWebhooks class
+- [Manual Verification](./webhooks-verification.md) - Low-level AuthVitalWebhooks class
 - [Best Practices](./webhooks-advanced.md) - Error handling, retries, idempotency, testing
 - [User Sync Guide](./user-sync.md) - Patterns for syncing users to your database
 - [Server SDK](./server-sdk.md) - Server-side SDK reference

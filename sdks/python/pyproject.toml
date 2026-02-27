@@ -3,15 +3,15 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "authvader-sdk"
+name = "authvital-sdk"
 version = "0.0.1"
-description = "Official Python SDK for AuthVader Identity Platform - Coming Soon"
+description = "Official Python SDK for AuthVital Identity Platform - Coming Soon"
 readme = "README.md"
-license = {text = "AuthVader Community License v1.0"}
+license = {text = "AuthVital Community License v1.0"}
 authors = [
-    {name = "AuthVader Contributors"}
+    {name = "AuthVital Contributors"}
 ]
-keywords = ["authvader", "authentication", "identity", "oauth", "sdk"]
+keywords = ["authvital", "authentication", "identity", "oauth", "sdk"]
 classifiers = [
     "Development Status :: 1 - Planning",
     "Intended Audience :: Developers",
@@ -27,11 +27,11 @@ classifiers = [
 requires-python = ">=3.8"
 
 [project.urls]
-Homepage = "https://github.com/authvader/authvader"
-Documentation = "https://github.com/authvader/authvader/tree/main/docs"
-Repository = "https://github.com/authvader/authvader"
-Issues = "https://github.com/authvader/authvader/issues"
+Homepage = "https://github.com/authvital/authvital"
+Documentation = "https://github.com/authvital/authvital/tree/main/docs"
+Repository = "https://github.com/authvital/authvital"
+Issues = "https://github.com/authvital/authvital/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["authvader_sdk*"]
+include = ["authvital_sdk*"]

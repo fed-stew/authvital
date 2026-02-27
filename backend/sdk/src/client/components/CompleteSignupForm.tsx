@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useAuthVaderConfig } from '../provider';
+import { useAuthVitalConfig } from '../provider';
 import { getStyles } from './styles';
 import type { AppearanceProps } from '../types';
 
@@ -85,7 +85,7 @@ export function CompleteSignupForm({
   onError,
   appearance,
 }: CompleteSignupFormProps) {
-  const config = useAuthVaderConfig();
+  const config = useAuthVitalConfig();
   const styles = getStyles(appearance);
   
   // Form state
@@ -117,7 +117,7 @@ export function CompleteSignupForm({
     const timer = setTimeout(async () => {
       setCheckingSlug(true);
       try {
-        const response = await fetch(`${config.authVaderHost}/api/tenants/check-slug/${slug}`, {
+        const response = await fetch(`${config.authVitalHost}/api/tenants/check-slug/${slug}`, {
           credentials: 'include',
         });
         if (response.ok) {
@@ -134,7 +134,7 @@ export function CompleteSignupForm({
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [slug, isGeneric, config.authVaderHost]);
+  }, [slug, isGeneric, config.authVitalHost]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -158,7 +158,7 @@ export function CompleteSignupForm({
     setError(null);
     
     try {
-      const response = await fetch(`${config.authVaderHost}/api/signup/complete`, {
+      const response = await fetch(`${config.authVitalHost}/api/signup/complete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

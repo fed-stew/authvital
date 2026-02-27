@@ -4,34 +4,34 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.authvader</groupId>
+    <groupId>com.authvital</groupId>
     <artifactId>sdk</artifactId>
     <version>0.0.1</version>
     <packaging>jar</packaging>
 
-    <name>AuthVader SDK</name>
-    <description>Official Java SDK for AuthVader Identity Platform - Coming Soon</description>
-    <url>https://github.com/authvader/authvader</url>
+    <name>AuthVital SDK</name>
+    <description>Official Java SDK for AuthVital Identity Platform - Coming Soon</description>
+    <url>https://github.com/authvital/authvital</url>
 
     <licenses>
         <license>
-            <name>AuthVader Community License v1.0</name>
-            <url>https://github.com/authvader/authvader/blob/main/LICENSE</url>
+            <name>AuthVital Community License v1.0</name>
+            <url>https://github.com/authvital/authvital/blob/main/LICENSE</url>
         </license>
     </licenses>
 
     <developers>
         <developer>
-            <name>AuthVader Contributors</name>
-            <organization>AuthVader</organization>
-            <organizationUrl>https://github.com/authvader</organizationUrl>
+            <name>AuthVital Contributors</name>
+            <organization>AuthVital</organization>
+            <organizationUrl>https://github.com/authvital</organizationUrl>
         </developer>
     </developers>
 
     <scm>
-        <connection>scm:git:git://github.com/authvader/authvader.git</connection>
-        <developerConnection>scm:git:ssh://github.com:authvader/authvader.git</developerConnection>
-        <url>https://github.com/authvader/authvader/tree/main</url>
+        <connection>scm:git:git://github.com/authvital/authvital.git</connection>
+        <developerConnection>scm:git:ssh://github.com:authvital/authvital.git</developerConnection>
+        <url>https://github.com/authvital/authvital/tree/main</url>
     </scm>
 
     <properties>

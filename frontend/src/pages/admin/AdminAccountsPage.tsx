@@ -241,7 +241,7 @@ export function AdminAccountsPage() {
           <div>
             <h2 className="text-2xl font-bold">Admin Accounts</h2>
             <p className="text-muted-foreground">
-              Manage super admin accounts for this AuthVader instance
+              Manage super admin accounts for this AuthVital instance
             </p>
           </div>
           <Button onClick={() => setIsCreateModalOpen(true)}>
@@ -269,7 +269,7 @@ export function AdminAccountsPage() {
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground space-y-2">
             <p>
-              <strong>Super Admins</strong> have full access to this AuthVader instance. 
+              <strong>Super Admins</strong> have full access to this AuthVital instance. 
               They can manage users, tenants, applications, and system settings.
             </p>
             <p>

@@ -2,7 +2,7 @@
 set -e
 
 # =============================================================================
-# AuthVader Docker Entrypoint
+# AuthVital Docker Entrypoint
 # =============================================================================
 #
 # RUN_MODE options:
@@ -29,7 +29,7 @@ if [ -n "$DB_HOST" ]; then
 fi
 
 echo "=========================================="
-echo "AuthVader - RUN_MODE: ${RUN_MODE}"
+echo "AuthVital - RUN_MODE: ${RUN_MODE}"
 echo "=========================================="
 
 # ---------------------------------------------------------------------------
@@ -53,7 +53,7 @@ run_migrations() {
 # ---------------------------------------------------------------------------
 start_api() {
   echo ""
-  echo "Starting AuthVader API on port ${PORT:-8000}..."
+  echo "Starting AuthVital API on port ${PORT:-8000}..."
   exec node dist/src/main.js
 }
 

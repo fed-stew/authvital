@@ -1,5 +1,5 @@
 /**
- * @authvader/sdk - Permissions Namespace
+ * @authvital/sdk - Permissions Namespace
  *
  * Check and list user permissions for tenant-scoped operations.
  */
@@ -28,7 +28,7 @@ export function createPermissionsNamespace(client: BaseClient) {
      * @example
      * ```ts
      * app.post('/api/users', async (req, res) => {
-     *   const { allowed } = await authvader.permissions.check(req, 'users:write');
+     *   const { allowed } = await authvital.permissions.check(req, 'users:write');
      *   if (!allowed) return res.status(403).json({ error: 'Forbidden' });
      *   // ... create user
      * });
@@ -51,7 +51,7 @@ export function createPermissionsNamespace(client: BaseClient) {
      *
      * @example
      * ```ts
-     * const { results } = await authvader.permissions.checkMany(req, ['users:read', 'users:write']);
+     * const { results } = await authvital.permissions.checkMany(req, ['users:read', 'users:write']);
      * // results = { 'users:read': true, 'users:write': false }
      * ```
      */
@@ -75,7 +75,7 @@ export function createPermissionsNamespace(client: BaseClient) {
      * @example
      * ```ts
      * app.get('/api/my-permissions', async (req, res) => {
-     *   const perms = await authvader.permissions.list(req);
+     *   const perms = await authvital.permissions.list(req);
      *   res.json(perms);
      * });
      * ```

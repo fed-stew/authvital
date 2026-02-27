@@ -1,5 +1,5 @@
 /**
- * @authvader/sdk - Licenses Namespace (User License Management 🎫)
+ * @authvital/sdk - Licenses Namespace (User License Management 🎫)
  *
  * Comprehensive license management for users and tenants.
  * Combines user-scoped operations (JWT auth) and admin operations (M2M).

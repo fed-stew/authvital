@@ -1,36 +1,36 @@
-package com.authvader.sdk;
+package com.authvital.sdk;
 
 /**
- * Official Java SDK for AuthVader Identity Platform.
+ * Official Java SDK for AuthVital Identity Platform.
  * 
  * <p><strong>Status: Coming Soon</strong></p>
  * 
  * <p>This package is a placeholder. The full SDK is under active development.
- * Follow <a href="https://github.com/authvader/authvader">the main repository</a> for updates!</p>
+ * Follow <a href="https://github.com/authvital/authvital">the main repository</a> for updates!</p>
  * 
- * @author AuthVader Contributors
+ * @author AuthVital Contributors
  * @version 0.0.1
  */
-public class AuthVader {
+public class AuthVital {
     
     /** Current SDK version. */
     public static final String VERSION = "0.0.1";
     
     /**
-     * Creates a new AuthVader client builder.
+     * Creates a new AuthVital client builder.
      * 
      * @return a new builder instance
      * @throws UnsupportedOperationException always, as this is a placeholder
      */
     public static Builder builder() {
         throw new UnsupportedOperationException(
-            "AuthVader Java SDK is coming soon! " +
-            "Follow https://github.com/authvader/authvader for updates."
+            "AuthVital Java SDK is coming soon! " +
+            "Follow https://github.com/authvital/authvital for updates."
         );
     }
     
     /**
-     * Builder for creating AuthVader clients.
+     * Builder for creating AuthVital clients.
      */
     public static class Builder {
         private String host;
@@ -38,7 +38,7 @@ public class AuthVader {
         private String clientSecret;
         
         /**
-         * Sets the AuthVader host URL.
+         * Sets the AuthVital host URL.
          * @param host the host URL
          * @return this builder
          */
@@ -68,10 +68,10 @@ public class AuthVader {
         }
         
         /**
-         * Builds the AuthVader client.
+         * Builds the AuthVital client.
          * @return the client instance
          */
-        public AuthVader build() {
+        public AuthVital build() {
             throw new UnsupportedOperationException("Coming soon!");
         }
     }

@@ -1,10 +1,10 @@
 # Licensing System
 
-> AuthVader's flexible license pool system for SaaS monetization.
+> AuthVital's flexible license pool system for SaaS monetization.
 
 ## Overview
 
-AuthVader includes a sophisticated **license pool system** that enables:
+AuthVital includes a sophisticated **license pool system** that enables:
 
 - Per-seat licensing (assign licenses to individual users)
 - Tenant-wide access (whole organization gets access)
@@ -230,7 +230,7 @@ const availableFeatures = [
 ];
 
 // Check feature in your app
-const { hasFeature } = await authvader.licenses.hasFeature(req, {
+const { hasFeature } = await authvital.licenses.hasFeature(req, {
   applicationId: 'app-123',
   feature: 'advanced-reports',
 });
@@ -265,7 +265,7 @@ License information is included in the JWT:
 Access in your code:
 
 ```typescript
-const { user } = await authvader.getCurrentUser(req);
+const { user } = await authvital.getCurrentUser(req);
 
 // Check license type
 if (user.license?.type === 'enterprise') {
@@ -284,7 +284,7 @@ if (user.license?.features.includes('sso')) {
 
 ```typescript
 // Check if user has any license
-const { hasLicense, licenseType, features } = await authvader.licenses.check(req, {
+const { hasLicense, licenseType, features } = await authvital.licenses.check(req, {
   applicationId: 'app-123',
 });
 
@@ -296,7 +296,7 @@ console.log(features);      // ["basic-reports", "api-access"]
 ### Check Feature
 
 ```typescript
-const { hasFeature } = await authvader.licenses.hasFeature(req, {
+const { hasFeature } = await authvital.licenses.hasFeature(req, {
   applicationId: 'app-123',
   feature: 'advanced-reports',
 });
@@ -305,7 +305,7 @@ const { hasFeature } = await authvader.licenses.hasFeature(req, {
 ### Get Full License Details
 
 ```typescript
-const license = await authvader.licenses.getUserLicense(req, {
+const license = await authvital.licenses.getUserLicense(req, {
   applicationId: 'app-123',
 });
 // {
@@ -325,7 +325,7 @@ const license = await authvader.licenses.getUserLicense(req, {
 ### Admin: Grant License
 
 ```typescript
-await authvader.licenses.grant(req, {
+await authvital.licenses.grant(req, {
   userId: 'user-123',
   applicationId: 'app-123',
   licenseTypeId: 'lt-pro',
@@ -336,7 +336,7 @@ await authvader.licenses.grant(req, {
 ### Admin: Revoke License
 
 ```typescript
-await authvader.licenses.revoke(req, {
+await authvital.licenses.revoke(req, {
   userId: 'user-123',
   applicationId: 'app-123',
   tenantId: 'tenant-456',
@@ -346,7 +346,7 @@ await authvader.licenses.revoke(req, {
 ### Get Tenant License Overview
 
 ```typescript
-const overview = await authvader.licenses.getTenantOverview(req, {
+const overview = await authvital.licenses.getTenantOverview(req, {
   tenantId: 'tenant-456',
 });
 // {
@@ -374,7 +374,7 @@ const overview = await authvader.licenses.getTenantOverview(req, {
 
 ```typescript
 const requireLicense = (applicationId: string) => async (req, res, next) => {
-  const { hasLicense } = await authvader.licenses.check(req, {
+  const { hasLicense } = await authvital.licenses.check(req, {
     applicationId,
   });
   
@@ -398,7 +398,7 @@ app.use('/api/premium', requireLicense('app-123'));
 ```typescript
 const requireFeature = (applicationId: string, feature: string) => {
   return async (req, res, next) => {
-    const { hasFeature } = await authvader.licenses.hasFeature(req, {
+    const { hasFeature } = await authvital.licenses.hasFeature(req, {
       applicationId,
       feature,
     });
@@ -430,7 +430,7 @@ app.get('/api/analytics',
 
 ```tsx
 function PremiumFeature() {
-  const { user } = useAuthVader();
+  const { user } = useAuthVital();
   const hasFeature = user?.license?.features.includes('advanced-analytics');
   
   if (!hasFeature) {
@@ -458,7 +458,7 @@ function FeatureGate({
   children: React.ReactNode;
   fallback?: React.ReactNode;
 }) {
-  const { user } = useAuthVader();
+  const { user } = useAuthVital();
   const hasFeature = user?.license?.features.includes(feature);
   
   if (!hasFeature) {
@@ -488,7 +488,7 @@ License changes trigger webhook events:
 | `license.changed` | User's license type changed |
 
 ```typescript
-class MyEventHandler extends AuthVaderEventHandler {
+class MyEventHandler extends AuthVitalEventHandler {
   async onLicenseAssigned(event) {
     const { sub, license_type_slug, features } = event.data;
     
@@ -512,11 +512,11 @@ class MyEventHandler extends AuthVaderEventHandler {
 
 ## Integration with Billing
 
-AuthVader manages **license assignments**, not billing. Integrate with your billing system:
+AuthVital manages **license assignments**, not billing. Integrate with your billing system:
 
 ```
 ┌──────────────┐    Purchase    ┌──────────────┐    Update     ┌──────────────┐
-│   Billing    │ ──────────────▶│   Your API   │ ─────────────▶│  AuthVader   │
+│   Billing    │ ──────────────▶│   Your API   │ ─────────────▶│  AuthVital   │
 │  (Stripe)    │                │              │               │              │
 └──────────────┘                └──────────────┘               └──────────────┘
        │                               │                              │
@@ -539,8 +539,8 @@ app.post('/webhooks/stripe', async (req, res) => {
     case 'checkout.session.completed': {
       const session = event.data.object;
       
-      // Create subscription in AuthVader
-      await authvader.admin.createSubscription({
+      // Create subscription in AuthVital
+      await authvital.admin.createSubscription({
         tenantId: session.metadata.tenantId,
         applicationId: session.metadata.applicationId,
         licenseTypeId: session.metadata.licenseTypeId,
@@ -554,9 +554,9 @@ app.post('/webhooks/stripe', async (req, res) => {
     case 'customer.subscription.updated': {
       const subscription = event.data.object;
       
-      // Update seats in AuthVader
-      await authvader.admin.updateSubscription(
-        subscription.metadata.authvaderSubscriptionId,
+      // Update seats in AuthVital
+      await authvital.admin.updateSubscription(
+        subscription.metadata.authvitalSubscriptionId,
         {
           quantityPurchased: subscription.items.data[0].quantity,
           status: subscription.status.toUpperCase(),
@@ -578,7 +578,7 @@ For performance, cache JWT claims (they're self-contained):
 
 ```typescript
 // License info is in the JWT - no API call needed!
-const { user } = await authvader.getCurrentUser(req);
+const { user } = await authvital.getCurrentUser(req);
 const hasFeature = user.license?.features.includes('advanced-reports');
 ```
 
@@ -587,7 +587,7 @@ const hasFeature = user.license?.features.includes('advanced-reports');
 Allow access during payment failures:
 
 ```typescript
-const subscription = await authvader.licenses.getSubscription(req, {
+const subscription = await authvital.licenses.getSubscription(req, {
   applicationId: 'app-123',
 });
 

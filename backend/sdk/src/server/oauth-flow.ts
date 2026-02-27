@@ -1,15 +1,15 @@
 /**
- * @authvader/sdk - Server-Side OAuth Flow
+ * @authvital/sdk - Server-Side OAuth Flow
  * 
  * Utilities for implementing OAuth 2.0 Authorization Code Flow with PKCE
  * on your backend. Use this when you need to handle OAuth callbacks server-side.
  * 
  * @example
  * ```ts
- * import { OAuthFlow } from '@authvader/sdk/server';
+ * import { OAuthFlow } from '@authvital/sdk/server';
  * 
  * const oauth = new OAuthFlow({
- *   authVaderHost: process.env.AV_HOST,
+ *   authVitalHost: process.env.AV_HOST,
  *   clientId: process.env.AV_CLIENT_ID,
  *   clientSecret: process.env.AV_CLIENT_SECRET,
  *   redirectUri: 'https://myapp.com/api/auth/callback',
@@ -149,7 +149,7 @@ export function decodeStateWithVerifier(state: string): { csrf: string; codeVeri
 // =============================================================================
 
 export interface AuthorizeUrlParams {
-  authVaderHost: string;
+  authVitalHost: string;
   clientId: string;
   redirectUri: string;
   state: string;
@@ -162,7 +162,7 @@ export interface AuthorizeUrlParams {
  * Build the OAuth authorize URL
  */
 export function buildAuthorizeUrl(params: AuthorizeUrlParams): string {
-  const url = new URL(`${params.authVaderHost}/oauth/authorize`);
+  const url = new URL(`${params.authVitalHost}/oauth/authorize`);
   url.searchParams.set('client_id', params.clientId);
   url.searchParams.set('redirect_uri', params.redirectUri);
   url.searchParams.set('response_type', 'code');
@@ -183,7 +183,7 @@ export function buildAuthorizeUrl(params: AuthorizeUrlParams): string {
 // =============================================================================
 
 export interface TokenExchangeParams {
-  authVaderHost: string;
+  authVitalHost: string;
   clientId: string;
   clientSecret?: string;
   code: string;
@@ -207,7 +207,7 @@ export async function exchangeCodeForTokens(params: TokenExchangeParams): Promis
     body.client_secret = params.clientSecret;
   }
   
-  const response = await fetch(`${params.authVaderHost}/oauth/token`, {
+  const response = await fetch(`${params.authVitalHost}/oauth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -226,7 +226,7 @@ export async function exchangeCodeForTokens(params: TokenExchangeParams): Promis
 // =============================================================================
 
 export interface RefreshTokenParams {
-  authVaderHost: string;
+  authVitalHost: string;
   clientId: string;
   clientSecret?: string;
   refreshToken: string;
@@ -246,7 +246,7 @@ export async function refreshAccessToken(params: RefreshTokenParams): Promise<To
     body.client_secret = params.clientSecret;
   }
   
-  const response = await fetch(`${params.authVaderHost}/oauth/token`, {
+  const response = await fetch(`${params.authVitalHost}/oauth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -307,7 +307,7 @@ export class OAuthFlow {
     const state = encodeState(csrfNonce, options?.appState);
     
     const authorizeUrl = buildAuthorizeUrl({
-      authVaderHost: this.config.authVaderHost,
+      authVitalHost: this.config.authVitalHost,
       clientId: this.config.clientId,
       redirectUri: this.config.redirectUri,
       state,
@@ -352,7 +352,7 @@ export class OAuthFlow {
     
     // Back-channel token exchange
     const tokens = await exchangeCodeForTokens({
-      authVaderHost: this.config.authVaderHost,
+      authVitalHost: this.config.authVitalHost,
       clientId: this.config.clientId,
       clientSecret: this.config.clientSecret,
       code,
@@ -372,7 +372,7 @@ export class OAuthFlow {
    */
   async refreshTokens(refreshToken: string): Promise<TokenResponse> {
     return refreshAccessToken({
-      authVaderHost: this.config.authVaderHost,
+      authVitalHost: this.config.authVitalHost,
       clientId: this.config.clientId,
       clientSecret: this.config.clientSecret,
       refreshToken,

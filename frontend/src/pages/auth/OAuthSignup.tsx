@@ -112,7 +112,7 @@ export function OAuthSignup() {
           if (!clientId && config.branding) {
             setBranding({
               clientId: '',
-              name: config.branding.name || 'AuthVader',
+              name: config.branding.name || 'AuthVital',
               logoUrl: config.branding.logoUrl,
               primaryColor: config.branding.primaryColor,
             });
@@ -473,7 +473,7 @@ export function OAuthSignup() {
 
         {/* Security note */}
         <p className="mt-4 text-center text-xs text-muted-foreground/50">
-          Secured by <a href="https://www.authvader.com" target="_blank" rel="noopener noreferrer" className="hover:text-muted-foreground transition-colors">AuthVader</a>
+          Secured by <a href="https://www.authvital.com" target="_blank" rel="noopener noreferrer" className="hover:text-muted-foreground transition-colors">AuthVital</a>
         </p>
       </div>
     </div>

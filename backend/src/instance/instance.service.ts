@@ -45,7 +45,7 @@ export class InstanceService implements OnModuleInit {
       update: {},
       create: {
         id: this.SINGLETON_ID,
-        name: 'AuthVader IDP',
+        name: 'AuthVital IDP',
       },
     });
   }

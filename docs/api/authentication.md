@@ -5,7 +5,7 @@
 ## Base URL
 
 ```
-https://your-authvader.com/api
+https://your-authvital.com/api
 ```
 
 ## Endpoints Overview
@@ -280,7 +280,7 @@ Start MFA setup (requires authentication).
 {
   "secret": "JBSWY3DPEHPK3PXP",
   "qrCodeUrl": "data:image/png;base64,...",
-  "otpauthUrl": "otpauth://totp/AuthVader:user@example.com?secret=...",
+  "otpauthUrl": "otpauth://totp/AuthVital:user@example.com?secret=...",
   "backupCodes": [
     "12345678",
     "87654321",

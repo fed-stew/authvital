@@ -1,6 +1,6 @@
 # Error Codes Reference
 
-> Complete reference for AuthVader error codes and their resolution.
+> Complete reference for AuthVital error codes and their resolution.
 
 ## HTTP Status Codes
 
@@ -28,7 +28,7 @@ Returned as query params on redirect: `?error=xxx&error_description=xxx`
 | `access_denied` | User denied authorization | User cancelled - show friendly message |
 | `unsupported_response_type` | response_type not supported | Use `response_type=code` |
 | `invalid_scope` | Requested scope is invalid | Check scope values |
-| `server_error` | Server error | Retry, check AuthVader logs |
+| `server_error` | Server error | Retry, check AuthVital logs |
 
 ### Token Endpoint Errors
 
@@ -217,7 +217,7 @@ Returned as JSON: `{ "error": "xxx", "error_description": "xxx" }`
 | Code | Message | Resolution |
 |------|---------|------------|
 | `SIGNATURE_INVALID` | Invalid webhook signature | Verify secret matches |
-| `SIGNATURE_MISSING` | Missing signature header | Include X-AuthVader-Signature |
+| `SIGNATURE_MISSING` | Missing signature header | Include X-AuthVital-Signature |
 | `PAYLOAD_INVALID` | Invalid JSON payload | Check request body format |
 
 ## Rate Limiting
@@ -287,7 +287,7 @@ try {
 ### React Error Boundary
 
 ```tsx
-function ErrorDisplay({ error }: { error: AuthVaderError }) {
+function ErrorDisplay({ error }: { error: AuthVitalError }) {
   switch (error.code) {
     case 'TOKEN_EXPIRED':
       return <LoginPrompt message="Your session has expired" />;

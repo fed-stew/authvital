@@ -1,5 +1,5 @@
 /**
- * @authvader/sdk - Entitlements Namespace (The Gatekeeper 🛡️)
+ * @authvital/sdk - Entitlements Namespace (The Gatekeeper 🛡️)
  *
  * Check quotas, features, and entitlements for tenant-scoped operations.
  */
@@ -27,12 +27,12 @@ export function createEntitlementsNamespace(client: BaseClient) {
      * @example
      * ```ts
      * // Before adding a team member
-     * const check = await authvader.entitlements.canPerform(req, 'seats');
+     * const check = await authvital.entitlements.canPerform(req, 'seats');
      * if (!check.allowed) {
      *   return res.status(403).json({ error: check.reason });
      * }
      * // Add the member...
-     * await authvader.entitlements.incrementUsage(req, 'seats');
+     * await authvital.entitlements.incrementUsage(req, 'seats');
      * ```
      */
     canPerform: async (
@@ -117,7 +117,7 @@ export function createEntitlementsNamespace(client: BaseClient) {
      * @example
      * ```ts
      * // After removing a team member
-     * await authvader.entitlements.decrementUsage(req, 'seats');
+     * await authvital.entitlements.decrementUsage(req, 'seats');
      * ```
      */
     decrementUsage: async (

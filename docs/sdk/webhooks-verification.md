@@ -6,15 +6,15 @@
 
 ---
 
-## AuthVaderWebhooks Class
+## AuthVitalWebhooks Class
 
-For more control over webhook handling, use the `AuthVaderWebhooks` class directly.
+For more control over webhook handling, use the `AuthVitalWebhooks` class directly.
 
 ```typescript
-import { AuthVaderWebhooks } from '@authvader/sdk/webhooks';
+import { AuthVitalWebhooks } from '@authvital/sdk/webhooks';
 
-const webhooks = new AuthVaderWebhooks({
-  authVaderHost: process.env.AV_HOST!,
+const webhooks = new AuthVitalWebhooks({
+  authVitalHost: process.env.AV_HOST!,
   maxTimestampAge: 300,    // Optional: 5 min replay protection
   keysCacheTtl: 3600000,   // Optional: 1 hour JWKS cache
 });
@@ -26,24 +26,24 @@ const webhooks = new AuthVaderWebhooks({
 
 ```typescript
 import express from 'express';
-import { AuthVaderWebhooks, WebhookVerificationError } from '@authvader/sdk/webhooks';
+import { AuthVitalWebhooks, WebhookVerificationError } from '@authvital/sdk/webhooks';
 
 const app = express();
-const webhooks = new AuthVaderWebhooks({
-  authVaderHost: process.env.AV_HOST!,
+const webhooks = new AuthVitalWebhooks({
+  authVitalHost: process.env.AV_HOST!,
 });
 
 app.post(
-  '/webhooks/authvader',
+  '/webhooks/authvital',
   express.raw({ type: 'application/json' }),
   async (req, res) => {
     try {
       // Extract headers
-      const signature = req.headers['x-authvader-signature'] as string;
-      const keyId = req.headers['x-authvader-key-id'] as string;
-      const timestamp = req.headers['x-authvader-timestamp'] as string;
-      const eventId = req.headers['x-authvader-event-id'] as string;
-      const eventType = req.headers['x-authvader-event-type'] as string;
+      const signature = req.headers['x-authvital-signature'] as string;
+      const keyId = req.headers['x-authvital-key-id'] as string;
+      const timestamp = req.headers['x-authvital-timestamp'] as string;
+      const eventId = req.headers['x-authvital-event-id'] as string;
+      const eventType = req.headers['x-authvital-event-type'] as string;
 
       // Get raw body as string
       const body = req.body.toString('utf-8');
@@ -92,7 +92,7 @@ If you can't use the SDK, here's how to verify webhooks manually:
 ```typescript
 import crypto from 'crypto';
 
-// 1. Fetch JWKS from AuthVader
+// 1. Fetch JWKS from AuthVital
 interface JWK {
   kty: string;
   kid: string;
@@ -104,8 +104,8 @@ interface JWKS {
   keys: JWK[];
 }
 
-async function fetchJWKS(authVaderHost: string): Promise<JWKS> {
-  const response = await fetch(`${authVaderHost}/.well-known/jwks.json`);
+async function fetchJWKS(authVitalHost: string): Promise<JWKS> {
+  const response = await fetch(`${authVitalHost}/.well-known/jwks.json`);
   if (!response.ok) {
     throw new Error(`Failed to fetch JWKS: ${response.status}`);
   }
@@ -130,10 +130,10 @@ function jwkToPem(jwk: JWK): string {
 // 3. Verify the webhook signature
 interface VerifyWebhookParams {
   body: string;      // Raw request body
-  signature: string; // X-AuthVader-Signature header (base64)
-  keyId: string;     // X-AuthVader-Key-Id header
-  timestamp: string; // X-AuthVader-Timestamp header
-  authVaderHost: string;
+  signature: string; // X-AuthVital-Signature header (base64)
+  keyId: string;     // X-AuthVital-Key-Id header
+  timestamp: string; // X-AuthVital-Timestamp header
+  authVitalHost: string;
   maxTimestampAge?: number; // Seconds (default: 300)
 }
 
@@ -143,7 +143,7 @@ async function verifyWebhook(params: VerifyWebhookParams): Promise<boolean> {
     signature,
     keyId,
     timestamp,
-    authVaderHost,
+    authVitalHost,
     maxTimestampAge = 300,
   } = params;
 
@@ -155,7 +155,7 @@ async function verifyWebhook(params: VerifyWebhookParams): Promise<boolean> {
   }
 
   // Fetch JWKS and find the key
-  const jwks = await fetchJWKS(authVaderHost);
+  const jwks = await fetchJWKS(authVitalHost);
   const jwk = jwks.keys.find((k) => k.kid === keyId);
   if (!jwk) {
     throw new Error(`Key not found in JWKS: ${keyId}`);
@@ -189,16 +189,16 @@ import express from 'express';
 const app = express();
 
 app.post(
-  '/webhooks/authvader',
+  '/webhooks/authvital',
   express.raw({ type: 'application/json' }),
   async (req, res) => {
     try {
       const isValid = await verifyWebhook({
         body: req.body.toString('utf-8'),
-        signature: req.headers['x-authvader-signature'] as string,
-        keyId: req.headers['x-authvader-key-id'] as string,
-        timestamp: req.headers['x-authvader-timestamp'] as string,
-        authVaderHost: process.env.AV_HOST!,
+        signature: req.headers['x-authvital-signature'] as string,
+        keyId: req.headers['x-authvital-key-id'] as string,
+        timestamp: req.headers['x-authvital-timestamp'] as string,
+        authVitalHost: process.env.AV_HOST!,
       });
 
       if (!isValid) {
@@ -239,10 +239,10 @@ class JWKSCache {
   private keys: Map<string, string> = new Map(); // kid -> PEM
   private lastFetch: number = 0;
   private ttl: number;
-  private authVaderHost: string;
+  private authVitalHost: string;
 
-  constructor(authVaderHost: string, ttlMs: number = 3600000) {
-    this.authVaderHost = authVaderHost;
+  constructor(authVitalHost: string, ttlMs: number = 3600000) {
+    this.authVitalHost = authVitalHost;
     this.ttl = ttlMs;
   }
 
@@ -267,7 +267,7 @@ class JWKSCache {
   }
 
   private async refresh(): Promise<void> {
-    const jwks = await fetchJWKS(this.authVaderHost);
+    const jwks = await fetchJWKS(this.authVitalHost);
     this.keys.clear();
     
     for (const jwk of jwks.keys) {
@@ -281,7 +281,7 @@ class JWKSCache {
 // Usage
 const jwksCache = new JWKSCache(process.env.AV_HOST!, 3600000);
 
-async function verifyWithCache(params: Omit<VerifyWebhookParams, 'authVaderHost'>) {
+async function verifyWithCache(params: Omit<VerifyWebhookParams, 'authVitalHost'>) {
   const { body, signature, keyId, timestamp, maxTimestampAge = 300 } = params;
 
   // Check timestamp
@@ -319,21 +319,21 @@ from cryptography.hazmat.backends import default_backend
 import jwt
 import base64
 
-class AuthVaderWebhookVerifier:
-    def __init__(self, authvader_host: str, max_timestamp_age: int = 300):
-        self.authvader_host = authvader_host
+class AuthVitalWebhookVerifier:
+    def __init__(self, authvital_host: str, max_timestamp_age: int = 300):
+        self.authvital_host = authvital_host
         self.max_timestamp_age = max_timestamp_age
         self._jwks_cache = None
         self._jwks_cache_time = 0
         self._cache_ttl = 3600  # 1 hour
 
     def _fetch_jwks(self) -> dict:
-        """Fetch JWKS from AuthVader."""
+        """Fetch JWKS from AuthVital."""
         now = time.time()
         if self._jwks_cache and (now - self._jwks_cache_time) < self._cache_ttl:
             return self._jwks_cache
 
-        url = f"{self.authvader_host}/.well-known/jwks.json"
+        url = f"{self.authvital_host}/.well-known/jwks.json"
         response = requests.get(url)
         response.raise_for_status()
         self._jwks_cache = response.json()
@@ -390,16 +390,16 @@ class AuthVaderWebhookVerifier:
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
-verifier = AuthVaderWebhookVerifier(os.environ['AV_HOST'])
+verifier = AuthVitalWebhookVerifier(os.environ['AV_HOST'])
 
-@app.route('/webhooks/authvader', methods=['POST'])
+@app.route('/webhooks/authvital', methods=['POST'])
 def handle_webhook():
     try:
         event = verifier.verify_and_parse(
             body=request.get_data(as_text=True),
-            signature=request.headers.get('X-AuthVader-Signature'),
-            key_id=request.headers.get('X-AuthVader-Key-Id'),
-            timestamp=request.headers.get('X-AuthVader-Timestamp'),
+            signature=request.headers.get('X-AuthVital-Signature'),
+            key_id=request.headers.get('X-AuthVital-Key-Id'),
+            timestamp=request.headers.get('X-AuthVital-Timestamp'),
         )
         
         print(f"Verified event: {event['type']}")

@@ -82,7 +82,7 @@ export function AdminLogin() {
             <span className="text-3xl font-bold text-primary-foreground">A</span>
           </div>
           <h1 className="text-2xl font-bold text-foreground">
-            AuthVader Admin
+            AuthVital Admin
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Sign in to access the super admin console
@@ -118,7 +118,7 @@ export function AdminLogin() {
                 <Input
                   id="email"
                   type="email"
-                  placeholder="admin@authvader.com"
+                  placeholder="admin@authvital.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={isLoading}
@@ -169,7 +169,7 @@ export function AdminLogin() {
               <div className="flex items-center justify-center gap-2 rounded-md border border-white/10 bg-white/5 p-3">
                 <Lock className="h-4 w-4 text-muted-foreground" />
                 <p className="text-xs text-muted-foreground">
-                  Secure login powered by AuthVader
+                  Secure login powered by AuthVital
                 </p>
               </div>
             </form>

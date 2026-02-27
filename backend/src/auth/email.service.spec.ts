@@ -46,7 +46,7 @@ describe("EmailService", () => {
     process.env.BASE_URL = "https://idp.example.com";
     process.env.SENDGRID_API_KEY = "sg-key";
     process.env.SENDGRID_FROM_EMAIL = "noreply@example.com";
-    process.env.SENDGRID_FROM_NAME = "AuthVader";
+    process.env.SENDGRID_FROM_NAME = "AuthVital";
 
     const service = new EmailService();
 
@@ -56,7 +56,7 @@ describe("EmailService", () => {
     expect(sgMail.send).toHaveBeenCalledWith(
       expect.objectContaining({
         to: "user@example.com",
-        from: { email: "noreply@example.com", name: "AuthVader" },
+        from: { email: "noreply@example.com", name: "AuthVital" },
         subject: "Verify your email address",
         text: expect.stringContaining("token=verify-token"),
         html: expect.stringContaining("token=verify-token"),
@@ -89,7 +89,7 @@ describe("EmailService", () => {
     process.env.BASE_URL = "https://idp.example.com";
     process.env.SENDGRID_API_KEY = "sg-key";
     process.env.SENDGRID_FROM_EMAIL = "noreply@example.com";
-    process.env.SENDGRID_FROM_NAME = "AuthVader";
+    process.env.SENDGRID_FROM_NAME = "AuthVital";
     (sgMail.send as jest.Mock).mockRejectedValue(new Error("send failed"));
 
     const service = new EmailService();
@@ -108,7 +108,7 @@ describe("EmailService", () => {
     process.env.BASE_URL = "https://idp.example.com";
     process.env.SENDGRID_API_KEY = "sg-key";
     process.env.SENDGRID_FROM_EMAIL = "noreply@example.com";
-    process.env.SENDGRID_FROM_NAME = "AuthVader";
+    process.env.SENDGRID_FROM_NAME = "AuthVital";
 
     const service = new EmailService();
 
@@ -133,7 +133,7 @@ describe("EmailService", () => {
     process.env.BASE_URL = "https://idp.example.com";
     process.env.SENDGRID_API_KEY = "sg-key";
     process.env.SENDGRID_FROM_EMAIL = "noreply@example.com";
-    process.env.SENDGRID_FROM_NAME = "AuthVader";
+    process.env.SENDGRID_FROM_NAME = "AuthVital";
 
     const service = new EmailService();
 
@@ -151,7 +151,7 @@ describe("EmailService", () => {
     process.env.BASE_URL = "https://idp.example.com";
     process.env.SENDGRID_API_KEY = "sg-key";
     process.env.SENDGRID_FROM_EMAIL = "noreply@example.com";
-    process.env.SENDGRID_FROM_NAME = "AuthVader";
+    process.env.SENDGRID_FROM_NAME = "AuthVital";
 
     const service = new EmailService();
 
@@ -170,7 +170,7 @@ describe("EmailService", () => {
     process.env.BASE_URL = "https://idp.example.com";
     process.env.SENDGRID_API_KEY = "sg-key";
     process.env.SENDGRID_FROM_EMAIL = "noreply@example.com";
-    process.env.SENDGRID_FROM_NAME = "AuthVader";
+    process.env.SENDGRID_FROM_NAME = "AuthVital";
 
     const service = new EmailService() as any;
 
@@ -191,7 +191,7 @@ describe("EmailService", () => {
     process.env.BASE_URL = "https://idp.example.com";
     process.env.SENDGRID_API_KEY = "sg-key";
     process.env.SENDGRID_FROM_EMAIL = "noreply@example.com";
-    process.env.SENDGRID_FROM_NAME = "AuthVader";
+    process.env.SENDGRID_FROM_NAME = "AuthVital";
 
     const service = new EmailService();
 
@@ -211,7 +211,7 @@ describe("EmailService", () => {
     process.env.BASE_URL = "https://idp.example.com";
     process.env.SENDGRID_API_KEY = "sg-key";
     process.env.SENDGRID_FROM_EMAIL = "noreply@example.com";
-    process.env.SENDGRID_FROM_NAME = "AuthVader";
+    process.env.SENDGRID_FROM_NAME = "AuthVital";
 
     const service = new EmailService();
 

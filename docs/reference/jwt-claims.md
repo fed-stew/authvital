@@ -1,10 +1,10 @@
 # JWT Claims Reference
 
-> Complete reference for AuthVader JWT token structure and claims.
+> Complete reference for AuthVital JWT token structure and claims.
 
 ## Token Types
 
-AuthVader issues three types of tokens:
+AuthVital issues three types of tokens:
 
 | Token | Purpose | Lifetime | Contains |
 |-------|---------|----------|----------|
@@ -78,7 +78,7 @@ AuthVader issues three types of tokens:
 | Claim | Type | Description |
 |-------|------|-------------|
 | `sub` | string | Subject - unique user identifier (UUID) |
-| `iss` | string | Issuer - AuthVader URL |
+| `iss` | string | Issuer - AuthVital URL |
 | `aud` | string or string[] | Audience - client ID(s) |
 | `exp` | number | Expiration time (Unix timestamp) |
 | `iat` | number | Issued at time (Unix timestamp) |
@@ -211,16 +211,16 @@ The `sid` claim points to a `RefreshToken` record in the database that tracks:
 ### Validating Access Tokens
 
 ```typescript
-import { createAuthVader } from '@authvader/sdk/server';
+import { createAuthVital } from '@authvital/sdk/server';
 
-const authvader = createAuthVader({
-  authVaderHost: 'https://auth.yourapp.com',
+const authvital = createAuthVital({
+  authVitalHost: 'https://auth.yourapp.com',
   clientId: 'your-client-id',
   clientSecret: 'your-client-secret',
 });
 
 // Extract and validate from request
-const { authenticated, user, error } = await authvader.getCurrentUser(req);
+const { authenticated, user, error } = await authvital.getCurrentUser(req);
 
 if (authenticated) {
   console.log('User ID:', user.sub);
@@ -265,7 +265,7 @@ async function validateToken(token: string) {
 ## TypeScript Types
 
 ```typescript
-import type { EnhancedJwtPayload, JwtLicenseInfo } from '@authvader/sdk/server';
+import type { EnhancedJwtPayload, JwtLicenseInfo } from '@authvital/sdk/server';
 
 // Full access token payload type
 interface EnhancedJwtPayload {
@@ -362,7 +362,7 @@ function getTokenTtl(user: EnhancedJwtPayload): number {
 
 ## Token Signing
 
-AuthVader uses **Ed25519** (EdDSA) for token signing:
+AuthVital uses **Ed25519** (EdDSA) for token signing:
 
 - **Algorithm**: EdDSA
 - **Curve**: Ed25519

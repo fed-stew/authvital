@@ -1,16 +1,16 @@
 /**
- * @authvader/sdk - JWT Validator
+ * @authvital/sdk - JWT Validator
  * 
- * Validates JWTs issued by AuthVader using JWKS (JSON Web Key Set).
+ * Validates JWTs issued by AuthVital using JWKS (JSON Web Key Set).
  * Automatically fetches keys from the IDP's well-known endpoint,
  * handles caching, and supports key rotation.
  * 
  * @example
  * ```ts
- * import { createJwtValidator } from '@authvader/sdk/server';
+ * import { createJwtValidator } from '@authvital/sdk/server';
  * 
  * const validator = createJwtValidator({
- *   authVaderHost: process.env.AV_HOST,
+ *   authVitalHost: process.env.AV_HOST,
  * });
  * 
  * // Validate a token
@@ -22,13 +22,13 @@
  */
 
 export interface JwtValidatorConfig {
-  /** AuthVader IDP URL (e.g., "https://auth.example.com") */
-  authVaderHost: string;
+  /** AuthVital IDP URL (e.g., "https://auth.example.com") */
+  authVitalHost: string;
   /** Cache TTL in seconds (default: 3600 = 1 hour) */
   cacheTtl?: number;
   /** Expected audience (client_id) - optional but recommended */
   audience?: string;
-  /** Expected issuer - defaults to authVaderHost */
+  /** Expected issuer - defaults to authVitalHost */
   issuer?: string;
 }
 
@@ -70,7 +70,7 @@ export interface ValidateTokenResult {
 }
 
 /**
- * JWT Validator for AuthVader tokens
+ * JWT Validator for AuthVital tokens
  * 
  * Fetches JWKS from the IDP, caches keys, and validates tokens.
  * Handles key rotation automatically by refetching JWKS when a key is not found.
@@ -83,17 +83,17 @@ export class JwtValidator {
 
   constructor(config: JwtValidatorConfig) {
     // Validate required config
-    if (!config.authVaderHost) {
+    if (!config.authVitalHost) {
       throw new Error(
-        'authVaderHost is required. Pass it in config or set AV_HOST environment variable.',
+        'authVitalHost is required. Pass it in config or set AV_HOST environment variable.',
       );
     }
 
     this.config = {
-      authVaderHost: config.authVaderHost.replace(/\/$/, ''), // Remove trailing slash
+      authVitalHost: config.authVitalHost.replace(/\/$/, ''), // Remove trailing slash
       cacheTtl: config.cacheTtl ?? 3600,
       audience: config.audience,
-      issuer: config.issuer ?? config.authVaderHost.replace(/\/$/, ''),
+      issuer: config.issuer ?? config.authVitalHost.replace(/\/$/, ''),
     };
   }
 
@@ -101,14 +101,14 @@ export class JwtValidator {
    * Get the JWKS URL for this IDP
    */
   getJwksUrl(): string {
-    return `${this.config.authVaderHost}/.well-known/jwks.json`;
+    return `${this.config.authVitalHost}/.well-known/jwks.json`;
   }
 
   /**
    * Get the OpenID Configuration URL
    */
   getOpenIdConfigUrl(): string {
-    return `${this.config.authVaderHost}/.well-known/openid-configuration`;
+    return `${this.config.authVitalHost}/.well-known/openid-configuration`;
   }
 
   /**
@@ -483,7 +483,7 @@ export class JwtValidator {
    * 
    * @example
    * ```ts
-   * const validator = createJwtValidator({ authVaderHost: process.env.AV_HOST });
+   * const validator = createJwtValidator({ authVitalHost: process.env.AV_HOST });
    * 
    * // GET /api/auth/me
    * app.get('/api/auth/me', async (req, res) => {
@@ -550,7 +550,7 @@ export class JwtValidator {
  * @example
  * ```ts
  * const validator = createJwtValidator({
- *   authVaderHost: 'https://auth.example.com',
+ *   authVitalHost: 'https://auth.example.com',
  *   audience: 'my-client-id', // optional but recommended
  * });
  * 
@@ -587,11 +587,11 @@ export interface GetCurrentUserResult {
  * 
  * @example
  * ```ts
- * import { getCurrentUser, createJwtValidator } from '@authvader/sdk/server';
+ * import { getCurrentUser, createJwtValidator } from '@authvital/sdk/server';
  * 
  * // Create a validator (typically once at startup)
  * const validator = createJwtValidator({
- *   authVaderHost: process.env.AV_HOST,
+ *   authVitalHost: process.env.AV_HOST,
  * });
  * 
  * // GET /api/auth/me
@@ -609,9 +609,9 @@ export interface GetCurrentUserResult {
  * 
  * @example Next.js API Route
  * ```ts
- * import { getCurrentUser, createJwtValidator } from '@authvader/sdk/server';
+ * import { getCurrentUser, createJwtValidator } from '@authvital/sdk/server';
  * 
- * const validator = createJwtValidator({ authVaderHost: process.env.AV_HOST });
+ * const validator = createJwtValidator({ authVitalHost: process.env.AV_HOST });
  * 
  * export async function GET(request: Request) {
  *   const result = await getCurrentUser(
@@ -682,13 +682,13 @@ export async function getCurrentUser(
  * 
  * @example
  * ```ts
- * import { getCurrentUserFromConfig } from '@authvader/sdk/server';
+ * import { getCurrentUserFromConfig } from '@authvital/sdk/server';
  * 
  * // GET /api/auth/me (simple one-liner)
  * app.get('/api/auth/me', async (req, res) => {
  *   const result = await getCurrentUserFromConfig(
  *     req.headers.authorization,
- *     { authVaderHost: process.env.AV_HOST }
+ *     { authVitalHost: process.env.AV_HOST }
  *   );
  *   
  *   if (!result.authenticated) {
@@ -716,10 +716,10 @@ export async function getCurrentUserFromConfig(
  * 
  * @example
  * ```ts
- * import { createJwtMiddleware } from '@authvader/sdk/server';
+ * import { createJwtMiddleware } from '@authvital/sdk/server';
  * 
  * const requireAuth = createJwtMiddleware({
- *   authVaderHost: process.env.AV_HOST,
+ *   authVitalHost: process.env.AV_HOST,
  * });
  * 
  * app.get('/api/protected', requireAuth, (req, res) => {
@@ -757,10 +757,10 @@ export function createJwtMiddleware(config: JwtValidatorConfig) {
  * @example
  * ```ts
  * import { Strategy as JwtStrategy } from 'passport-jwt';
- * import { createPassportJwtOptions } from '@authvader/sdk/server';
+ * import { createPassportJwtOptions } from '@authvital/sdk/server';
  * 
  * const options = await createPassportJwtOptions({
- *   authVaderHost: process.env.AV_HOST,
+ *   authVitalHost: process.env.AV_HOST,
  * });
  * 
  * passport.use(new JwtStrategy(options, (payload, done) => {
@@ -777,9 +777,9 @@ export async function createPassportJwtOptions(config: JwtValidatorConfig): Prom
   algorithms: string[];
 }> {
   // Validate required config
-  if (!config.authVaderHost) {
+  if (!config.authVitalHost) {
     throw new Error(
-      'authVaderHost is required. Pass it in config or set AV_HOST environment variable.',
+      'authVitalHost is required. Pass it in config or set AV_HOST environment variable.',
     );
   }
 
@@ -814,7 +814,7 @@ export async function createPassportJwtOptions(config: JwtValidatorConfig): Prom
         done(error);
       }
     },
-    issuer: config.issuer ?? config.authVaderHost.replace(/\/$/, ''),
+    issuer: config.issuer ?? config.authVitalHost.replace(/\/$/, ''),
     audience: config.audience,
     algorithms: ['RS256'],
   };

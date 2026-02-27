@@ -1,10 +1,10 @@
 # Multi-Tenancy
 
-> Understanding AuthVader's multi-tenant architecture for B2B applications.
+> Understanding AuthVital's multi-tenant architecture for B2B applications.
 
 ## Overview
 
-AuthVader is built from the ground up for **multi-tenant B2B applications**. Each tenant (organization, workspace, team) is completely isolated with its own:
+AuthVital is built from the ground up for **multi-tenant B2B applications**. Each tenant (organization, workspace, team) is completely isolated with its own:
 
 - Members and roles
 - SSO configuration
@@ -115,7 +115,7 @@ erDiagram
 
 ## Tenant Roles vs Application Roles
 
-AuthVader distinguishes between two types of roles:
+AuthVital distinguishes between two types of roles:
 
 ### Tenant Roles
 
@@ -157,7 +157,7 @@ if (user.app_roles.includes('admin')) {
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant A as AuthVader
+    participant A as AuthVital
     participant T as Tenant
 
     U->>A: Sign up (email, password)
@@ -183,7 +183,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Admin
-    participant A as AuthVader
+    participant A as AuthVital
     participant U as New User
 
     Admin->>A: Send invitation (email, role)
@@ -210,7 +210,7 @@ A single user can belong to multiple tenants:
 
 ```typescript
 // User's tenants
-const tenants = await authvader.memberships.listUserTenants(req);
+const tenants = await authvital.memberships.listUserTenants(req);
 // [
 //   { id: "t1", name: "Acme Corp", slug: "acme", role: "owner" },
 //   { id: "t2", name: "Beta Inc", slug: "beta", role: "member" },
@@ -262,7 +262,7 @@ Locked to one tenant:
 ```typescript
 // Include tenant_id in authorization request
 const authorizeUrl = buildAuthorizeUrl({
-  authVaderHost: 'https://auth.yourapp.com',
+  authVitalHost: 'https://auth.yourapp.com',
   clientId: 'your-client-id',
   redirectUri: 'https://yourapp.com/callback',
   tenantId: 'tenant-uuid-here', // Scope to this tenant
@@ -292,17 +292,17 @@ graph LR
 
 ```typescript
 // Admin adds domain
-await authvader.domains.add({
+await authvital.domains.add({
   tenantId: 'tenant-123',
   domain: 'acme.com',
 });
 
 // Get verification record
-const verification = await authvader.domains.getVerification('domain-id');
-// { type: 'TXT', name: '_authvader.acme.com', value: 'authvader-verify=abc123' }
+const verification = await authvital.domains.getVerification('domain-id');
+// { type: 'TXT', name: '_authvital.acme.com', value: 'authvital-verify=abc123' }
 
 // After adding DNS record, verify
-await authvader.domains.verify('domain-id');
+await authvital.domains.verify('domain-id');
 ```
 
 ## Tenant Settings
@@ -317,7 +317,7 @@ await authvader.domains.verify('domain-id');
 
 ```typescript
 // Update tenant MFA policy
-await authvader.tenants.update('tenant-id', {
+await authvital.tenants.update('tenant-id', {
   mfaPolicy: 'REQUIRED',
 });
 ```
@@ -327,7 +327,7 @@ await authvader.tenants.update('tenant-id', {
 Tenants can configure their own SSO:
 
 ```typescript
-await authvader.tenants.configureSso('tenant-id', {
+await authvital.tenants.configureSso('tenant-id', {
   provider: 'GOOGLE',
   enabled: true,
   clientId: 'tenant-specific-client-id',
@@ -342,7 +342,7 @@ await authvader.tenants.configureSso('tenant-id', {
 ### Create a Tenant
 
 ```typescript
-const tenant = await authvader.tenants.create({
+const tenant = await authvital.tenants.create({
   name: 'Acme Corporation',
   slug: 'acme-corp', // Auto-generated if not provided
 });
@@ -351,7 +351,7 @@ const tenant = await authvader.tenants.create({
 ### Invite a Member
 
 ```typescript
-await authvader.invitations.send({
+await authvital.invitations.send({
   email: 'newuser@acme.com',
   tenantId: tenant.id,
   roleSlug: 'admin', // Tenant role
@@ -363,7 +363,7 @@ await authvader.invitations.send({
 ### List Tenant Members
 
 ```typescript
-const members = await authvader.memberships.listForTenant('tenant-id');
+const members = await authvital.memberships.listForTenant('tenant-id');
 // [
 //   {
 //     user: { id, email, givenName, familyName, pictureUrl },
@@ -377,7 +377,7 @@ const members = await authvader.memberships.listForTenant('tenant-id');
 ### Update Member Role
 
 ```typescript
-await authvader.memberships.setTenantRole({
+await authvital.memberships.setTenantRole({
   membershipId: 'membership-id',
   roleSlug: 'admin',
 });
@@ -386,12 +386,12 @@ await authvader.memberships.setTenantRole({
 ### Remove Member
 
 ```typescript
-await authvader.memberships.remove('membership-id');
+await authvital.memberships.remove('membership-id');
 ```
 
 ## Single-Tenant Mode
 
-For simpler deployments, AuthVader supports **single-tenant mode**:
+For simpler deployments, AuthVital supports **single-tenant mode**:
 
 ```typescript
 // Instance configuration
@@ -465,7 +465,7 @@ Allow users to switch tenants gracefully:
 
 ```typescript
 function TenantSwitcher() {
-  const { switchTenant, currentTenant, tenants } = useAuthVader();
+  const { switchTenant, currentTenant, tenants } = useAuthVital();
   
   return (
     <select 

@@ -1,8 +1,8 @@
-# AuthVader SDK for Java
+# AuthVital SDK for Java
 
 > **🚧 Coming Soon**
 
-Official Java SDK for [AuthVader](https://github.com/authvader/authvader) Identity Platform.
+Official Java SDK for [AuthVital](https://github.com/authvital/authvital) Identity Platform.
 
 ## Installation
 
@@ -10,7 +10,7 @@ Official Java SDK for [AuthVader](https://github.com/authvader/authvader) Identi
 
 ```xml
 <dependency>
-    <groupId>com.authvader</groupId>
+    <groupId>com.authvital</groupId>
     <artifactId>sdk</artifactId>
     <version>0.0.1</version>
 </dependency>
@@ -19,15 +19,15 @@ Official Java SDK for [AuthVader](https://github.com/authvader/authvader) Identi
 ### Gradle
 
 ```groovy
-implementation 'com.authvader:sdk:0.0.1'
+implementation 'com.authvital:sdk:0.0.1'
 ```
 
 ## Status
 
 This package is a placeholder. The full SDK is under active development.
 
-Follow the [main repository](https://github.com/authvader/authvader) for updates!
+Follow the [main repository](https://github.com/authvital/authvital) for updates!
 
 ## License
 
-AuthVader Community License v1.0 - See [LICENSE](https://github.com/authvader/authvader/blob/main/LICENSE)
+AuthVital Community License v1.0 - See [LICENSE](https://github.com/authvital/authvital/blob/main/LICENSE)
