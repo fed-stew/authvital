@@ -34,7 +34,7 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
           sed -i "s/version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
-          sed -i "s/__version__ = \".*\"/__version__ = \"${VERSION}\"/" authvader_sdk/__init__.py
+          sed -i "s/__version__ = \".*\"/__version__ = \"${VERSION}\"/" authvital_sdk/__init__.py
 
       - name: Build package
         run: python -m build

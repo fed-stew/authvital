@@ -1,5 +1,5 @@
 # =============================================================================
-# AuthVader Docker - Build & Push to Docker Hub
+# AuthVital Docker - Build & Push to Docker Hub
 # =============================================================================
 name: Docker
 
@@ -9,7 +9,7 @@ on:
     tags: ['v*']
 
 env:
-  DOCKER_IMAGE: intersparkio/authvader
+  DOCKER_IMAGE: intersparkio/authvital
 
 jobs:
   # ===========================================================================

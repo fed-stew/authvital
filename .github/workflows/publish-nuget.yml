@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: sdks/dotnet/AuthVader.SDK
+        working-directory: sdks/dotnet/AuthVital.SDK
 
     steps:
       - uses: actions/checkout@v4
@@ -28,7 +28,7 @@ jobs:
       - name: Update version
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
-          sed -i "s/<Version>.*<\/Version>/<Version>${VERSION}<\/Version>/" AuthVader.SDK.csproj
+          sed -i "s/<Version>.*<\/Version>/<Version>${VERSION}<\/Version>/" AuthVital.SDK.csproj
 
       - name: Build
         run: dotnet build --configuration Release
