@@ -1,0 +1,116 @@
+# =============================================================================
+# AuthVital Documentation - MkDocs Configuration
+# =============================================================================
+# https://www.mkdocs.org/user-guide/configuration/
+
+site_name: AuthVital
+site_description: B2B Identity Provider with OAuth 2.0/OIDC, Multi-Tenancy, RBAC, Licensing, SSO & MFA
+site_url: https://authvital.readthedocs.io
+
+repo_name: authvital
+repo_url: https://github.com/intersparkio/authvital
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - minify:
+      minify_html: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+nav:
+  - Home: README.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quick-start.md
+    - Configuration: getting-started/configuration.md
+  - Core Concepts:
+    - Architecture: concepts/architecture.md
+    - Multi-Tenancy: concepts/multi-tenancy.md
+    - OAuth 2.0 / OIDC: concepts/oauth-flow.md
+    - Licensing: concepts/licensing.md
+    - Access Control (RBAC): concepts/access-control.md
+  - SDK Integration:
+    - Complete Setup Guide: sdk/complete-setup-guide.md
+    - Server SDK: sdk/server-sdk.md
+    - Client SDK (React): sdk/client-sdk.md
+    - Identity Sync: sdk/user-sync.md
+    - Webhooks:
+      - Overview: sdk/webhooks.md
+      - Event Types: sdk/webhooks-events.md
+      - Event Handler: sdk/webhooks-handler.md
+      - Framework Examples: sdk/webhooks-frameworks.md
+      - Manual Verification: sdk/webhooks-verification.md
+      - Best Practices: sdk/webhooks-advanced.md
+  - API Reference:
+    - Authentication: api/authentication.md
+    - OAuth Endpoints: api/oauth-endpoints.md
+    - Tenant API: api/tenant-api.md
+    - User API: api/user-api.md
+    - Licensing API: api/licensing-api.md
+  - Administration:
+    - Super Admin: admin/super-admin.md
+    - Application Setup: admin/application-setup.md
+    - Tenant Admin: admin/tenant-admin.md
+  - Security:
+    - MFA: security/mfa.md
+    - SSO: security/sso.md
+    - Best Practices: security/best-practices.md
+  - Reference:
+    - Data Models: reference/data-models.md
+    - Error Codes: reference/error-codes.md
+    - JWT Claims: reference/jwt-claims.md
