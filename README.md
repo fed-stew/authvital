@@ -1,7 +1,5 @@
 # AuthVital
 
-> **Pronounced "Auth-vah-der"** (rhymes with "odder", not like "invader")
-
 **AuthVital is your own fully-featured identity platform**.. think Auth0 or Clerk, but self-hosted and completely under your control.
 
 ## What Is It?
