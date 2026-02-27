@@ -244,7 +244,11 @@ If a user tries to SSO with an email outside allowed domains, they'll see an err
 
 ### Auto-Link Existing Accounts
 
-When `autoLinkExisting: true` (default):
+> ⚠️ **Security Warning: Auto-linking is now opt-in**
+>
+> The `autoLinkExisting` option now defaults to `false` for security reasons. Enabling auto-linking can expose your application to account takeover attacks: if an attacker controls an SSO account (e.g., Google or Microsoft) with the same email address as an unverified AuthVital account, they could gain access to that account by simply signing in via SSO. Only enable `autoLinkExisting: true` if you trust your SSO provider's email verification AND require email verification on AuthVital accounts.
+
+When `autoLinkExisting: true` (opt-in):
 
 1. User signs in with Google/Microsoft
 2. AuthVital checks for existing user with same email
@@ -273,20 +277,40 @@ const { url } = await authvital.sso.initiateLink(req, {
 
 ```typescript
 // Remove SSO link (user must have password set)
-await authvital.sso.unlink(req, {
-  provider: 'GOOGLE',
-});
+await authvital.sso.unlink(req, 'GOOGLE');
+// Or for Microsoft:
+await authvital.sso.unlink(req, 'MICROSOFT');
 ```
 
 ## SSO Buttons
+
+> **Important:** SSO provider information should come from your backend.
+> The available providers are fetched server-side using the AuthVital SDK.
 
 ### Instance SSO Buttons
 
 Show SSO options on login page:
 
 ```tsx
+import { useState, useEffect } from 'react';
+import { useAuth } from '@authvital/sdk/client';
+
+// NOTE: SSO provider information comes from your backend.
+// Server-side (your API route):
+//   const providers = await authvital.sso.getAvailableProviders();
+//
+// For SSO login, redirect to the provider URL:
+//   const loginUrl = await authvital.sso.getLoginUrl(provider, { redirectUri, ... });
+
 function LoginPage() {
-  const { ssoProviders } = useAuthVital();
+  const [ssoProviders, setSsoProviders] = useState([]);
+  
+  useEffect(() => {
+    // Fetch available SSO providers from YOUR backend
+    fetch('/api/sso/providers')
+      .then(res => res.json())
+      .then(data => setSsoProviders(data.providers));
+  }, []);
 
   return (
     <div>
@@ -303,17 +327,22 @@ function LoginPage() {
 }
 
 function SsoButtons({ providers }) {
-  const { loginWithSso } = useAuthVital();
+  const handleSsoLogin = async (provider: string) => {
+    // Get SSO login URL from YOUR backend
+    const response = await fetch(`/api/sso/login-url?provider=${provider}`);
+    const { loginUrl } = await response.json();
+    window.location.href = loginUrl;
+  };
 
   return (
     <div className="sso-buttons">
       {providers.includes('GOOGLE') && (
-        <button onClick={() => loginWithSso('google')}>
+        <button onClick={() => handleSsoLogin('google')}>
           <GoogleIcon /> Sign in with Google
         </button>
       )}
       {providers.includes('MICROSOFT') && (
-        <button onClick={() => loginWithSso('microsoft')}>
+        <button onClick={() => handleSsoLogin('microsoft')}>
           <MicrosoftIcon /> Sign in with Microsoft
         </button>
       )}
@@ -324,26 +353,64 @@ function SsoButtons({ providers }) {
 
 ### Tenant-Specific SSO
 
-For tenant-scoped login pages:
+For tenant-scoped login pages, you'll need a backend endpoint to fetch SSO config:
+
+**Backend (using SDK):**
+
+```typescript
+import { createAuthVital } from '@authvital/sdk/server';
+
+const authvital = createAuthVital({ /* config */ });
+
+// Public endpoint to get tenant SSO info
+app.get('/api/tenants/:slug/sso-info', async (req, res) => {
+  try {
+    const providers = await authvital.sso.getProvidersForTenant(req.params.slug);
+    res.json(providers);
+  } catch (error) {
+    res.status(404).json({ error: 'Tenant not found' });
+  }
+});
+```
+
+**Frontend:**
 
 ```tsx
-function TenantLoginPage({ tenantSlug }) {
-  const [ssoConfig, setSsoConfig] = useState(null);
+import { useState, useEffect } from 'react';
+
+function TenantLoginPage({ tenantSlug }: { tenantSlug: string }) {
+  const [ssoProviders, setSsoProviders] = useState<Array<{ provider: string; enforced: boolean }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Fetch tenant's SSO configuration
-    fetch(`/api/tenants/${tenantSlug}/sso`)
-      .then(r => r.json())
-      .then(setSsoConfig);
+    const fetchSsoConfig = async () => {
+      try {
+        const response = await fetch(`/api/tenants/${tenantSlug}/sso-info`);
+        if (!response.ok) throw new Error('Failed to fetch SSO config');
+        const providers = await response.json();
+        setSsoProviders(providers);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unknown error');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchSsoConfig();
   }, [tenantSlug]);
 
+  if (loading) return <div>Loading...</div>;
+  if (error) return <div>Error: {error}</div>;
+
+  const enforcedProvider = ssoProviders.find(p => p.enforced);
+
   // If SSO is enforced, show only SSO button
-  if (ssoConfig?.enforced) {
+  if (enforcedProvider) {
     return (
       <div>
         <h1>Sign in to {tenantSlug}</h1>
-        <button onClick={() => loginWithSso(ssoConfig.provider, tenantSlug)}>
-          Sign in with {ssoConfig.provider}
+        <button onClick={() => loginWithSso(enforcedProvider.provider.toLowerCase(), tenantSlug)}>
+          Sign in with {enforcedProvider.provider}
         </button>
       </div>
     );
@@ -353,11 +420,14 @@ function TenantLoginPage({ tenantSlug }) {
   return (
     <div>
       <LoginForm />
-      {ssoConfig?.enabled && (
-        <button onClick={() => loginWithSso(ssoConfig.provider, tenantSlug)}>
-          Sign in with {ssoConfig.provider}
+      {ssoProviders.map(({ provider }) => (
+        <button 
+          key={provider}
+          onClick={() => loginWithSso(provider.toLowerCase(), tenantSlug)}
+        >
+          Sign in with {provider}
         </button>
-      )}
+      ))}
     </div>
   );
 }
@@ -415,5 +485,5 @@ Reply URL mismatch. Ensure Azure AD registration has exact redirect URI.
 ## Related Documentation
 
 - [MFA Configuration](./mfa.md)
-- [Security Best Practices](./best-practices.md)
+- [Security Best Practices](./best-practices/index.md)
 - [Multi-Tenancy](../concepts/multi-tenancy.md)

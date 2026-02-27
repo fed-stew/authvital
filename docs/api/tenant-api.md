@@ -405,62 +405,125 @@ Requires authentication for existing users.
 
 ---
 
-## Code Examples
+## SDK Examples
 
-### JavaScript
+```bash
+npm install @authvital/sdk
+```
 
-```javascript
-// List my tenants
-const response = await fetch('/api/tenants', {
-  headers: { Authorization: `Bearer ${token}` },
-});
-const { tenants } = await response.json();
+### List User's Tenants
 
-// Create tenant
-const createResponse = await fetch('/api/tenants', {
-  method: 'POST',
-  headers: {
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    name: 'My Company',
-    slug: 'my-company',
-  }),
+```typescript
+import { createAuthVital } from '@authvital/sdk/server';
+
+const authvital = createAuthVital({
+  authVitalHost: process.env.AUTHVITAL_HOST!,
+  clientId: process.env.AUTHVITAL_CLIENT_ID!,
+  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
 });
 
-// Invite member
-const inviteResponse = await fetch(`/api/tenants/${tenantId}/invitations`, {
-  method: 'POST',
-  headers: {
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    email: 'colleague@example.com',
-    role: 'admin',
-  }),
+app.get('/api/my-tenants', async (req, res) => {
+  const result = await authvital.memberships.listTenantsForUser(req, {
+    status: 'ACTIVE',
+    appendClientId: true, // Adds client_id to login URIs
+  });
+  res.json(result.memberships);
 });
 ```
 
-### cURL
+### Create Tenant
 
-```bash
-# List tenants
-curl https://auth.example.com/api/tenants \
-  -H "Authorization: Bearer eyJ..."
+```typescript
+app.post('/api/tenants', async (req, res) => {
+  const tenant = await authvital.tenants.create(req, {
+    name: req.body.name,
+    slug: req.body.slug,
+  });
+  res.json(tenant);
+});
+```
 
-# Create tenant
-curl -X POST https://auth.example.com/api/tenants \
-  -H "Authorization: Bearer eyJ..." \
-  -H "Content-Type: application/json" \
-  -d '{"name":"My Company"}'
+### Update Tenant Settings
 
-# Invite member
-curl -X POST https://auth.example.com/api/tenants/tenant-id/invitations \
-  -H "Authorization: Bearer eyJ..." \
-  -H "Content-Type: application/json" \
-  -d '{"email":"user@example.com","role":"member"}'
+```typescript
+app.patch('/api/tenants/:id', async (req, res) => {
+  const tenant = await authvital.tenants.update(req.params.id, {
+    name: req.body.name,
+    mfaPolicy: req.body.mfaPolicy,
+  });
+  res.json(tenant);
+});
+```
+
+### Send Invitation
+
+```typescript
+app.post('/api/invitations', async (req, res) => {
+  // Get available roles first
+  const { roles } = await authvital.memberships.getTenantRoles();
+  const adminRole = roles.find(r => r.slug === 'admin');
+
+  // Send invitation (tenantId extracted from JWT automatically)
+  const invitation = await authvital.invitations.send(req, {
+    email: req.body.email,
+    roleId: adminRole?.id,
+    givenName: req.body.givenName,
+    familyName: req.body.familyName,
+  });
+  res.json(invitation);
+});
+```
+
+### List Pending Invitations
+
+```typescript
+app.get('/api/invitations/pending', async (req, res) => {
+  const { invitations, totalCount } = await authvital.invitations.listPending(req);
+  res.json({ invitations, totalCount });
+});
+```
+
+### Resend/Revoke Invitation
+
+```typescript
+// Resend
+app.post('/api/invitations/:id/resend', async (req, res) => {
+  const { expiresAt } = await authvital.invitations.resend(req, {
+    invitationId: req.params.id,
+    expiresInDays: 7,
+  });
+  res.json({ expiresAt });
+});
+
+// Revoke
+app.delete('/api/invitations/:id', async (req, res) => {
+  await authvital.invitations.revoke(req, req.params.id);
+  res.json({ success: true });
+});
+```
+
+### List Tenant Members
+
+```typescript
+app.get('/api/team', async (req, res) => {
+  const members = await authvital.memberships.listForTenant(req, {
+    status: 'ACTIVE',
+  });
+  res.json(members);
+});
+```
+
+### Change Member Role
+
+```typescript
+app.put('/api/team/:membershipId/role', async (req, res) => {
+  const result = await authvital.memberships.setMemberRole(
+    req,
+    req.params.membershipId,
+    req.body.role, // 'admin', 'member', etc.
+  );
+  res.json(result.role);
+});
 ```
 
 ---

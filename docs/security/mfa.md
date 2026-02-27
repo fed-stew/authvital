@@ -23,9 +23,10 @@ AuthVital supports **TOTP-based MFA** (Time-based One-Time Passwords) compatible
 
 | Policy | Description |
 |--------|-------------|
+| `DISABLED` | MFA is disabled for the tenant |
 | `OPTIONAL` | MFA available but not required |
-| `REQUIRED` | All members must enable MFA immediately |
-| `ENFORCED_AFTER_GRACE` | Required after grace period (default: 7 days) |
+| `ENCOURAGED` | MFA recommended, users see prompts to enable |
+| `REQUIRED` | All members must enable MFA (grace period configurable via `mfaGracePeriodDays`) |
 
 ## User MFA Flow
 
@@ -80,6 +81,17 @@ const setup = await authvital.mfa.setup(req);
 //   backupCodes: ["12345678", "87654321", ...]
 // }
 ```
+
+!!! info "Backup Code Lifecycle"
+    **Backup codes are NOT active until MFA setup is verified.**
+    
+    1. `POST /mfa/setup` - Returns secret + backup codes (codes are **pending**)
+    2. User scans QR code and enters TOTP code
+    3. `POST /mfa/verify` - Validates TOTP code and **activates** MFA + backup codes
+    4. If setup is abandoned, pending backup codes are discarded
+    
+    This prevents an attacker who intercepts the setup response from using backup codes
+    before the legitimate user completes enrollment.
 
 ### Verify MFA Setup
 
@@ -136,25 +148,42 @@ const { backupCodes } = await authvital.mfa.regenerateBackupCodes(req, {
 
 ## React Integration
 
+> **Important:** MFA setup and verification are **server-side operations**. Your React 
+> components should call YOUR backend API, which then uses the AuthVital server SDK.
+
 ### MFA Setup Component
 
 ```tsx
 import { useState } from 'react';
-import { useAuthVital } from '@authvital/sdk/client';
+
+// NOTE: MFA operations require server-side API calls.
+// Your React component should call YOUR backend API,
+// which then uses the server SDK:
+//
+// Server-side (your API route):
+//   const result = await authvital.mfa.setup(request);
+//   const verified = await authvital.mfa.verifySetup(request, { code });
 
 function MfaSetup() {
-  const { setupMfa, verifyMfaSetup } = useAuthVital();
   const [setup, setSetup] = useState(null);
   const [code, setCode] = useState('');
   const [backupCodes, setBackupCodes] = useState([]);
 
   const handleStartSetup = async () => {
-    const result = await setupMfa();
+    // Call YOUR backend API that uses the server SDK
+    const response = await fetch('/api/mfa/setup', { method: 'POST' });
+    const result = await response.json();
     setSetup(result);
   };
 
   const handleVerify = async () => {
-    const result = await verifyMfaSetup(code);
+    // Call YOUR backend API that uses the server SDK
+    const response = await fetch('/api/mfa/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    const result = await response.json();
     if (result.success) {
       setBackupCodes(setup.backupCodes);
     }
@@ -207,8 +236,14 @@ function MfaSetup() {
 ### MFA Challenge Component
 
 ```tsx
+// NOTE: MFA verification is a server-side operation.
+// Your component should call YOUR backend API:
+//
+// Server-side (your API route):
+//   const result = await authvital.mfa.verifyChallenge(request, { code, challengeToken });
+//   const result = await authvital.mfa.useBackupCode(request, { code, challengeToken });
+
 function MfaChallenge({ challengeToken, onSuccess }) {
-  const { verifyMfaChallenge, useBackupCode } = useAuthVital();
   const [code, setCode] = useState('');
   const [useBackup, setUseBackup] = useState(false);
   const [error, setError] = useState('');
@@ -218,11 +253,14 @@ function MfaChallenge({ challengeToken, onSuccess }) {
     setError('');
 
     try {
-      if (useBackup) {
-        await useBackupCode(challengeToken, code);
-      } else {
-        await verifyMfaChallenge(challengeToken, code);
-      }
+      // Call YOUR backend API that uses the server SDK
+      const response = await fetch('/api/mfa/challenge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, challengeToken, useBackup }),
+      });
+      
+      if (!response.ok) throw new Error('Verification failed');
       onSuccess();
     } catch (err) {
       setError('Invalid code. Please try again.');
@@ -276,8 +314,10 @@ function MfaChallenge({ challengeToken, onSuccess }) {
 ### Login with MFA Handling
 
 ```tsx
+import { useAuth } from '@authvital/sdk/client';
+
 function Login() {
-  const { login } = useAuthVital();
+  const { login } = useAuth();
   const [mfaChallenge, setMfaChallenge] = useState(null);
   const navigate = useNavigate();
 
@@ -314,10 +354,10 @@ await authvital.tenants.update('tenant-id', {
   mfaPolicy: 'REQUIRED',
 });
 
-// Require after grace period
+// Require MFA with a grace period
 await authvital.tenants.update('tenant-id', {
-  mfaPolicy: 'ENFORCED_AFTER_GRACE',
-  mfaGracePeriodDays: 14, // 14 days to enable MFA
+  mfaPolicy: 'REQUIRED',
+  mfaGracePeriodDays: 14, // Users have 14 days to enable MFA
 });
 ```
 
@@ -333,10 +373,11 @@ await authvital.admin.updateInstanceSettings({
 ### Check User MFA Status
 
 ```typescript
-// Get user's MFA status
-const { mfaEnabled, mfaVerifiedAt } = await authvital.users.getMfaStatus(userId);
+// Get MFA status for a user
+const status = await authvital.mfa.getStatus(userId);
+// Returns: { mfaEnabled: boolean, mfaVerifiedAt: string | null, backupCodesRemaining: number }
 
-// In JWT, check mfa_enabled claim
+// In JWT, check mfa_enabled claim for quick checks
 if (!user.mfa_enabled && tenantPolicy === 'REQUIRED') {
   // Redirect to MFA setup
 }
@@ -384,40 +425,52 @@ If user loses access to authenticator AND backup codes:
 
 ```typescript
 // Admin: Disable user's MFA (emergency only)
-await authvital.admin.disableUserMfa(userId, {
-  reason: 'User lost access to authenticator',
-  adminId: currentAdminId,
+// This operation is available via the Admin UI or direct API call.
+// SDK method coming soon - for now use:
+
+// Option 1: Admin UI
+// Navigate to Users → [User] → Security → Disable MFA
+
+// Option 2: Direct API call (requires super admin token)
+await fetch(`${process.env.AV_HOST}/api/admin/users/${userId}/mfa`, {
+  method: 'DELETE',
+  headers: {
+    'Authorization': `Bearer ${adminToken}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    reason: 'User lost access to authenticator',
+  }),
 });
 ```
 
 ## Webhook Events
 
-| Event | Trigger |
-|-------|--------|
-| `mfa.enabled` | User enabled MFA |
-| `mfa.disabled` | User disabled MFA |
-| `mfa.backup_used` | Backup code was used |
-| `mfa.backup_regenerated` | Backup codes regenerated |
-
-```typescript
-class MyEventHandler extends AuthVitalEventHandler {
-  async onMfaEnabled(event) {
-    await audit.log({
-      action: 'mfa_enabled',
-      userId: event.data.sub,
-      timestamp: event.timestamp,
+!!! warning "MFA Webhook Events - Coming Soon"
+    MFA-specific webhook events (`mfa.enabled`, `mfa.disabled`, `mfa.backup_used`, `mfa.backup_regenerated`) are planned but not yet implemented.
+    
+    For now, you can:
+    
+    1. **Monitor via audit logs** - Check the AuthVital admin panel for MFA events
+    2. **Implement in your app** - Log MFA changes when your backend calls MFA SDK methods
+    
+    ```typescript
+    // Example: Log MFA events in your backend
+    app.post('/api/mfa/verify', async (req, res) => {
+      const result = await authvital.mfa.verifySetup(req, { code: req.body.code });
+      
+      if (result.success) {
+        // Log the MFA enablement in your own audit system
+        await auditLog.create({
+          action: 'mfa_enabled',
+          userId: req.user.sub,
+          timestamp: new Date(),
+        });
+      }
+      
+      res.json(result);
     });
-  }
-
-  async onMfaBackupUsed(event) {
-    // Alert user that backup code was used
-    await sendEmail(event.data.email, 'mfa-backup-used', {
-      usedAt: event.timestamp,
-      remainingCodes: event.data.remaining_backup_codes,
-    });
-  }
-}
-```
+    ```
 
 ## Troubleshooting
 
@@ -444,5 +497,5 @@ User in a tenant with `REQUIRED` policy but hasn't set up MFA:
 ## Related Documentation
 
 - [SSO Configuration](./sso.md)
-- [Security Best Practices](./best-practices.md)
+- [Security Best Practices](./best-practices/index.md)
 - [Multi-Tenancy](../concepts/multi-tenancy.md)

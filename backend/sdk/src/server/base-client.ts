@@ -304,7 +304,7 @@ export class BaseClient {
    * Uses client_credentials token for machine-to-machine calls.
    */
   async request<T>(
-    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
     isRetry = false,
@@ -354,7 +354,7 @@ export class BaseClient {
    */
   async authenticatedRequest<T>(
     originalRequest: RequestLike,
-    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
   ): Promise<T> {

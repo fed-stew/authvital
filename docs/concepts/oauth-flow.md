@@ -81,18 +81,27 @@ sessionStorage.setItem('pkce_verifier', codeVerifier);
 ```typescript
 import { buildAuthorizeUrl } from '@authvital/sdk/server';
 
-const authorizeUrl = buildAuthorizeUrl({
-  authVitalHost: 'https://auth.yourapp.com',
+// Generate both state (CSRF) and nonce (replay protection)
+const state = crypto.randomUUID();
+const nonce = crypto.randomUUID();
+
+// Store both for validation
+sessionStorage.setItem('oauth_state', state);
+sessionStorage.setItem('oauth_nonce', nonce);
+
+const authUrl = buildAuthorizeUrl({
+  authVitalHost: 'https://auth.example.com',
   clientId: 'your-client-id',
-  redirectUri: 'https://yourapp.com/callback',
+  redirectUri: 'https://app.example.com/callback',
+  state,
+  nonce,  // Include nonce for ID token validation
+  scope: 'openid profile email',
   codeChallenge,
   codeChallengeMethod: 'S256',
-  scope: 'openid profile email',
-  state: crypto.randomBytes(16).toString('hex'),
 });
 
 // Redirect user
-window.location.href = authorizeUrl;
+window.location.href = authUrl;
 ```
 
 **Authorization URL Parameters:**
@@ -106,7 +115,7 @@ window.location.href = authorizeUrl;
 | `code_challenge_method` | Yes* | Must be `S256` |
 | `scope` | No | Space-separated scopes (default: `openid`) |
 | `state` | Recommended | CSRF protection |
-| `nonce` | Recommended | ID token replay protection |
+| `nonce` | Required for OIDC | ID token replay protection - validate in callback |
 | `tenant_id` | No | Scope token to specific tenant |
 
 #### 3. Handle Callback
@@ -131,6 +140,22 @@ if (state !== sessionStorage.getItem('oauth_state')) {
 
 // Get stored PKCE verifier
 const codeVerifier = sessionStorage.getItem('pkce_verifier');
+```
+
+#### Validate Nonce from ID Token
+
+```typescript
+// In your callback handler, validate the nonce from the ID token
+import { decodeJwt } from '@authvital/sdk/server';
+
+const idToken = tokens.id_token;
+const claims = decodeJwt(idToken);
+
+const storedNonce = sessionStorage.getItem('oauth_nonce');
+if (claims.nonce !== storedNonce) {
+  throw new Error('Nonce mismatch - possible replay attack');
+}
+sessionStorage.removeItem('oauth_nonce');
 ```
 
 #### 4. Exchange Code for Tokens
@@ -192,39 +217,43 @@ The resulting token will include:
 
 ## Token Refresh
 
-Access tokens expire (default: 1 hour). Use the refresh token to get new ones:
+Access tokens expire (default: 1 hour). Use the SDK to refresh tokens:
 
 ```typescript
-// POST /oauth/token
-const response = await fetch('https://auth.yourapp.com/oauth/token', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  body: new URLSearchParams({
-    grant_type: 'refresh_token',
-    refresh_token: storedRefreshToken,
-    client_id: 'your-client-id',
-  }),
+import { refreshAccessToken } from '@authvital/sdk/server';
+
+const newTokens = await refreshAccessToken({
+  authVitalHost: process.env.AUTHVITAL_HOST!,
+  clientId: process.env.AUTHVITAL_CLIENT_ID!,
+  refreshToken: storedRefreshToken,
 });
 
-const { access_token, refresh_token } = await response.json();
-// Note: AuthVital rotates refresh tokens - always store the new one!
+// IMPORTANT: AuthVital rotates refresh tokens - always store the new one!
+storeRefreshToken(newTokens.refresh_token);
+storeAccessToken(newTokens.access_token);
 ```
 
 ## Client Credentials Flow (M2M)
 
-For machine-to-machine authentication (backend services, cron jobs):
+For machine-to-machine authentication (backend services, cron jobs), the SDK handles this automatically:
 
 ```typescript
-// POST /oauth/token
-const response = await fetch('https://auth.yourapp.com/oauth/token', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  body: new URLSearchParams({
-    grant_type: 'client_credentials',
-    client_id: 'your-machine-client-id',
-    client_secret: 'your-client-secret',
-    scope: 'system:admin',
-  }),
+import { createAuthVital } from '@authvital/sdk/server';
+
+// Configure with client secret for M2M
+const authvital = createAuthVital({
+  authVitalHost: process.env.AUTHVITAL_HOST!,
+  clientId: process.env.AUTHVITAL_CLIENT_ID!,
+  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+});
+
+// The SDK automatically uses client_credentials for M2M API calls
+// For M2M, pass null for request and specify tenantId explicitly:
+const members = await authvital.memberships.listForTenant(null, {
+  tenantId: 'tenant-123',
+});
+const licenses = await authvital.licenses.getTenantOverview(null, {
+  tenantId: 'tenant-123',
 });
 
 const { access_token } = await response.json();
@@ -409,7 +438,7 @@ Token endpoint returns JSON errors:
 The SDK handles most of this automatically:
 
 ```tsx
-import { AuthVitalProvider, useAuthVital } from '@authvital/sdk/client';
+import { AuthVitalProvider, useAuth } from '@authvital/sdk/client';
 
 // Provider handles PKCE, token storage, refresh automatically
 <AuthVitalProvider
@@ -421,7 +450,7 @@ import { AuthVitalProvider, useAuthVital } from '@authvital/sdk/client';
 
 // Hook handles the OAuth flow
 function LoginButton() {
-  const { login, logout, isAuthenticated } = useAuthVital();
+  const { login, logout, isAuthenticated } = useAuth();
   
   return isAuthenticated 
     ? <button onClick={logout}>Logout</button>
@@ -435,5 +464,5 @@ function LoginButton() {
 
 - [Architecture Overview](./architecture.md)
 - [JWT Claims Reference](../reference/jwt-claims.md)
-- [Client SDK Guide](../sdk/client-sdk.md)
-- [Server SDK Guide](../sdk/server-sdk.md)
+- [Client SDK Guide](../sdk/client-sdk/index.md)
+- [Server SDK Guide](../sdk/server-sdk/index.md)

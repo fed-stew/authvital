@@ -270,6 +270,15 @@ Each app can override instance branding:
 
 ### Development
 
+!!! warning "⚠️ Development Only - DO NOT use in production"
+    The values below are for **local development only**:
+    
+    - `localdev123` - Example password, never use in production
+    - `0123456789...` - Known key that would allow JWT forgery
+    - `COOKIE_SECURE=false` - Only for local HTTP development
+    
+    **For production**, use the examples in the sections below with secrets from a secret manager.
+
 ```bash
 # .env
 DATABASE_URL=postgresql://authvital:localdev123@localhost:5432/authvital
@@ -321,4 +330,4 @@ SUPER_ADMIN_EMAIL=admin@yourcompany.com
 
 - [Installation & Deployment](./installation.md)
 - [Architecture Overview](../concepts/architecture.md)
-- [Security Best Practices](../security/best-practices.md)
+- [Security Best Practices](../security/best-practices/index.md)

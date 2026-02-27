@@ -219,32 +219,25 @@ app.listen(3000, () => {
    - **Events**: Select events to subscribe to
 4. Save and note the webhook ID
 
-**Via API:**
+**Via REST API:**
 
-```typescript
-import { AuthVitalAdmin } from '@authvital/sdk/admin';
+Webhook management is done through the AuthVital Admin API. You'll need a super admin session or API key:
 
-const admin = new AuthVitalAdmin({
-  host: process.env.AV_HOST!,
-  apiKey: process.env.AV_ADMIN_API_KEY!,
-});
-
-const webhook = await admin.webhooks.create({
-  name: 'User Sync Webhook',
-  url: 'https://myapp.com/webhooks/authvital',
-  events: [
-    'subject.created',
-    'subject.updated',
-    'subject.deleted',
-    'member.joined',
-    'member.left',
-    'member.role_changed',
-    'license.assigned',
-    'license.revoked',
-  ],
-  enabled: true,
-});
+```bash
+# Create a webhook
+curl -X POST https://your-authvital-host/api/admin/webhooks \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "User Sync Webhook",
+    "url": "https://myapp.com/webhooks/authvital",
+    "events": ["subject.created", "subject.updated", "subject.deleted", "member.joined", "member.left", "member.role_changed", "license.assigned", "license.revoked"],
+    "enabled": true
+  }'
 ```
+
+!!! note "SDK Support Coming Soon"
+    Programmatic webhook management via the SDK (`@authvital/sdk/admin`) is planned for a future release. For now, use the Admin UI or REST API directly.
 
 ---
 
@@ -296,5 +289,5 @@ const webhook = await admin.webhooks.create({
 - [Framework Integration](./webhooks-frameworks.md) - Express, Next.js, NestJS examples
 - [Manual Verification](./webhooks-verification.md) - Low-level AuthVitalWebhooks class
 - [Best Practices](./webhooks-advanced.md) - Error handling, retries, idempotency, testing
-- [User Sync Guide](./user-sync.md) - Patterns for syncing users to your database
-- [Server SDK](./server-sdk.md) - Server-side SDK reference
+- [Identity Sync](./identity-sync/index.md) - Patterns for syncing users to your database
+- [Server SDK](./server-sdk/index.md) - Server-side SDK reference

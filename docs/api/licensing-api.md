@@ -2,53 +2,102 @@
 
 > REST API endpoints for license and subscription management.
 
-## Endpoints Overview
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/licenses/check` | GET | Check current user's license |
-| `/api/tenants/:id/subscriptions` | GET | List tenant subscriptions |
-| `/api/tenants/:id/subscriptions` | POST | Create subscription |
-| `/api/tenants/:id/subscriptions/:subId` | PATCH | Update subscription |
-| `/api/tenants/:id/licenses` | GET | List license assignments |
-| `/api/tenants/:id/licenses` | POST | Assign license |
-| `/api/tenants/:id/licenses/:userId` | DELETE | Unassign license |
+!!! tip "SDK Recommended"
+    While these endpoints are documented for reference, we strongly recommend using
+    the [Server SDK Licenses Namespace](../sdk/server-sdk/namespaces/licenses.md)
+    for all license operations.
 
 ---
 
-## Check User License
+## Endpoints Overview
 
-### GET /api/licenses/check
+### Integration API (JWT Auth)
 
-Check the current user's license status for an application.
+These endpoints are for application integrations and require JWT authentication:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/integration/licenses/check` | GET/POST | Check user's license |
+| `/api/integration/licenses/feature` | GET/POST | Check feature access |
+| `/api/integration/licenses/type` | GET | Get user's license type |
+| `/api/integration/licenses/apps/:id/users` | GET | List licensed users |
+| `/api/integration/licenses/apps/:id/count` | GET | Count licensed users |
+| `/api/integration/licenses/grant` | POST | Grant license to user |
+| `/api/integration/licenses/revoke` | POST | Revoke license from user |
+
+### Admin API (M2M Auth)
+
+These endpoints require Super Admin or M2M authentication:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/licensing/license-types` | GET/POST | Manage license types |
+| `/api/licensing/tenants/:id/license-overview` | GET | Tenant license overview |
+| `/api/licensing/tenants/:id/subscriptions` | GET | List subscriptions |
+
+---
+
+## SDK vs Raw API
+
+=== "SDK (Recommended)"
+
+    ```typescript
+    import { createAuthVital } from '@authvital/sdk/server';
+    
+    const authvital = createAuthVital({ /* config */ });
+    
+    // Check license
+    const result = await authvital.licenses.check(req, undefined, 'app-123');
+    
+    if (result.hasLicense) {
+      console.log('License type:', result.licenseType);
+    }
+    
+    // Check feature
+    const { hasFeature } = await authvital.licenses.hasFeature(
+      req, undefined, 'app-123', 'sso'
+    );
+    ```
+
+=== "Raw API"
+
+    ```bash
+    # Check license
+    curl -H "Authorization: Bearer $JWT" \
+      "https://auth.example.com/api/integration/licenses/check?applicationId=app-123"
+    
+    # Check feature
+    curl -H "Authorization: Bearer $JWT" \
+      "https://auth.example.com/api/integration/licenses/feature?applicationId=app-123&featureKey=sso"
+    ```
+
+---
+
+## Check License
+
+### GET /api/integration/licenses/check
+
+Check if the authenticated user (or specified user) has a license for an application.
+
+!!! info "Tenant from JWT"
+    The `tenantId` is automatically extracted from the JWT for security.
+    You cannot query licenses for other tenants.
 
 **Query Parameters:**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
+| `userId` | string | No | User to check (defaults to JWT subject) |
 | `applicationId` | string | Yes | Application to check |
-| `tenantId` | string | No | Specific tenant (uses current if omitted) |
 
 **Response (200 OK) - Has License:**
 
 ```json
 {
   "hasLicense": true,
-  "licenseType": {
-    "id": "lt-pro",
-    "name": "Pro Plan",
-    "slug": "pro"
-  },
-  "features": {
-    "api-access": true,
-    "advanced-reports": true,
-    "sso": true,
-    "audit-logs": false
-  },
-  "subscription": {
-    "status": "ACTIVE",
-    "currentPeriodEnd": "2024-12-31T23:59:59Z"
-  },
+  "licenseType": "pro",
+  "licenseTypeName": "Pro Plan",
+  "features": ["api-access", "advanced-reports", "sso"],
   "assignedAt": "2024-01-15T10:30:00Z"
 }
 ```
@@ -58,465 +107,221 @@ Check the current user's license status for an application.
 ```json
 {
   "hasLicense": false,
-  "reason": "NO_SUBSCRIPTION",
-  "availableLicenseTypes": [
-    {
-      "id": "lt-free",
-      "name": "Free",
-      "slug": "free"
-    },
-    {
-      "id": "lt-pro",
-      "name": "Pro",
-      "slug": "pro"
-    }
-  ]
-}
-```
-
-**Reason Codes:**
-
-| Reason | Description |
-|--------|-------------|
-| `NO_SUBSCRIPTION` | Tenant has no subscription |
-| `NO_SEATS_AVAILABLE` | All seats assigned |
-| `NOT_ASSIGNED` | User not assigned a seat |
-| `SUBSCRIPTION_EXPIRED` | Subscription has expired |
-
----
-
-## Check Feature Access
-
-### GET /api/licenses/check/feature/:featureKey
-
-Check if user has access to a specific feature.
-
-**Response (200 OK):**
-
-```json
-{
-  "feature": "api-access",
-  "hasAccess": true,
-  "licenseType": "pro"
+  "licenseType": null,
+  "licenseTypeName": null,
+  "features": []
 }
 ```
 
 ---
 
-## List Tenant Subscriptions
+## Check Feature
 
-### GET /api/tenants/:tenantId/subscriptions
+### GET /api/integration/licenses/feature
 
-List all subscriptions for a tenant.
-
-**Response (200 OK):**
-
-```json
-{
-  "subscriptions": [
-    {
-      "id": "sub-uuid",
-      "applicationId": "app-uuid",
-      "applicationName": "Project Manager",
-      "licenseType": {
-        "id": "lt-pro",
-        "name": "Pro Plan",
-        "slug": "pro",
-        "features": {
-          "api-access": true,
-          "advanced-reports": true,
-          "sso": true
-        }
-      },
-      "quantityPurchased": 10,
-      "quantityAssigned": 7,
-      "status": "ACTIVE",
-      "currentPeriodEnd": "2024-12-31T23:59:59Z",
-      "createdAt": "2024-01-15T10:30:00Z"
-    }
-  ]
-}
-```
-
----
-
-## Create Subscription
-
-### POST /api/tenants/:tenantId/subscriptions
-
-Create a new subscription for a tenant.
-
-**Request:**
-
-```json
-{
-  "applicationId": "app-uuid",
-  "licenseTypeId": "lt-pro",
-  "quantityPurchased": 10,
-  "externalId": "stripe_sub_xxx"
-}
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `applicationId` | string | Yes | Application ID |
-| `licenseTypeId` | string | Yes | License type ID |
-| `quantityPurchased` | number | No | Seats (for PER_SEAT mode) |
-| `externalId` | string | No | Reference to billing system |
-
-**Response (201 Created):**
-
-```json
-{
-  "id": "sub-uuid",
-  "applicationId": "app-uuid",
-  "licenseTypeId": "lt-pro",
-  "quantityPurchased": 10,
-  "status": "ACTIVE",
-  "currentPeriodEnd": "2025-01-15T10:30:00Z",
-  "createdAt": "2024-01-15T10:30:00Z"
-}
-```
-
----
-
-## Update Subscription
-
-### PATCH /api/tenants/:tenantId/subscriptions/:subscriptionId
-
-Update subscription details.
-
-**Request:**
-
-```json
-{
-  "quantityPurchased": 20,
-  "licenseTypeId": "lt-enterprise",
-  "status": "ACTIVE",
-  "currentPeriodEnd": "2025-12-31T23:59:59Z"
-}
-```
-
-**Response (200 OK):**
-
-```json
-{
-  "id": "sub-uuid",
-  "quantityPurchased": 20,
-  "licenseTypeId": "lt-enterprise",
-  "status": "ACTIVE",
-  "currentPeriodEnd": "2025-12-31T23:59:59Z",
-  "updatedAt": "2024-01-20T16:00:00Z"
-}
-```
-
----
-
-## Cancel Subscription
-
-### POST /api/tenants/:tenantId/subscriptions/:subscriptionId/cancel
-
-Cancel a subscription.
-
-**Request:**
-
-```json
-{
-  "atPeriodEnd": true
-}
-```
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `atPeriodEnd` | boolean | true | Cancel at end of period vs immediately |
-
-**Response (200 OK):**
-
-```json
-{
-  "id": "sub-uuid",
-  "status": "CANCELED",
-  "canceledAt": "2024-01-20T16:00:00Z",
-  "currentPeriodEnd": "2024-12-31T23:59:59Z"
-}
-```
-
----
-
-## List License Assignments
-
-### GET /api/tenants/:tenantId/licenses
-
-List all license assignments for a tenant.
-
-**Query Parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `applicationId` | string | all | Filter by application |
-| `page` | number | 1 | Page number |
-| `limit` | number | 20 | Items per page |
-
-**Response (200 OK):**
-
-```json
-{
-  "assignments": [
-    {
-      "id": "assignment-uuid",
-      "userId": "user-uuid",
-      "user": {
-        "email": "user@example.com",
-        "displayName": "Jane Smith"
-      },
-      "subscriptionId": "sub-uuid",
-      "licenseType": {
-        "id": "lt-pro",
-        "name": "Pro Plan"
-      },
-      "assignedAt": "2024-01-15T10:30:00Z",
-      "assignedBy": {
-        "id": "admin-uuid",
-        "displayName": "Admin User"
-      }
-    }
-  ],
-  "stats": {
-    "purchased": 10,
-    "assigned": 7,
-    "available": 3
-  },
-  "pagination": {
-    "page": 1,
-    "limit": 20,
-    "total": 7
-  }
-}
-```
-
----
-
-## Assign License
-
-### POST /api/tenants/:tenantId/licenses
-
-Assign a license seat to a user.
-
-**Request:**
-
-```json
-{
-  "userId": "user-uuid",
-  "applicationId": "app-uuid"
-}
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `userId` | string | Yes | User to assign to |
-| `applicationId` | string | Yes | Application to assign for |
-
-**Response (201 Created):**
-
-```json
-{
-  "id": "assignment-uuid",
-  "userId": "user-uuid",
-  "applicationId": "app-uuid",
-  "subscriptionId": "sub-uuid",
-  "licenseType": {
-    "id": "lt-pro",
-    "name": "Pro Plan"
-  },
-  "assignedAt": "2024-01-20T16:00:00Z"
-}
-```
-
-**Errors:**
-
-| Status | Error | Description |
-|--------|-------|-------------|
-| 400 | `NO_SUBSCRIPTION` | Tenant has no active subscription |
-| 400 | `NO_SEATS_AVAILABLE` | All seats assigned |
-| 409 | `ALREADY_ASSIGNED` | User already has license |
-
----
-
-## Unassign License
-
-### DELETE /api/tenants/:tenantId/licenses/:userId
-
-Remove a user's license assignment.
+Check if a user has access to a specific license feature.
 
 **Query Parameters:**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `applicationId` | string | Yes | Which application |
+| `userId` | string | No | User to check |
+| `applicationId` | string | Yes | Application to check |
+| `featureKey` | string | Yes | Feature key to check |
 
 **Response (200 OK):**
 
 ```json
 {
-  "success": true,
-  "message": "License unassigned",
-  "seatsAvailable": 4
+  "hasFeature": true
 }
 ```
 
 ---
 
-## Bulk Assign Licenses
+## Get License Type
 
-### POST /api/tenants/:tenantId/licenses/bulk
+### GET /api/integration/licenses/type
 
-Assign licenses to multiple users.
-
-**Request:**
-
-```json
-{
-  "applicationId": "app-uuid",
-  "userIds": ["user-1", "user-2", "user-3"]
-}
-```
-
-**Response (200 OK):**
-
-```json
-{
-  "assigned": 3,
-  "failed": 0,
-  "results": [
-    { "userId": "user-1", "success": true },
-    { "userId": "user-2", "success": true },
-    { "userId": "user-3", "success": true }
-  ]
-}
-```
-
----
-
-## License Statistics
-
-### GET /api/tenants/:tenantId/licenses/stats
-
-Get license usage statistics.
+Get the license type slug for a user.
 
 **Query Parameters:**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
+| `userId` | string | No | User to check |
 | `applicationId` | string | Yes | Application to check |
 
 **Response (200 OK):**
 
 ```json
 {
-  "subscription": {
-    "id": "sub-uuid",
-    "licenseType": "Pro Plan",
-    "status": "ACTIVE",
-    "currentPeriodEnd": "2024-12-31T23:59:59Z"
-  },
-  "seats": {
-    "purchased": 10,
-    "assigned": 7,
-    "available": 3,
-    "utilizationPercent": 70
-  },
-  "users": {
-    "withLicense": 7,
-    "withoutLicense": 8,
-    "total": 15
-  }
+  "licenseType": "pro"
 }
 ```
 
 ---
 
-## Code Examples
+## List Licensed Users
 
-### JavaScript
+### GET /api/integration/licenses/apps/:applicationId/users
 
-```javascript
-// Check user's license
-const licenseCheck = await fetch(
-  `/api/licenses/check?applicationId=${appId}`,
-  { headers: { Authorization: `Bearer ${token}` } }
-).then(r => r.json());
+Get all users with licenses for an application in the authenticated tenant.
 
-if (!licenseCheck.hasLicense) {
-  if (licenseCheck.reason === 'NO_SEATS_AVAILABLE') {
-    showUpgradePrompt();
-  } else {
-    showPurchasePrompt(licenseCheck.availableLicenseTypes);
+**Response (200 OK):**
+
+```json
+[
+  {
+    "userId": "user-123",
+    "email": "user@example.com",
+    "givenName": "John",
+    "familyName": "Doe",
+    "licenseType": "pro",
+    "licenseTypeName": "Pro Plan",
+    "assignedAt": "2024-01-15T10:30:00Z"
   }
-}
+]
+```
 
-// Assign license
-const assignResponse = await fetch(`/api/tenants/${tenantId}/licenses`, {
-  method: 'POST',
-  headers: {
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    userId: 'user-id',
-    applicationId: appId,
-  }),
+---
+
+## Count Licensed Users
+
+### GET /api/integration/licenses/apps/:applicationId/count
+
+Get count of licensed users for an application.
+
+**Response (200 OK):**
+
+```json
+{
+  "count": 42
+}
+```
+
+---
+
+## Grant License
+
+### POST /api/integration/licenses/grant
+
+Assign a license to a user.
+
+**Request:**
+
+```json
+{
+  "userId": "user-123",
+  "applicationId": "app-456",
+  "licenseTypeId": "license-pro"
+}
+```
+
+**Response (201 Created):**
+
+```json
+{
+  "id": "assignment-789",
+  "userId": "user-123",
+  "licenseTypeId": "license-pro",
+  "licenseTypeName": "Pro Plan",
+  "assignedAt": "2024-01-15T10:30:00Z"
+}
+```
+
+**SDK Equivalent:**
+
+```typescript
+await authvital.licenses.grant(req, {
+  userId: 'user-123',
+  applicationId: 'app-456',
+  licenseTypeId: 'license-pro',
 });
-
-// Get license stats
-const stats = await fetch(
-  `/api/tenants/${tenantId}/licenses/stats?applicationId=${appId}`,
-  { headers: { Authorization: `Bearer ${token}` } }
-).then(r => r.json());
-
-console.log(`${stats.seats.available} seats available`);
-```
-
-### cURL
-
-```bash
-# Check license
-curl "https://auth.example.com/api/licenses/check?applicationId=app-id" \
-  -H "Authorization: Bearer eyJ..."
-
-# List assignments
-curl "https://auth.example.com/api/tenants/tenant-id/licenses?applicationId=app-id" \
-  -H "Authorization: Bearer eyJ..."
-
-# Assign license
-curl -X POST "https://auth.example.com/api/tenants/tenant-id/licenses" \
-  -H "Authorization: Bearer eyJ..." \
-  -H "Content-Type: application/json" \
-  -d '{"userId":"user-id","applicationId":"app-id"}'
-
-# Unassign license
-curl -X DELETE "https://auth.example.com/api/tenants/tenant-id/licenses/user-id?applicationId=app-id" \
-  -H "Authorization: Bearer eyJ..."
 ```
 
 ---
 
-## Webhook Events
+## Revoke License
 
-License-related webhooks:
+### POST /api/integration/licenses/revoke
 
-| Event | Trigger |
-|-------|--------|
-| `license.assigned` | License assigned to user |
-| `license.unassigned` | License removed from user |
-| `subscription.created` | New subscription created |
-| `subscription.updated` | Subscription modified |
-| `subscription.canceled` | Subscription canceled |
-| `subscription.expired` | Subscription period ended |
+Remove a license from a user.
+
+**Request:**
+
+```json
+{
+  "userId": "user-123",
+  "applicationId": "app-456"
+}
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "message": "License revoked"
+}
+```
+
+**SDK Equivalent:**
+
+```typescript
+await authvital.licenses.revoke(req, {
+  userId: 'user-123',
+  applicationId: 'app-456',
+});
+```
 
 ---
 
-## Related Documentation
+## Admin: Tenant License Overview
 
-- [Licensing Concepts](../concepts/licensing.md)
-- [Webhooks Guide](../sdk/webhooks.md)
-- [Tenant API](./tenant-api.md)
+### GET /api/licensing/tenants/:tenantId/license-overview
+
+Get full license overview for a tenant. Requires Super Admin or M2M auth.
+
+**Response (200 OK):**
+
+```json
+{
+  "tenantId": "tenant-123",
+  "tenantName": "Acme Corporation",
+  "totalSeatsOwned": 50,
+  "totalSeatsAssigned": 35,
+  "totalSeatsAvailable": 15,
+  "subscriptions": [
+    {
+      "applicationId": "app-456",
+      "applicationName": "Project Manager",
+      "licenseTypeId": "license-pro",
+      "licenseTypeName": "Pro Plan",
+      "quantityPurchased": 50,
+      "quantityAssigned": 35,
+      "quantityAvailable": 15,
+      "status": "ACTIVE"
+    }
+  ]
+}
+```
+
+**SDK Equivalent:**
+
+```typescript
+const overview = await authvital.licenses.getTenantOverview('tenant-123');
+```
+
+---
+
+## Error Responses
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 400 | `INVALID_APPLICATION_ID` | Application not found |
+| 400 | `NO_SEATS_AVAILABLE` | All license seats are assigned |
+| 400 | `ALREADY_LICENSED` | User already has a license for this app |
+| 401 | `UNAUTHORIZED` | Invalid or missing JWT |
+| 403 | `FORBIDDEN` | Insufficient permissions |
+| 404 | `LICENSE_NOT_FOUND` | License assignment not found |

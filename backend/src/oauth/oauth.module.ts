@@ -3,6 +3,7 @@ import { OAuthController } from "./oauth.controller";
 import { WellKnownController } from "./well-known.controller";
 import { BrandingController } from "./branding.controller";
 import { OAuthService } from "./oauth.service";
+import { RedirectUriValidatorService } from "./redirect-uri-validator.service";
 import { KeyModule } from "./key.module";
 import { OAuthTokenGuard } from "./oauth-token.guard";
 import { M2MAuthGuard } from "./m2m-auth.guard";
@@ -18,7 +19,7 @@ import { InstanceModule } from "../instance/instance.module";
     InstanceModule,
   ],
   controllers: [OAuthController, WellKnownController, BrandingController],
-  providers: [OAuthService, OAuthTokenGuard, M2MAuthGuard],
-  exports: [KeyModule, OAuthService, OAuthTokenGuard, M2MAuthGuard],
+  providers: [OAuthService, RedirectUriValidatorService, OAuthTokenGuard, M2MAuthGuard],
+  exports: [KeyModule, OAuthService, RedirectUriValidatorService, OAuthTokenGuard, M2MAuthGuard],
 })
 export class OAuthModule {}

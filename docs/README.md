@@ -17,10 +17,10 @@
 - [Access Control (RBAC)](./concepts/access-control.md) - Roles & permissions
 
 ### SDK Integration
-- [Complete Setup Guide](./sdk/complete-setup-guide.md) - **NEW!** Full integration walkthrough
-- [Server SDK](./sdk/server-sdk.md) - Node.js/Backend integration
-- [Client SDK (React)](./sdk/client-sdk.md) - React hooks & components
-- [Identity Sync](./sdk/user-sync.md) - Mirror identities to your database (renamed from User Sync)
+- [Setup Guide](./sdk/setup/index.md) - Full integration walkthrough
+- [Server SDK](./sdk/server-sdk/index.md) - Node.js/Backend integration
+- [Client SDK (React)](./sdk/client-sdk/index.md) - React hooks & components
+- [Identity Sync](./sdk/identity-sync/index.md) - Mirror identities to your database
 - **Webhooks Documentation:**
   - [Webhooks Overview](./sdk/webhooks.md) - Getting started with webhooks
   - [Event Types & Payloads](./sdk/webhooks-events.md) - All events with TypeScript types
@@ -44,7 +44,7 @@
 ### Security
 - [Multi-Factor Authentication](./security/mfa.md) - TOTP setup & policies
 - [Single Sign-On (SSO)](./security/sso.md) - Google & Microsoft configuration
-- [Security Best Practices](./security/best-practices.md) - Recommendations
+- [Security Best Practices](./security/best-practices/index.md) - Recommendations
 
 ### Reference
 - [Data Models](./reference/data-models.md) - Entity relationships
@@ -57,11 +57,11 @@
 
 | I want to... | Go to... |
 |--------------|----------|
-| Get a complete integration guide | [Complete Setup Guide](./sdk/complete-setup-guide.md) |
+| Get a complete integration guide | [Setup Guide](./sdk/setup/index.md) |
 | Integrate AuthVital into my app | [Quick Start Guide](./getting-started/quick-start.md) |
 | Understand the OAuth flow | [OAuth 2.0 / OIDC Flows](./concepts/oauth-flow.md) |
 | Understand webhook events | [Event Types & Payloads](./sdk/webhooks-events.md) |
-| Sync users to my database | [Identity Sync Guide](./sdk/user-sync.md) |
+| Sync users to my database | [Identity Sync Guide](./sdk/identity-sync/index.md) |
 | Handle webhooks | [Webhooks Guide](./sdk/webhooks.md) |
 | Configure SSO | [SSO Configuration](./security/sso.md) |
 | Deploy to production | [Installation & Deployment](./getting-started/installation.md) |

@@ -430,7 +430,7 @@ app.get('/api/analytics',
 
 ```tsx
 function PremiumFeature() {
-  const { user } = useAuthVital();
+  const { user } = useAuth();
   const hasFeature = user?.license?.features.includes('advanced-analytics');
   
   if (!hasFeature) {
@@ -458,7 +458,7 @@ function FeatureGate({
   children: React.ReactNode;
   fallback?: React.ReactNode;
 }) {
-  const { user } = useAuthVital();
+  const { user } = useAuth();
   const hasFeature = user?.license?.features.includes(feature);
   
   if (!hasFeature) {
@@ -618,5 +618,5 @@ if (!hasFeature) {
 
 - [Access Control (RBAC)](./access-control.md)
 - [Multi-Tenancy](./multi-tenancy.md)
-- [Server SDK](../sdk/server-sdk.md)
+- [Server SDK](../sdk/server-sdk/index.md)
 - [Webhooks](../sdk/webhooks.md)

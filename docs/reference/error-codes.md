@@ -309,5 +309,5 @@ function ErrorDisplay({ error }: { error: AuthVitalError }) {
 ## Related Documentation
 
 - [OAuth Flow](../concepts/oauth-flow.md)
-- [Security Best Practices](../security/best-practices.md)
-- [Server SDK](../sdk/server-sdk.md)
+- [Security Best Practices](../security/best-practices/index.md)
+- [Server SDK](../sdk/server-sdk/index.md)

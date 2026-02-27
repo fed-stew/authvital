@@ -43,6 +43,12 @@ import {
   createEntitlementsNamespace,
   createLicensesNamespace,
   createSessionsNamespace,
+  createMfaNamespace,
+  createTenantsNamespace,
+  createSsoNamespace,
+  createAdminNamespace,
+  createUsersNamespace,
+  createAuthNamespace,
 } from './namespaces';
 
 // Re-export types from base-client for backwards compatibility
@@ -56,24 +62,59 @@ export type { AuthVitalConfig, GetCurrentUserResult, ValidatedClaims, RequestLik
  * Main AuthVital SDK client.
  *
  * Extends BaseClient with namespaced APIs for:
+ * - Auth (register, login, password reset)
+ * - MFA (setup, verify, disable)
+ * - SSO (providers, linking)
+ * - Users (profile, sessions)
+ * - Tenants (CRUD, SSO config)
  * - Invitations (send, list, resend, revoke)
  * - Memberships (list, validate, roles)
  * - Permissions (check, list)
  * - Entitlements (quotas, features)
  * - Licenses (grant, revoke, check)
  * - Sessions (list, revoke, logout)
+ * - Admin (instance settings, user management)
  */
 export class AuthVital extends BaseClient {
   // ===========================================================================
   // NAMESPACED APIS
   // ===========================================================================
 
+  /** Authentication operations (register, login, password reset) */
+  readonly auth = createAuthNamespace(this);
+
+  /** Multi-factor authentication operations */
+  readonly mfa = createMfaNamespace(this);
+
+  /** Single Sign-On operations */
+  readonly sso = createSsoNamespace(this);
+
+  /** User profile and account operations */
+  readonly users = createUsersNamespace(this);
+
+  /** Tenant management operations */
+  readonly tenants = createTenantsNamespace(this);
+
+  /** Invitation management */
   readonly invitations = createInvitationsNamespace(this);
+
+  /** Membership management */
   readonly memberships = createMembershipsNamespace(this);
+
+  /** Permission checks */
   readonly permissions = createPermissionsNamespace(this);
+
+  /** Entitlement/quota management */
   readonly entitlements = createEntitlementsNamespace(this);
+
+  /** License management */
   readonly licenses = createLicensesNamespace(this);
+
+  /** Session management */
   readonly sessions = createSessionsNamespace(this);
+
+  /** Instance administration (super admin) */
+  readonly admin = createAdminNamespace(this);
 
   // ===========================================================================
   // PERMISSION HELPERS (Read from JWT - No API call!)

@@ -98,9 +98,7 @@ router.get('/me', requireAuth, (req, res) => {
 
 // Permission-protected route
 router.post('/admin/users', requireAuth, async (req, res) => {
-  const { allowed } = await authvital.permissions.check(req, {
-    permission: 'users:write',
-  });
+  const { allowed } = await authvital.permissions.check(req, 'users:write');
   
   if (!allowed) {
     return res.status(403).json({ error: 'Forbidden' });
@@ -137,7 +135,7 @@ export function App() {
 
 ```tsx
 // pages/Dashboard.tsx
-import { useAuthVital } from '@authvital/sdk/client';
+import { useAuth } from '@authvital/sdk/client';
 
 export function Dashboard() {
   const { 
@@ -146,7 +144,7 @@ export function Dashboard() {
     isLoading, 
     login, 
     logout 
-  } = useAuthVital();
+  } = useAuth();
 
   if (isLoading) {
     return <div>Loading...</div>;
@@ -260,7 +258,7 @@ app.get('/api/me', requireAuth, (req, res) => {
 });
 
 app.get('/api/tenants', requireAuth, async (req, res) => {
-  const tenants = await authvital.memberships.listUserTenants(req);
+  const tenants = await authvital.memberships.listTenantsForUser(req);
   res.json({ tenants });
 });
 
@@ -273,10 +271,10 @@ app.listen(3001, () => console.log('API running on :3001'));
 // main.tsx
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { AuthVitalProvider, useAuthVital } from '@authvital/sdk/client';
+import { AuthVitalProvider, useAuth } from '@authvital/sdk/client';
 
 function App() {
-  const { user, isAuthenticated, login, logout } = useAuthVital();
+  const { user, isAuthenticated, login, logout } = useAuth();
 
   if (!isAuthenticated) {
     return <button onClick={login}>Login with AuthVital</button>;
@@ -305,9 +303,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 | Topic | Link |
 |-------|------|
 | Understand the OAuth flow | [OAuth 2.0 / OIDC Flows](../concepts/oauth-flow.md) |
-| Sync users to your database | [User Sync Guide](../sdk/user-sync.md) |
+| Sync users to your database | [Identity Sync Guide](../sdk/identity-sync/index.md) |
 | Handle real-time events | [Webhooks Guide](../sdk/webhooks.md) |
-| Check permissions & licenses | [Server SDK](../sdk/server-sdk.md) |
+| Check permissions & licenses | [Server SDK](../sdk/server-sdk/index.md) |
 | Set up SSO | [SSO Configuration](../security/sso.md) |
 
 ## Troubleshooting

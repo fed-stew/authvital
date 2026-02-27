@@ -15,7 +15,9 @@ if (!process.env.DATABASE_URL && process.env.DB_HOST && process.env.DB_USERNAME 
 // Validate required environment variables BEFORE importing anything else
 // This ensures we fail fast with a clear error message
 import { validateEnv } from './config/env.validation';
+import { validateSigningKeySecret } from './config/validate-secrets';
 validateEnv();
+validateSigningKeySecret();
 
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, RequestMethod } from '@nestjs/common';

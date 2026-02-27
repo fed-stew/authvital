@@ -362,4 +362,4 @@ For keeping local user data:
 - [Multi-Tenancy Deep Dive](./multi-tenancy.md)
 - [OAuth Flow Details](./oauth-flow.md)
 - [Licensing System](./licensing.md)
-- [SDK Integration](../sdk/server-sdk.md)
+- [SDK Integration](../sdk/server-sdk/index.md)

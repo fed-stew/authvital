@@ -16,6 +16,7 @@ import { DomainVerificationService } from './domain-verification.service';
 import { DomainVerificationController } from './domain-verification.controller';
 import { PasswordResetService } from './password-reset.service';
 import { PasswordResetController } from './password-reset.controller';
+import { PasswordBreachCheckService } from './password-breach-check.service';
 
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { OptionalAuthGuard } from './guards/optional-auth.guard';
@@ -48,10 +49,11 @@ import { MfaModule } from './mfa';
     EmailService,
     DomainVerificationService,
     PasswordResetService,
+    PasswordBreachCheckService,
     JwtAuthGuard,
     OptionalAuthGuard,
     ApiKeyService,
   ],
-  exports: [AuthService, JwtAuthGuard, OptionalAuthGuard, SignUpService, ApiKeyService, KeyModule, EmailService, MfaModule],
+  exports: [AuthService, JwtAuthGuard, OptionalAuthGuard, SignUpService, ApiKeyService, KeyModule, EmailService, MfaModule, PasswordBreachCheckService],
 })
 export class AuthModule {}

@@ -367,77 +367,123 @@ Delete the current user's account.
 
 ---
 
-## Code Examples
+## SDK Examples
 
-### JavaScript
+```bash
+npm install @authvital/sdk
+```
 
-```javascript
-// Get current user
-const userResponse = await fetch('/api/users/me', {
-  headers: { Authorization: `Bearer ${token}` },
-});
-const user = await userResponse.json();
+### Get Current User
 
-// Update profile
-const updateResponse = await fetch('/api/users/me', {
-  method: 'PATCH',
-  headers: {
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    displayName: 'Jane Marie Smith',
-    zoneinfo: 'America/New_York',
-  }),
+```typescript
+import { createAuthVital } from '@authvital/sdk/server';
+
+const authvital = createAuthVital({
+  authVitalHost: process.env.AUTHVITAL_HOST!,
+  clientId: process.env.AUTHVITAL_CLIENT_ID!,
+  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
 });
 
-// Change password
-const passwordResponse = await fetch('/api/users/me/password', {
-  method: 'POST',
-  headers: {
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    currentPassword: 'oldPassword',
-    newPassword: 'newSecurePassword',
-  }),
-});
-
-// List and revoke sessions
-const sessions = await fetch('/api/users/me/sessions', {
-  headers: { Authorization: `Bearer ${token}` },
-}).then(r => r.json());
-
-// Revoke other session
-await fetch(`/api/users/me/sessions/${sessionId}`, {
-  method: 'DELETE',
-  headers: { Authorization: `Bearer ${token}` },
+app.get('/api/me', async (req, res) => {
+  const user = await authvital.users.getCurrentUser(req);
+  res.json(user);
 });
 ```
 
-### cURL
+### Update Profile
 
-```bash
-# Get current user
-curl https://auth.example.com/api/users/me \
-  -H "Authorization: Bearer eyJ..."
+```typescript
+app.patch('/api/me', async (req, res) => {
+  const updated = await authvital.users.updateCurrentUser(req, {
+    displayName: req.body.displayName,
+    zoneinfo: req.body.timezone,
+    locale: req.body.locale,
+  });
+  res.json(updated);
+});
+```
 
-# Update profile
-curl -X PATCH https://auth.example.com/api/users/me \
-  -H "Authorization: Bearer eyJ..." \
-  -H "Content-Type: application/json" \
-  -d '{"displayName":"Jane Smith"}'
+### Change Password
 
-# Change password
-curl -X POST https://auth.example.com/api/users/me/password \
-  -H "Authorization: Bearer eyJ..." \
-  -H "Content-Type: application/json" \
-  -d '{"currentPassword":"old","newPassword":"new"}'
+```typescript
+app.post('/api/me/password', async (req, res) => {
+  await authvital.users.changePassword(req, {
+    currentPassword: req.body.currentPassword,
+    newPassword: req.body.newPassword,
+  });
+  res.json({ success: true });
+});
+```
 
-# List sessions
-curl https://auth.example.com/api/users/me/sessions \
-  -H "Authorization: Bearer eyJ..."
+### Session Management
+
+```typescript
+// List active sessions
+app.get('/api/me/sessions', async (req, res) => {
+  const sessions = await authvital.users.getSessions(req);
+  res.json(sessions);
+});
+
+// Revoke a specific session
+app.delete('/api/me/sessions/:id', async (req, res) => {
+  await authvital.users.revokeSession(req, req.params.id);
+  res.json({ success: true });
+});
+
+// Revoke all other sessions
+app.delete('/api/me/sessions', async (req, res) => {
+  const { count } = await authvital.users.revokeAllSessions(req);
+  res.json({ revoked: count });
+});
+```
+
+### SSO Account Linking
+
+```typescript
+// Get linked SSO accounts
+app.get('/api/me/sso', async (req, res) => {
+  const links = await authvital.sso.getLinkedAccounts(req);
+  res.json(links);
+});
+
+// Start linking a new SSO provider
+app.post('/api/me/sso/link', async (req, res) => {
+  const { url } = await authvital.sso.initiateLink(req, {
+    provider: req.body.provider,
+    redirectUri: 'https://app.example.com/settings/account',
+  });
+  res.json({ url });
+});
+
+// Unlink SSO provider
+app.delete('/api/me/sso/:provider', async (req, res) => {
+  await authvital.sso.unlink(req, req.params.provider as 'GOOGLE' | 'MICROSOFT');
+  res.json({ success: true });
+});
+```
+
+### Email Change
+
+```typescript
+app.post('/api/me/email', async (req, res) => {
+  await authvital.users.requestEmailChange(req, {
+    newEmail: req.body.newEmail,
+    password: req.body.password,
+  });
+  res.json({ message: 'Verification email sent' });
+});
+```
+
+### Delete Account
+
+```typescript
+app.delete('/api/me', async (req, res) => {
+  await authvital.users.deleteAccount(req, {
+    password: req.body.password,
+    confirmation: req.body.confirmation,
+  });
+  res.json({ success: true });
+});
 ```
 
 ---
@@ -445,5 +491,5 @@ curl https://auth.example.com/api/users/me/sessions \
 ## Related Documentation
 
 - [Authentication API](./authentication.md)
-- [Server SDK](../sdk/server-sdk.md)
-- [Security Best Practices](../security/best-practices.md)
+- [Server SDK](../sdk/server-sdk/index.md)
+- [Security Best Practices](../security/best-practices/index.md)

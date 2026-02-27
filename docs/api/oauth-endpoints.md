@@ -355,92 +355,123 @@ token=eyJ...
 
 ---
 
-## Code Examples
+## SDK Examples
 
-### Authorization Code Flow with PKCE (JavaScript)
-
-```javascript
-// Step 1: Generate PKCE
-function generatePKCE() {
-  const verifier = crypto.randomUUID() + crypto.randomUUID();
-  const encoder = new TextEncoder();
-  const data = encoder.encode(verifier);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  const challenge = btoa(String.fromCharCode(...new Uint8Array(digest)))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '');
-  return { verifier, challenge };
-}
-
-// Step 2: Redirect to authorize
-const { verifier, challenge } = await generatePKCE();
-sessionStorage.setItem('pkce_verifier', verifier);
-sessionStorage.setItem('oauth_state', state);
-
-const authorizeUrl = new URL('https://auth.example.com/oauth/authorize');
-authorizeUrl.searchParams.set('client_id', CLIENT_ID);
-authorizeUrl.searchParams.set('redirect_uri', REDIRECT_URI);
-authorizeUrl.searchParams.set('response_type', 'code');
-authorizeUrl.searchParams.set('scope', 'openid profile email offline_access');
-authorizeUrl.searchParams.set('state', state);
-authorizeUrl.searchParams.set('code_challenge', challenge);
-authorizeUrl.searchParams.set('code_challenge_method', 'S256');
-
-window.location.href = authorizeUrl.toString();
-
-// Step 3: Handle callback
-const params = new URLSearchParams(window.location.search);
-const code = params.get('code');
-const returnedState = params.get('state');
-
-if (returnedState !== sessionStorage.getItem('oauth_state')) {
-  throw new Error('State mismatch');
-}
-
-// Step 4: Exchange code for tokens
-const response = await fetch('https://auth.example.com/api/oauth/token', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  body: new URLSearchParams({
-    grant_type: 'authorization_code',
-    code,
-    redirect_uri: REDIRECT_URI,
-    client_id: CLIENT_ID,
-    code_verifier: sessionStorage.getItem('pkce_verifier'),
-  }),
-});
-
-const tokens = await response.json();
-// { access_token, refresh_token, id_token, expires_in }
-```
-
-### cURL Examples
+The `@authvital/sdk` handles PKCE, state management, and token exchange automatically:
 
 ```bash
-# Exchange code for tokens
-curl -X POST https://auth.example.com/api/oauth/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=authorization_code" \
-  -d "code=auth-code" \
-  -d "redirect_uri=https://app.example.com/callback" \
-  -d "client_id=your-client-id" \
-  -d "code_verifier=your-verifier"
+npm install @authvital/sdk
+```
 
-# Refresh tokens
-curl -X POST https://auth.example.com/api/oauth/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=refresh_token" \
-  -d "refresh_token=eyJ..." \
-  -d "client_id=your-client-id"
+### Authorization Code Flow with PKCE
 
-# Client credentials (machine-to-machine)
-curl -X POST https://auth.example.com/api/oauth/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=client_credentials" \
-  -d "client_id=your-client-id" \
-  -d "client_secret=your-secret" \
-  -d "scope=api:read"
+```typescript
+import {
+  generatePKCE,
+  buildAuthorizeUrl,
+  generateState,
+} from '@authvital/sdk/server';
+
+// === SERVER-SIDE (Express/Node.js) ===
+
+// Step 1: Generate PKCE and state
+app.get('/auth/login', (req, res) => {
+  const { codeVerifier, codeChallenge } = generatePKCE();
+  const state = generateState();
+
+  // Store in server-side session (Express session, Redis, etc.)
+  req.session.pkce_verifier = codeVerifier;
+  req.session.oauth_state = state;
+
+  // Build and redirect to authorization URL
+  const authorizeUrl = buildAuthorizeUrl({
+    authVitalHost: 'https://auth.example.com',
+    clientId: 'your-client-id',
+    redirectUri: 'https://app.example.com/callback',
+    codeChallenge,
+    codeChallengeMethod: 'S256',
+    scope: 'openid profile email offline_access',
+    state,
+  });
+
+  res.redirect(authorizeUrl);
+});
+
+// === BROWSER-SIDE (SPA) ===
+// If building a pure SPA without a backend session:
+
+// Store in sessionStorage (cleared on tab close - more secure than localStorage)
+sessionStorage.setItem('pkce_verifier', codeVerifier);
+sessionStorage.setItem('oauth_state', state);
+
+// Redirect to authorize URL
+window.location.href = authorizeUrl;
+```
+
+### Handle Callback and Exchange Code
+
+```typescript
+import { exchangeCodeForTokens } from '@authvital/sdk/server';
+
+// In your callback handler
+app.get('/callback', async (req, res) => {
+  const { code, state } = req.query;
+
+  // Verify state matches (CSRF protection)
+  if (state !== req.session.oauth_state) {
+    return res.status(400).json({ error: 'State mismatch' });
+  }
+
+  // Exchange code for tokens (SDK handles PKCE automatically)
+  const tokens = await exchangeCodeForTokens({
+    authVitalHost: process.env.AUTHVITAL_HOST!,
+    clientId: process.env.AUTHVITAL_CLIENT_ID!,
+    code: code as string,
+    codeVerifier: req.session.pkce_verifier,
+    redirectUri: 'https://app.example.com/callback',
+  });
+
+  // Set httpOnly cookie and redirect
+  res.cookie('access_token', tokens.access_token, { httpOnly: true, secure: true });
+  res.redirect('/dashboard');
+});
+```
+
+### Token Refresh
+
+```typescript
+import { refreshAccessToken } from '@authvital/sdk/server';
+
+const newTokens = await refreshAccessToken({
+  authVitalHost: process.env.AUTHVITAL_HOST!,
+  clientId: process.env.AUTHVITAL_CLIENT_ID!,
+  refreshToken: storedRefreshToken,
+});
+
+// Important: Store the new refresh token (AuthVital rotates them)
+storeRefreshToken(newTokens.refresh_token);
+```
+
+### Client Credentials (M2M)
+
+```typescript
+import { createAuthVital } from '@authvital/sdk/server';
+
+// The SDK handles client_credentials automatically for M2M calls
+const authvital = createAuthVital({
+  authVitalHost: process.env.AUTHVITAL_HOST!,
+  clientId: process.env.AUTHVITAL_CLIENT_ID!,
+  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+});
+
+// For user-context operations, pass the request (JWT is extracted automatically):
+const members = await authvital.memberships.listForTenant(req);
+
+// For admin/M2M operations without user context, use the admin namespace:
+const settings = await authvital.admin.getInstanceSettings();
+
+// Or for tenant-specific M2M operations, use the licenses admin methods:
+const overview = await authvital.licenses.getTenantOverview('tenant-123');
 ```
 
 ---

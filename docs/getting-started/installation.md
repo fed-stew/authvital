@@ -49,6 +49,15 @@ createdb authvital
 
 Or use Docker for just the database:
 
+!!! warning "⚠️ Quick Start Values - Replace for Production"
+    The examples below use `localdev123` as a placeholder password for quick local testing.
+    
+    **Before deploying to production:**
+    
+    - Generate a secure database password: `openssl rand -base64 32`
+    - Generate a secure signing key: `openssl rand -hex 32`
+    - Store secrets in a secret manager (not in code or .env files)
+
 ```bash
 docker run -d \
   --name authvital-db \

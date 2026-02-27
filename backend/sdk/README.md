@@ -155,66 +155,57 @@ The SDK provides namespaced methods for different operations:
 #### Invitations
 
 ```typescript
-// Send an invitation
-await authvital.invitations.send({
+// Send an invitation (tenantId extracted from JWT automatically)
+await authvital.invitations.send(request, {
   email: 'newuser@example.com',
-  tenantId: 'tenant-123',
   roleId: 'role-member',
 });
 
-// List pending invitations
-const pending = await authvital.invitations.listPending('tenant-123');
+// List pending invitations for tenant (from JWT)
+const pending = await authvital.invitations.listPending(request);
 
 // Revoke an invitation
-await authvital.invitations.revoke('invitation-id');
+await authvital.invitations.revoke(request, 'invitation-id');
 ```
 
 #### Memberships
 
 ```typescript
-// List tenant members
-const members = await authvital.memberships.listForTenant('tenant-123');
+// List tenant members (tenantId extracted from JWT)
+const members = await authvital.memberships.listForTenant(request);
 
 // Get user's tenants
-const tenants = await authvital.memberships.listUserTenants(req);
+const tenants = await authvital.memberships.listTenantsForUser(request);
 
-// Set member role
-await authvital.memberships.setTenantRole({
-  membershipId: 'membership-123',
-  roleSlug: 'admin',
-});
+// Set member role (pre-flight permission check included)
+await authvital.memberships.setMemberRole(request, 'membership-123', 'admin');
 ```
 
 #### Permissions
 
 ```typescript
 // Check a single permission
-const { allowed } = await authvital.permissions.check(req, {
-  permission: 'documents:write',
-});
+const { allowed } = await authvital.permissions.check(request, 'documents:write');
 
 // Check multiple permissions
-const results = await authvital.permissions.checkMany(req, {
-  permissions: ['documents:read', 'documents:write', 'admin:access'],
-});
+const { results } = await authvital.permissions.checkMany(request, ['documents:read', 'documents:write', 'admin:access']);
+// results = { 'documents:read': true, 'documents:write': false, ... }
 ```
 
 #### Licenses
 
 ```typescript
-// Check if user has a license
-const { hasLicense, licenseType } = await authvital.licenses.check(req, {
-  applicationId: 'app-123',
-});
+// Check if user has a license (positional params: request, userId, applicationId)
+const { hasLicense, licenseType } = await authvital.licenses.check(request, undefined, 'app-123');
+// Use undefined for userId to check the authenticated user
 
-// Check specific feature
-const { hasFeature } = await authvital.licenses.hasFeature(req, {
-  applicationId: 'app-123',
-  feature: 'advanced-analytics',
-});
+// Check specific feature (request, userId, applicationId, featureKey)
+const { hasFeature } = await authvital.licenses.hasFeature(
+  request, undefined, 'app-123', 'advanced-analytics'
+);
 
-// Grant a license (admin)
-await authvital.licenses.grant(req, {
+// Grant a license (uses options object)
+await authvital.licenses.grant(request, {
   userId: 'user-123',
   applicationId: 'app-123',
   licenseTypeId: 'license-pro',

@@ -210,7 +210,7 @@ A single user can belong to multiple tenants:
 
 ```typescript
 // User's tenants
-const tenants = await authvital.memberships.listUserTenants(req);
+const tenants = await authvital.memberships.listTenantsForUser(req);
 // [
 //   { id: "t1", name: "Acme Corp", slug: "acme", role: "owner" },
 //   { id: "t2", name: "Beta Inc", slug: "beta", role: "member" },
@@ -290,20 +290,17 @@ graph LR
 
 ### Adding a Domain
 
-```typescript
-// Admin adds domain
-await authvital.domains.add({
-  tenantId: 'tenant-123',
-  domain: 'acme.com',
-});
+!!! note "Admin Dashboard Only"
+    Domain management is performed through the **AuthVital Admin Dashboard**.
+    The SDK does not include a `domains` namespace.
 
-// Get verification record
-const verification = await authvital.domains.getVerification('domain-id');
-// { type: 'TXT', name: '_authvital.acme.com', value: 'authvital-verify=abc123' }
-
-// After adding DNS record, verify
-await authvital.domains.verify('domain-id');
-```
+1. Go to **Admin Panel** → **Tenants** → Select tenant → **Domains** tab
+2. Click **Add Domain** and enter your domain (e.g., `acme.com`)
+3. Add the provided TXT record to your DNS:
+   ```
+   _authvital.acme.com TXT "authvital-verify=abc123"
+   ```
+4. Click **Verify** once DNS propagates
 
 ## Tenant Settings
 
@@ -342,7 +339,8 @@ await authvital.tenants.configureSso('tenant-id', {
 ### Create a Tenant
 
 ```typescript
-const tenant = await authvital.tenants.create({
+// Requires incoming HTTP request for JWT validation
+const tenant = await authvital.tenants.create(req, {
   name: 'Acme Corporation',
   slug: 'acme-corp', // Auto-generated if not provided
 });
@@ -351,19 +349,32 @@ const tenant = await authvital.tenants.create({
 ### Invite a Member
 
 ```typescript
-await authvital.invitations.send({
+// First, get available tenant roles
+const { roles } = await authvital.memberships.getTenantRoles();
+const adminRole = roles.find(r => r.slug === 'admin');
+
+// Send invitation (tenantId extracted from JWT automatically)
+await authvital.invitations.send(req, {
   email: 'newuser@acme.com',
-  tenantId: tenant.id,
-  roleSlug: 'admin', // Tenant role
-  applicationRoleId: 'app-role-id', // Optional app role
-  message: 'Welcome to the team!',
+  roleId: adminRole?.id, // Use role ID, not slug
+  givenName: 'John',     // Optional
+  familyName: 'Doe',     // Optional
 });
 ```
 
 ### List Tenant Members
 
 ```typescript
-const members = await authvital.memberships.listForTenant('tenant-id');
+// In a route handler where req is available:
+const members = await authvital.memberships.listForTenant(req);
+// Uses tenant from JWT automatically!
+
+// With optional filters:
+const members = await authvital.memberships.listForTenant(req, {
+  status: 'ACTIVE',        // Filter by status
+  includeRoles: true,      // Include role details
+  appendClientId: true,    // Add client_id to login URIs
+});
 // [
 //   {
 //     user: { id, email, givenName, familyName, pictureUrl },
@@ -377,17 +388,19 @@ const members = await authvital.memberships.listForTenant('tenant-id');
 ### Update Member Role
 
 ```typescript
-await authvital.memberships.setTenantRole({
-  membershipId: 'membership-id',
-  roleSlug: 'admin',
-});
+// Update a member's tenant role (requires admin or owner permissions)
+await authvital.memberships.setMemberRole(
+  request,          // HTTP request for JWT validation
+  'membership-id',  // Membership ID to update
+  'admin'           // New role slug
+);
 ```
 
-### Remove Member
-
-```typescript
-await authvital.memberships.remove('membership-id');
-```
+!!! info "Role Hierarchy"
+    Role changes are governed by a strict hierarchy:
+    - Owners can change anyone's role
+    - Admins can change admins and members, but not owners
+    - Members cannot change roles
 
 ## Single-Tenant Mode
 
@@ -465,7 +478,7 @@ Allow users to switch tenants gracefully:
 
 ```typescript
 function TenantSwitcher() {
-  const { switchTenant, currentTenant, tenants } = useAuthVital();
+  const { switchTenant, currentTenant, tenants } = useAuth();
   
   return (
     <select 

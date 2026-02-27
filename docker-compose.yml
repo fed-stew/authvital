@@ -35,7 +35,7 @@ services:
     container_name: authvital-postgres
     environment:
       POSTGRES_USER: ${DB_USERNAME:-authvital}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-localdev123}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       POSTGRES_DB: ${DB_DATABASE:-authvital}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -63,10 +63,10 @@ services:
       - "8000"
     environment:
       # Database
-      DATABASE_URL: postgresql://${DB_USERNAME:-authvital}:${DB_PASSWORD:-localdev123}@postgres:5432/${DB_DATABASE:-authvital}
+      DATABASE_URL: postgresql://${DB_USERNAME:-authvital}:${DB_PASSWORD:?DB_PASSWORD is required}@postgres:5432/${DB_DATABASE:-authvital}
       DB_HOST: postgres
       DB_USERNAME: ${DB_USERNAME:-authvital}
-      DB_PASSWORD: ${DB_PASSWORD:-localdev123}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       DB_DATABASE: ${DB_DATABASE:-authvital}
       
       # Application
@@ -75,10 +75,10 @@ services:
       BASE_URL: ${BASE_URL:-http://localhost}
       
       # Cookie security - set to 'false' for local HTTP dev
-      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
       
       # Security
-      SIGNING_KEY_SECRET: ${SIGNING_KEY_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      SIGNING_KEY_SECRET: ${SIGNING_KEY_SECRET:?SIGNING_KEY_SECRET is required - generate with: openssl rand -hex 32}
       
       # CORS
       CORS_ORIGINS: ${CORS_ORIGINS:-}

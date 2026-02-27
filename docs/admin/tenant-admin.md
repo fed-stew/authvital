@@ -36,22 +36,25 @@ const isAdmin = ['owner', 'admin'].includes(membership?.role);
 
 ```typescript
 // List all tenant members
-const members = await authvital.memberships.list({
-  tenantId: 'tenant-id',
-  includeUser: true,
+// tenantId is automatically extracted from the JWT
+const { memberships } = await authvital.memberships.listForTenant(req, {
+  status: 'ACTIVE',
+  includeRoles: true,
 });
-// [{ id, userId, status, role, user: { email, name, ... } }]
+// memberships: [{ id, userId, status, user: { email, name, ... }, roles }]
 ```
 
 ### Inviting Members
 
 ```typescript
 // Send invitation
-await authvital.invitations.create({
-  tenantId: 'tenant-id',
+// tenantId is automatically extracted from the JWT
+const { roles } = await authvital.memberships.getTenantRoles();
+const memberRole = roles.find(r => r.slug === 'member');
+
+await authvital.invitations.send(req, {
   email: 'newuser@example.com',
-  role: 'member', // or 'admin'
-  expiresInDays: 7,
+  roleId: memberRole?.id, // Use role ID, not slug
 });
 ```
 
@@ -70,30 +73,28 @@ Invitee receives email with link to accept.
 
 ```typescript
 // List pending invitations
-const invitations = await authvital.invitations.list({
-  tenantId: 'tenant-id',
-  status: 'PENDING',
-});
+// tenantId is automatically extracted from the JWT
+const { invitations } = await authvital.invitations.listPending(req);
 
 // Resend invitation
-await authvital.invitations.resend('invitation-id');
+await authvital.invitations.resend(req, {
+  invitationId: 'invitation-id',
+  expiresInDays: 7, // Optional: extend expiry
+});
 
 // Revoke invitation
-await authvital.invitations.revoke('invitation-id');
+await authvital.invitations.revoke(req, 'invitation-id');
 ```
 
 ### Changing Member Roles
 
 ```typescript
 // Change to admin
-await authvital.memberships.updateRole('membership-id', {
-  role: 'admin',
-});
+// Signature: setMemberRole(request, membershipId, roleSlug)
+await authvital.memberships.setMemberRole(req, 'membership-id', 'admin');
 
 // Demote to member
-await authvital.memberships.updateRole('membership-id', {
-  role: 'member',
-});
+await authvital.memberships.setMemberRole(req, 'membership-id', 'member');
 ```
 
 **Role Hierarchy:**
@@ -101,22 +102,18 @@ await authvital.memberships.updateRole('membership-id', {
 - **Admin**: Manage members, settings, but can't delete tenant
 - **Member**: Basic access, no admin functions
 
-### Suspending Members
+### Suspending & Removing Members
 
-```typescript
-// Suspend a member (blocks access without removing)
-await authvital.memberships.suspend('membership-id');
-
-// Reactivate suspended member
-await authvital.memberships.reactivate('membership-id');
-```
-
-### Removing Members
-
-```typescript
-// Remove from tenant
-await authvital.memberships.remove('membership-id');
-```
+!!! note "Admin Dashboard Only"
+    Member suspension and removal are currently performed through the **AuthVital Admin Dashboard**.
+    
+    The SDK does not include `suspend()`, `reactivate()`, or `remove()` methods for memberships.
+    
+    **To suspend or remove a member:**
+    
+    1. Go to **AuthVital Admin Panel** → **Tenants** → Select tenant
+    2. Navigate to **Members** tab
+    3. Click on the member → Use **Suspend** or **Remove** buttons
 
 ## SSO Configuration
 
@@ -156,10 +153,18 @@ When enforced:
 ### Viewing SSO Configuration
 
 ```typescript
-const ssoConfig = await authvital.tenants.getSsoConfig('tenant-id');
+// Get SSO config for a specific provider
+const microsoftSso = await authvital.tenants.getSsoConfig('tenant-id', 'MICROSOFT');
+const googleSso = await authvital.tenants.getSsoConfig('tenant-id', 'GOOGLE');
+
+// Returns null if not configured, or:
 // {
-//   google: { enabled: false },
-//   microsoft: { enabled: true, enforced: true, allowedDomains: [...] }
+//   provider: 'MICROSOFT',
+//   enabled: true,
+//   enforced: true,
+//   allowedDomains: ['yourcompany.com'],
+//   autoCreateUser: true,
+//   autoLinkExisting: true,
 // }
 ```
 
@@ -189,7 +194,7 @@ await authvital.tenants.update('tenant-id', {
 
 ```typescript
 // Get MFA status for all members
-const members = await authvital.memberships.list({
+const members = await authvital.memberships.listForTenant(req, {
   tenantId: 'tenant-id',
   includeUser: true,
 });
@@ -208,104 +213,99 @@ Verify your company's domain to:
 - Restrict SSO to your domain
 - Enable domain-based features
 
-### Adding a Domain
+!!! note "Admin Dashboard Only"
+    Domain management is currently performed through the **AuthVital Admin Dashboard**.
+    
+    The SDK does not include a `domains` namespace.
+    
+    **To manage domains:**
+    
+    1. Go to **AuthVital Admin Panel** → **Tenants** → Select tenant
+    2. Navigate to **Domains** tab
+    3. Add, verify, or configure domains from the UI
 
-```typescript
-await authvital.domains.create({
-  tenantId: 'tenant-id',
-  domain: 'yourcompany.com',
-});
-// Returns verification record to add to DNS
-```
+### Adding a Domain (Admin Dashboard)
+
+1. Click **Add Domain**
+2. Enter your domain (e.g., `yourcompany.com`)
+3. Copy the verification DNS record
 
 ### Verifying Domain
 
-Add TXT record to DNS:
+Add the TXT record to your DNS:
 ```
 authvital-verification=verify-token-here
 ```
 
-Then verify:
-
-```typescript
-await authvital.domains.verify('domain-id');
-// { verified: true, verifiedAt: '2024-01-15T...' }
-```
+Then click **Verify** in the Admin Dashboard.
 
 ### Auto-Join Domain
 
-Enable automatic tenant membership for verified domains:
-
-```typescript
-await authvital.domains.update('domain-id', {
-  autoJoin: true,
-  defaultRole: 'member',
-});
-```
-
-New users with `@yourcompany.com` email automatically join.
+Enable automatic tenant membership for verified domains via the Admin Dashboard settings.
 
 ## License Management
 
-### Viewing Subscription
+### Viewing Tenant License Overview (M2M)
 
 ```typescript
-const subscription = await authvital.subscriptions.get({
-  tenantId: 'tenant-id',
-  applicationId: 'app-id',
-});
+// Uses M2M client credentials - no request needed
+const overview = await authvital.licenses.getTenantOverview('tenant-id');
 // {
-//   licenseType: { name: 'Pro', features: {...} },
-//   quantityPurchased: 10,
-//   status: 'ACTIVE',
-//   currentPeriodEnd: '2024-12-31T...'
+//   tenantId: 'tenant-123',
+//   tenantName: 'Acme Corporation',
+//   totalSeatsOwned: 50,
+//   totalSeatsAssigned: 35,
+//   totalSeatsAvailable: 15,
+//   subscriptions: [...]
 // }
 ```
 
 ### Viewing License Assignments
 
 ```typescript
-const assignments = await authvital.licenses.list({
-  tenantId: 'tenant-id',
-  applicationId: 'app-id',
-});
-// [{ userId, user: { email, name }, assignedAt, assignedBy }]
+// Get all license holders for an application (uses JWT)
+const holders = await authvital.licenses.getHolders(req, 'app-id');
+// [{ userId, email, licenseType, assignedAt, ... }]
+
+// Or get all licenses for a specific user
+const userLicenses = await authvital.licenses.listForUser(req, 'user-id');
 ```
 
-### Assigning Licenses
+### Granting Licenses
 
 ```typescript
-// Assign to user
-await authvital.licenses.assign({
-  tenantId: 'tenant-id',
-  applicationId: 'app-id',
+// Grant a license to a user (uses JWT, tenantId from token)
+await authvital.licenses.grant(req, {
   userId: 'user-id',
+  applicationId: 'app-id',
+  licenseTypeId: 'license-type-id',
 });
 ```
 
-### Unassigning Licenses
+### Revoking Licenses
 
 ```typescript
-// Free up a seat
-await authvital.licenses.unassign({
-  tenantId: 'tenant-id',
-  applicationId: 'app-id',
+// Revoke a license from a user
+await authvital.licenses.revoke(req, {
   userId: 'user-id',
+  applicationId: 'app-id',
 });
 ```
 
-### License Statistics
+### License Usage Statistics
 
 ```typescript
-const stats = await authvital.licenses.getStats({
-  tenantId: 'tenant-id',
-  applicationId: 'app-id',
-});
+// Get usage overview for tenant (uses JWT)
+const usage = await authvital.licenses.getUsageOverview(req);
 // {
-//   purchased: 10,
-//   assigned: 7,
-//   available: 3
+//   totalSeats: 10,
+//   seatsAssigned: 7,
+//   utilization: 70,
+//   ...
 // }
+
+// Get usage trends over time
+const trends = await authvital.licenses.getUsageTrends(req, 30); // Last 30 days
 ```
 
 ## Tenant Settings
@@ -336,13 +336,24 @@ await authvital.tenants.update('tenant-id', {
 
 **Only the current Owner can:**
 
-```typescript
-// Transfer ownership to another admin
-await authvital.tenants.transferOwnership({
-  tenantId: 'tenant-id',
-  newOwnerId: 'user-id', // Must be existing admin
-});
-```
+!!! note "API Endpoint - No SDK Method"
+    Tenant ownership transfer is available via the REST API but not yet in the SDK.
+    
+    ```typescript
+    // Direct API call (until SDK method is added)
+    const response = await fetch(`${authVitalHost}/api/tenants/${tenantId}/transfer-ownership`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        newOwnerId: 'usr_newowner123',
+      }),
+    });
+    ```
+    
+    **Required permission:** `tenant:admin` or current owner
 
 After transfer:
 - New owner becomes Owner role
@@ -352,17 +363,26 @@ After transfer:
 
 View recent activity in your tenant:
 
-```typescript
-const events = await authvital.audit.list({
-  tenantId: 'tenant-id',
-  limit: 50,
-});
-// [
-//   { action: 'member.invited', actor: {...}, target: {...}, timestamp: '...' },
-//   { action: 'sso.configured', actor: {...}, timestamp: '...' },
-//   ...
-// ]
-```
+!!! note "Audit Logs"
+    **License audit logs** are available via the SDK:
+    
+    ```typescript
+    // License-specific audit log
+    const auditLog = await authvital.licenses.getAuditLog(req, {
+      limit: 50,
+      offset: 0,
+    });
+    ```
+    
+    **General audit logs** are available via the REST API:
+    
+    ```typescript
+    // Direct API call for general audit events
+    const response = await fetch(`${authVitalHost}/api/tenants/${tenantId}/audit-log`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    const events = await response.json();
+    ```
 
 ## Building an Admin UI
 
@@ -371,7 +391,7 @@ const events = await authvital.audit.list({
 ```tsx
 function TenantAdminPanel() {
   const { tenantId } = useCurrentTenant();
-  const { user } = useAuthVital();
+  const { user } = useAuth();
   
   // Check admin access
   const membership = user.memberships.find(m => m.tenantId === tenantId);

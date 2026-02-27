@@ -401,5 +401,5 @@ Multiple keys may be present during rotation. Validate using `kid` header.
 ## Related Documentation
 
 - [OAuth Flow](../concepts/oauth-flow.md)
-- [Server SDK](../sdk/server-sdk.md)
+- [Server SDK](../sdk/server-sdk/index.md)
 - [Access Control](../concepts/access-control.md)

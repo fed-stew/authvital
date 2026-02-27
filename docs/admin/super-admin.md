@@ -327,41 +327,85 @@ View at **Settings** → **Audit Log**
 
 ## Troubleshooting
 
-### Locked Out
+### Emergency Recovery
 
-If you're locked out of admin:
+If you're locked out of your super admin account, use these recovery options in order:
 
-1. Check if another super admin can reset your password
-2. Use database access (emergency only):
+1. **Ask another super admin** to reset your password or disable your MFA
+2. **Use the CLI recovery tool** (recommended for self-recovery)
 
-```sql
--- Reset password to temporary value
-UPDATE super_admins 
-SET password_hash = '$2b$10$...',  -- bcrypt hash of temp password
-    must_change_password = true
-WHERE email = 'your@email.com';
+### CLI Recovery Tool (Recommended)
+
+AuthVital includes a secure CLI tool for emergency admin recovery. This is the **preferred method** when another super admin isn't available.
+
+#### Reset Password
+
+Generate a new temporary password:
+
+```bash
+pnpm recover-admin reset-password --email admin@example.com
 ```
 
-### MFA Issues
+This will:
+- Generate a secure temporary password
+- Set `must_change_password = true` (forces password change on next login)
+- Log the action to the audit trail
+- Display the temporary password in the terminal
 
-If you can't access MFA:
+#### Disable MFA
 
-1. Use backup code
-2. Another super admin can disable your MFA
-3. Database emergency reset:
+Remove MFA from a locked-out account:
 
-```sql
-UPDATE super_admins 
-SET mfa_enabled = false,
-    mfa_secret = null,
-    mfa_backup_codes = '{}'
-WHERE email = 'your@email.com';
+```bash
+pnpm recover-admin disable-mfa --email admin@example.com
 ```
+
+This will:
+- Disable MFA on the account
+- Clear the MFA secret and backup codes
+- Log the action to the audit trail
+
+!!! warning "Re-enable MFA immediately"
+    After regaining access, enable MFA again right away. Don't leave your account unprotected!
+
+#### Unlock Account
+
+Unlock an account that's been locked due to failed login attempts:
+
+```bash
+pnpm recover-admin unlock-account --email admin@example.com
+```
+
+This will:
+- Reset the failed login counter
+- Clear any account lockout
+- Log the action to the audit trail
+
+#### CLI Options
+
+| Flag | Description |
+|------|-------------|
+| `--email` | Email of the super admin account |
+| `--reason` | Optional reason for audit log |
+| `--force` | Skip confirmation prompt |
+
+Example with reason:
+
+```bash
+pnpm recover-admin reset-password --email admin@example.com --reason "Lost phone with MFA app"
+```
+
+### Direct Database Access
+
+!!! note "Direct database access is no longer documented"
+    Direct database access is no longer documented. Use the CLI recovery tool instead.
+    
+    The CLI tool (`pnpm recover-admin`) provides safe, audited recovery for all emergency scenarios including password resets, MFA removal, and account unlocking.
 
 ---
 
 ## Related Documentation
 
 - [Application Setup](./application-setup.md)
-- [Security Best Practices](../security/best-practices.md)
+- [Security Best Practices](../security/best-practices/index.md)
 - [Configuration Reference](../getting-started/configuration.md)

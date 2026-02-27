@@ -8,6 +8,46 @@
 https://your-authvital.com/api
 ```
 
+## Rate Limiting
+
+AuthVital applies rate limiting to authentication endpoints to prevent brute-force attacks:
+
+| Endpoint | Limit | Window | Lockout |
+|----------|-------|--------|--------|
+| `POST /auth/login` | 5 attempts | 15 minutes | 30 min after 10 failures |
+| `POST /auth/register` | 10 requests | 1 hour | Per IP |
+| `POST /auth/forgot-password` | 3 requests | 1 hour | Per email |
+| `POST /mfa/challenge` | 5 attempts | 5 minutes | Per session |
+
+### Rate Limit Headers
+
+All responses include rate limit information:
+
+```
+X-RateLimit-Limit: 5
+X-RateLimit-Remaining: 3
+X-RateLimit-Reset: 1705320000
+```
+
+### Handling Rate Limits
+
+```typescript
+if (response.status === 429) {
+  const retryAfter = response.headers.get('Retry-After');
+  showError(`Too many attempts. Please wait ${retryAfter} seconds.`);
+}
+```
+
+!!! warning "Additional Protection Recommended"
+    While AuthVital rate-limits its own endpoints, you should also:
+    
+    - Rate-limit your application's API endpoints
+    - Implement CAPTCHA after failed attempts
+    - Monitor for distributed attacks across IPs
+    - Consider geographic restrictions for sensitive operations
+
+---
+
 ## Endpoints Overview
 
 | Endpoint | Method | Description |
@@ -46,11 +86,40 @@ Register a new user account.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `email` | string | Yes | User's email address |
-| `password` | string | Yes | Password (min 8 chars) |
+| `password` | string | Yes | See [Password Requirements](#password-requirements) below |
 | `givenName` | string | No* | First name |
 | `familyName` | string | No* | Last name |
 
 *May be required based on instance settings.
+
+### Password Requirements
+
+| Requirement | Value | Notes |
+|-------------|-------|-------|
+| Minimum length | 8 characters | NIST 800-63B compliant |
+| Maximum length | 128 characters | Prevents DoS via bcrypt |
+| Character types | Any Unicode | No artificial complexity rules |
+| Breach checking | Recommended | Integrate with HaveIBeenPwned API |
+
+!!! tip "Password Strength Best Practices"
+    AuthVital follows [NIST 800-63B](https://pages.nist.gov/800-63-3/sp800-63b.html) guidelines:
+    
+    - ✅ Minimum 8 characters (longer is better)
+    - ✅ Allow all Unicode characters including spaces
+    - ✅ No arbitrary complexity rules (uppercase, symbols, etc.)
+    - ✅ Check against breached password lists
+    - ✅ Show password strength meter in UI
+    
+    **Recommended**: Integrate breach checking in your registration flow:
+    ```typescript
+    // Check password against HaveIBeenPwned before registration
+    const isBreached = await checkHIBP(password);
+    if (isBreached) {
+      return res.status(400).json({ 
+        error: 'This password has appeared in a data breach. Please choose another.' 
+      });
+    }
+    ```
 
 **Response (201 Created):**
 
@@ -445,67 +514,121 @@ Authorization: Bearer <access_token>
 
 ---
 
-## Code Examples
+## SDK Examples
 
-### JavaScript
-
-```javascript
-// Register
-const response = await fetch('/api/auth/register', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    email: 'user@example.com',
-    password: 'securePassword123',
-    givenName: 'Jane',
-    familyName: 'Smith',
-  }),
-});
-
-// Login
-const loginResponse = await fetch('/api/auth/login', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  credentials: 'include', // Important for cookies
-  body: JSON.stringify({
-    email: 'user@example.com',
-    password: 'securePassword123',
-  }),
-});
-
-const result = await loginResponse.json();
-
-if (result.mfaRequired) {
-  // Show MFA input, then...
-  await fetch('/api/mfa/challenge', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({
-      challengeToken: result.mfaChallengeToken,
-      code: userEnteredCode,
-    }),
-  });
-}
-```
-
-### cURL
+Use the `@authvital/sdk` package for type-safe, easy integration:
 
 ```bash
-# Register
-curl -X POST https://auth.example.com/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email":"user@example.com","password":"securePassword123"}'
+npm install @authvital/sdk
+```
 
-# Login
-curl -X POST https://auth.example.com/api/auth/login \
-  -H "Content-Type: application/json" \
-  -c cookies.txt \
-  -d '{"email":"user@example.com","password":"securePassword123"}'
+### Registration
 
-# Get current user
-curl https://auth.example.com/api/auth/me \
-  -H "Authorization: Bearer eyJ..."
+```typescript
+import { createAuthVital } from '@authvital/sdk/server';
+
+const authvital = createAuthVital({
+  authVitalHost: process.env.AUTHVITAL_HOST!,
+  clientId: process.env.AUTHVITAL_CLIENT_ID!,
+  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+});
+
+// Register a new user
+app.post('/api/auth/register', async (req, res) => {
+  const user = await authvital.auth.register({
+    email: req.body.email,
+    password: req.body.password,
+    givenName: req.body.givenName,
+    familyName: req.body.familyName,
+  });
+  res.json(user);
+});
+```
+
+### Login with MFA Support
+
+```typescript
+app.post('/api/auth/login', async (req, res) => {
+  const result = await authvital.auth.login({
+    email: req.body.email,
+    password: req.body.password,
+  });
+
+  if ('mfaRequired' in result && result.mfaRequired) {
+    // User needs to complete MFA challenge
+    res.json({ 
+      mfaRequired: true, 
+      challengeToken: result.mfaChallengeToken 
+    });
+  } else {
+    // Login successful - set cookie and return user
+    res.cookie('access_token', result.accessToken, { httpOnly: true, secure: true });
+    res.json({ user: result.user });
+  }
+});
+```
+
+### Complete MFA Challenge
+
+```typescript
+app.post('/api/auth/mfa-challenge', async (req, res) => {
+  const tokens = await authvital.mfa.verifyChallenge({
+    challengeToken: req.body.challengeToken,
+    code: req.body.code,
+  });
+  
+  res.cookie('access_token', tokens.accessToken, { httpOnly: true, secure: true });
+  res.json({ success: true });
+});
+```
+
+### MFA Setup
+
+```typescript
+// Start MFA setup
+app.post('/api/mfa/setup', async (req, res) => {
+  const setup = await authvital.mfa.setup(req);
+  res.json({
+    qrCodeUrl: setup.qrCodeUrl,
+    secret: setup.secret,
+  });
+});
+
+// Verify and enable MFA
+app.post('/api/mfa/verify', async (req, res) => {
+  const result = await authvital.mfa.verifySetup(req, {
+    code: req.body.code,
+  });
+  res.json({ mfaEnabled: result.mfaEnabled });
+});
+```
+
+### Password Reset
+
+```typescript
+// Request password reset
+app.post('/api/auth/forgot-password', async (req, res) => {
+  await authvital.auth.forgotPassword(req.body.email);
+  res.json({ success: true });
+});
+
+// Reset password with token
+app.post('/api/auth/reset-password', async (req, res) => {
+  await authvital.auth.resetPassword({
+    token: req.body.token,
+    password: req.body.password,
+  });
+  res.json({ success: true });
+});
+```
+
+### Get Current User
+
+```typescript
+app.get('/api/me', async (req, res) => {
+  const user = await authvital.users.getCurrentUser(req);
+  res.json(user);
+});
 ```
 
 ---
@@ -514,4 +637,4 @@ curl https://auth.example.com/api/auth/me \
 
 - [OAuth Endpoints](./oauth-endpoints.md)
 - [MFA Guide](../security/mfa.md)
-- [Server SDK](../sdk/server-sdk.md)
+- [Server SDK](../sdk/server-sdk/index.md)

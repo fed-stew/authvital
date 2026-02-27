@@ -85,10 +85,44 @@ nav:
     - Licensing: concepts/licensing.md
     - Access Control (RBAC): concepts/access-control.md
   - SDK Integration:
-    - Complete Setup Guide: sdk/complete-setup-guide.md
-    - Server SDK: sdk/server-sdk.md
-    - Client SDK (React): sdk/client-sdk.md
-    - Identity Sync: sdk/user-sync.md
+    - Setup Guide:
+      - Overview: sdk/setup/index.md
+      - Prerequisites: sdk/setup/prerequisites.md
+      - Backend Setup: sdk/setup/backend.md
+      - Database & Sync: sdk/setup/database.md
+      - Frontend Setup: sdk/setup/frontend.md
+      - Common Patterns: sdk/setup/patterns.md
+    - Server SDK:
+      - Overview: sdk/server-sdk/index.md
+      - JWT Validation: sdk/server-sdk/jwt-validation.md
+      - OAuth Flow: sdk/server-sdk/oauth-flow.md
+      - Middleware: sdk/server-sdk/middleware.md
+      - Namespaces:
+        - Overview: sdk/server-sdk/namespaces/overview.md
+        - Auth: sdk/server-sdk/namespaces/auth.md
+        - Users: sdk/server-sdk/namespaces/users.md
+        - MFA: sdk/server-sdk/namespaces/mfa.md
+        - SSO: sdk/server-sdk/namespaces/sso.md
+        - Tenants: sdk/server-sdk/namespaces/tenants.md
+        - Invitations: sdk/server-sdk/namespaces/invitations.md
+        - Memberships: sdk/server-sdk/namespaces/memberships.md
+        - Permissions: sdk/server-sdk/namespaces/permissions.md
+        - Licenses: sdk/server-sdk/namespaces/licenses.md
+        - Sessions: sdk/server-sdk/namespaces/sessions.md
+        - Entitlements: sdk/server-sdk/namespaces/entitlements.md
+        - Admin: sdk/server-sdk/namespaces/admin.md
+    - Client SDK (React):
+      - Overview: sdk/client-sdk/index.md
+      - Hooks Reference: sdk/client-sdk/hooks.md
+      - Components: sdk/client-sdk/components.md
+      - Patterns & Types: sdk/client-sdk/patterns.md
+    - Identity Sync:
+      - Overview: sdk/identity-sync/index.md
+      - Prisma Schema: sdk/identity-sync/prisma-schema.md
+      - Sync Handler: sdk/identity-sync/sync-handler.md
+      - Tenant Isolation: sdk/identity-sync/tenant-isolation.md
+      - Event Details: sdk/identity-sync/events.md
+      - Advanced: sdk/identity-sync/advanced.md
     - Webhooks:
       - Overview: sdk/webhooks.md
       - Event Types: sdk/webhooks-events.md
@@ -109,7 +143,14 @@ nav:
   - Security:
     - MFA: security/mfa.md
     - SSO: security/sso.md
-    - Best Practices: security/best-practices.md
+    - Best Practices:
+      - Overview: security/best-practices/index.md
+      - Authentication: security/best-practices/authentication.md
+      - OAuth Security: security/best-practices/oauth.md
+      - Infrastructure: security/best-practices/infrastructure.md
+      - Access Control: security/best-practices/access-control.md
+      - Monitoring: security/best-practices/monitoring.md
+      - Checklist: security/best-practices/checklist.md
   - Reference:
     - Data Models: reference/data-models.md
     - Error Codes: reference/error-codes.md

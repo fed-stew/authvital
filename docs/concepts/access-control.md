@@ -244,30 +244,26 @@ Control which users can access which applications:
 
 ### Managing Access
 
+App access is managed through the **AuthVital Admin Dashboard** or via the **Invitations API**:
+
 ```typescript
-// Grant access to user
-await authvital.appAccess.grant({
-  userId: 'user-id',
-  tenantId: 'tenant-id',
-  applicationId: 'app-id',
-  roleIds: ['role-admin'], // Optional: assign roles
+// Grant access via invitation
+const { sub, expiresAt } = await authvital.invitations.send(request, {
+  email: 'user@example.com',
+  givenName: 'John',
+  familyName: 'Doe',
+  roleId: 'role-admin',  // Optional: assign app role
 });
 
-// Revoke access
-await authvital.appAccess.revoke({
-  userId: 'user-id',
-  tenantId: 'tenant-id',
-  applicationId: 'app-id',
-});
-
-// Update roles
-await authvital.appAccess.updateRoles({
-  userId: 'user-id',
-  tenantId: 'tenant-id',
-  applicationId: 'app-id',
-  roleIds: ['role-manager'],
+// List members with their app access
+const { memberships } = await authvital.memberships.listForApplication(request, {
+  status: 'ACTIVE',
 });
 ```
+
+!!! note "Admin Dashboard for Direct Access Management"
+    For directly granting, revoking, or updating app access without invitations,
+    use the AuthVital Admin Dashboard under **Tenants → [Tenant] → Applications**.
 
 ## SDK Usage
 
@@ -275,9 +271,7 @@ await authvital.appAccess.updateRoles({
 
 ```typescript
 // Server-side
-const { allowed } = await authvital.permissions.check(req, {
-  permission: 'projects:delete',
-});
+const { allowed } = await authvital.permissions.check(req, 'projects:delete');
 
 if (!allowed) {
   return res.status(403).json({ error: 'Forbidden' });
@@ -287,21 +281,18 @@ if (!allowed) {
 ### Check Multiple Permissions
 
 ```typescript
+// Use checkMany to check multiple permissions at once
+const { results } = await authvital.permissions.checkMany(req, [
+  'projects:read',
+  'projects:update',
+]);
+// results: { 'projects:read': true, 'projects:update': false }
+
 // Check ALL permissions (must have all)
-const { allowed } = await authvital.permissions.checkAll(req, {
-  permissions: ['projects:read', 'projects:update'],
-});
+const hasAll = Object.values(results).every(v => v);
 
 // Check ANY permission (must have at least one)
-const { allowed } = await authvital.permissions.checkAny(req, {
-  permissions: ['projects:delete', 'admin:*'],
-});
-
-// Get individual results
-const results = await authvital.permissions.checkMany(req, {
-  permissions: ['projects:read', 'projects:write', 'admin:*'],
-});
-// { 'projects:read': true, 'projects:write': true, 'admin:*': false }
+const hasAny = Object.values(results).some(v => v);
 ```
 
 ### Check Role
@@ -323,9 +314,8 @@ const isAdminOrManager = ['admin', 'manager'].some(
 ```typescript
 function requirePermission(...permissions: string[]) {
   return async (req, res, next) => {
-    const { allowed } = await authvital.permissions.checkAll(req, {
-      permissions,
-    });
+    const { results } = await authvital.permissions.checkMany(req, permissions);
+    const allowed = Object.values(results).every(v => v);
     
     if (!allowed) {
       return res.status(403).json({
@@ -388,6 +378,18 @@ async deleteProject(@Param('id') id: string) {
 
 ## React Integration
 
+!!! warning "⚠️ UI Components Are For Display Only"
+    The `HasPermission` and `HasRole` components below control **UI visibility only**.
+    
+    **They do NOT enforce security!** An attacker can bypass these by calling your API directly.
+    
+    **You MUST also enforce permissions server-side** using the Express/NestJS middleware shown above.
+    
+    ```
+    UI Components = "Should I show this button?"
+    Server Middleware = "Is this request allowed?" ← Security enforcement
+    ```
+
 ### Permission Component
 
 ```tsx
@@ -400,7 +402,7 @@ function HasPermission({
   children: React.ReactNode;
   fallback?: React.ReactNode;
 }) {
-  const { user } = useAuthVital();
+  const { user } = useAuth();
   
   const permissions = Array.isArray(permission) ? permission : [permission];
   const userPerms = user?.app_permissions || [];
@@ -435,7 +437,7 @@ function HasRole({
   children: React.ReactNode;
   fallback?: React.ReactNode;
 }) {
-  const { user } = useAuthVital();
+  const { user } = useAuth();
   
   const roles = Array.isArray(role) ? role : [role];
   const hasRole = roles.some(r => user?.app_roles?.includes(r));
@@ -453,7 +455,7 @@ function HasRole({
 
 ```tsx
 function usePermissions() {
-  const { user } = useAuthVital();
+  const { user } = useAuth();
   const userPerms = user?.app_permissions || [];
   
   const can = useCallback((permission: string) => {
@@ -522,20 +524,19 @@ await authvital.roles.update('role-id', {
 ### Assign Role to User
 
 ```typescript
-// Via membership (tenant role)
-await authvital.memberships.setTenantRole({
-  membershipId: 'membership-id',
-  roleSlug: 'admin',
-});
-
-// Via app access (application role)
-await authvital.appAccess.updateRoles({
-  userId: 'user-id',
-  tenantId: 'tenant-id',
-  applicationId: 'app-id',
-  roleIds: ['role-qa', 'role-member'],
-});
+// Update a member's tenant role
+await authvital.memberships.setMemberRole(
+  request,          // HTTP request for JWT validation
+  'membership-id',  // Membership ID to update
+  'admin'           // New role slug
+);
 ```
+
+!!! info "Pre-flight Validation"
+    The SDK performs permission checks before calling the API:
+    - Only owners and admins can change roles
+    - Admins cannot promote anyone to owner
+    - The IDP performs the final authoritative check
 
 ## JWT Claims
 
@@ -580,5 +581,5 @@ Roles and permissions are included in the JWT:
 
 - [Multi-Tenancy](./multi-tenancy.md)
 - [Licensing System](./licensing.md)
-- [Server SDK](../sdk/server-sdk.md)
+- [Server SDK](../sdk/server-sdk/index.md)
 - [JWT Claims](../reference/jwt-claims.md)
