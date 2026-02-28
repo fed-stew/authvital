@@ -1,0 +1,70 @@
+// =============================================================================
+// RBAC Models
+// =============================================================================
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String
+  description String?
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  applicationId   String           @map("application_id")
+  application     Application      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  membershipRoles MembershipRole[]
+
+  @@unique([slug, applicationId])
+  @@index([applicationId])
+  @@map("roles")
+}
+
+model MembershipRole {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now()) @map("created_at")
+
+  membershipId String     @map("membership_id")
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  roleId       String     @map("role_id")
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, roleId])
+  @@index([membershipId])
+  @@index([roleId])
+  @@map("membership_roles")
+}
+
+/// TenantRole: Instance-wide roles (not tied to any application)
+/// These roles define what users can do at the tenant level (e.g., billing, member management)
+model TenantRole {
+  id          String   @id @default(cuid())
+  name        String // "Owner", "Admin", "Member"
+  slug        String   @unique // "owner", "admin", "member"
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system") // System roles cannot be deleted
+  permissions String[] @default([]) // Array of permission actions
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  membershipTenantRoles MembershipTenantRole[]
+
+  @@map("tenant_roles")
+}
+
+/// MembershipTenantRole: Join table linking memberships to tenant roles
+/// A membership can have multiple tenant roles (e.g., Admin + Billing Manager)
+model MembershipTenantRole {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now()) @map("created_at")
+
+  membershipId String     @map("membership_id")
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  tenantRoleId String     @map("tenant_role_id")
+  tenantRole   TenantRole @relation(fields: [tenantRoleId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, tenantRoleId])
+  @@index([membershipId])
+  @@index([tenantRoleId])
+  @@map("membership_tenant_roles")
+}

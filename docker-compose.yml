@@ -1,38 +1,32 @@
 # =============================================================================
-# AuthVital - Docker Compose with Nginx
+# AuthVital - Docker Compose
 # =============================================================================
 #
-# Usage:
+# Quick Start:
+#   1. Copy .env.example to .env and configure
+#   2. docker compose up -d
+#   3. Access at http://localhost:8080
+#
+# Commands:
 #   docker compose up -d          # Start all services
 #   docker compose logs -f api    # Follow API logs
 #   docker compose down            # Stop all services
 #
+# Services:
+#   - postgres: PostgreSQL database
+#   - api: NestJS server (API + frontend + OAuth)
+#
 # =============================================================================
 
 services:
-  # ===========================================================================
-  # Nginx Reverse Proxy (only exposed service)
-  # ===========================================================================
-  nginx:
-    image: nginx:alpine
-    container_name: authvital-nginx
-    depends_on:
-      api:
-        condition: service_healthy
-    ports:
-      - "127.0.0.2:80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    networks:
-      - authvital
-    restart: unless-stopped
-
   # ===========================================================================
   # PostgreSQL Database
   # ===========================================================================
   postgres:
     image: postgres:16-alpine
     container_name: authvital-postgres
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_USER: ${DB_USERNAME:-authvital}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
@@ -49,7 +43,7 @@ services:
     restart: unless-stopped
 
   # ===========================================================================
-  # AuthVital API (internal only)
+  # AuthVital API (serves frontend, API, and OAuth)
   # ===========================================================================
   api:
     build:
@@ -59,8 +53,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    expose:
-      - "8000"
+    ports:
+      - "8080:8000"
     environment:
       # Database
       DATABASE_URL: postgresql://${DB_USERNAME:-authvital}:${DB_PASSWORD:?DB_PASSWORD is required}@postgres:5432/${DB_DATABASE:-authvital}
@@ -72,13 +66,13 @@ services:
       # Application
       NODE_ENV: ${NODE_ENV:-production}
       PORT: 8000
-      BASE_URL: ${BASE_URL:-http://localhost}
+      BASE_URL: ${BASE_URL:-http://localhost:8080}
       
       # Cookie security - set to 'false' for local HTTP dev
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       
       # Security
-      SIGNING_KEY_SECRET: ${SIGNING_KEY_SECRET:?SIGNING_KEY_SECRET is required - generate with: openssl rand -hex 32}
+      SIGNING_KEY_SECRET: "${SIGNING_KEY_SECRET:?SIGNING_KEY_SECRET is required - generate with openssl rand -hex 32}"
       
       # CORS
       CORS_ORIGINS: ${CORS_ORIGINS:-}

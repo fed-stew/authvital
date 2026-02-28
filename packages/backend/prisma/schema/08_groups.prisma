@@ -1,0 +1,40 @@
+// =============================================================================
+// Groups (Tenant-Scoped)
+// =============================================================================
+
+/// Group: Named collection of members within a tenant
+/// Used for group-based access control and permissions
+model Group {
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name        String // Display name (e.g., "Engineering Team")
+  slug        String // URL-safe identifier (e.g., "engineering")
+  description String? // Optional description
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  members MembershipGroup[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@map("groups")
+}
+
+/// MembershipGroup: Join table linking memberships to groups
+model MembershipGroup {
+  id           String     @id @default(cuid())
+  membershipId String     @map("membership_id")
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  groupId      String     @map("group_id")
+  group        Group      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  assignedAt DateTime @default(now()) @map("assigned_at")
+
+  @@unique([membershipId, groupId])
+  @@index([membershipId])
+  @@index([groupId])
+  @@map("membership_groups")
+}

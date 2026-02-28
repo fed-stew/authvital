@@ -1,0 +1,224 @@
+// =============================================================================
+// License Pool System
+// =============================================================================
+// Core Philosophy: Tenant = Wallet, User = License Holder
+// Tenants purchase Capacity (Inventory), Admins assign that capacity to Users
+// =============================================================================
+
+/// LicenseType: Defines a license type for an application (e.g., "Pro", "Standard", "Enterprise")
+/// This is the CATALOG - what license types are available
+model LicenseType {
+  id          String  @id @default(cuid())
+  name        String // Display name: "Pro", "Standard", "Enterprise"
+  slug        String // URL-safe identifier: "pro", "standard", "enterprise"
+  description String?
+
+  // Display price for UI (e.g., "$29/mo", "Contact Sales")
+  displayPrice String? @map("display_price")
+
+  // Which application this license type belongs to
+  applicationId String      @map("application_id")
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  // Feature flags for this license type (e.g., {"sso": true, "audit_logs": false, "api_access": true})
+  features Json @default("{}") @map("features")
+
+  // Display ordering (for UI)
+  displayOrder Int @default(0) @map("display_order") // Higher = better tier
+
+  // ==========================================================================
+  // LIMITS (enforced by system)
+  // ==========================================================================
+
+  // Maximum tenant members allowed with this license type (null = unlimited)
+  maxMembers Int? @map("max_members")
+
+  // For future use:
+  // maxStorageMb Int? @map("max_storage_mb")
+  // maxApiCallsPerMonth Int? @map("max_api_calls_per_month")
+
+  // Status
+  status LicenseTypeStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Subscriptions using this license type
+  appSubscriptions AppSubscription[]
+
+  // Reverse relation for default license type
+  applicationsAsDefault Application[] @relation("DefaultLicenseType")
+
+  @@unique([applicationId, slug]) // Unique slug per application
+  @@index([applicationId])
+  @@index([status])
+  @@map("license_types")
+}
+
+enum LicenseTypeStatus {
+  DRAFT // Not visible, still being configured
+  ACTIVE // Available for purchase
+  ARCHIVED // No new purchases, existing subscriptions continue
+  HIDDEN // Only for custom/enterprise deals
+}
+
+/// AppSubscription: The Tenant's "Wallet" of licenses for an app+license type
+/// This is the INVENTORY - what the tenant has purchased
+model AppSubscription {
+  id String @id @default(cuid())
+
+  // Which tenant owns this subscription (Tenant = Wallet)
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Which application + license type this subscription is for
+  applicationId String      @map("application_id")
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  licenseTypeId String      @map("license_type_id")
+  licenseType   LicenseType @relation(fields: [licenseTypeId], references: [id], onDelete: Restrict)
+
+  // ==========================================================================
+  // INVENTORY TRACKING
+  // ==========================================================================
+  quantityPurchased Int @default(0) @map("quantity_purchased")
+  quantityAssigned  Int @default(0) @map("quantity_assigned") // Cached count of assignments
+
+  // Subscription period
+  status             SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart DateTime           @default(now()) @map("current_period_start")
+  currentPeriodEnd   DateTime           @map("current_period_end")
+  autoRenew          Boolean            @default(true) @map("auto_renew")
+  canceledAt         DateTime?          @map("canceled_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // License assignments from this subscription
+  licenseAssignments LicenseAssignment[]
+
+  // A tenant can have multiple license types for the SAME app (e.g., 5 Pro + 10 Standard)
+  @@unique([tenantId, applicationId, licenseTypeId])
+  @@index([tenantId])
+  @@index([applicationId])
+  @@index([licenseTypeId])
+  @@index([status])
+  @@map("app_subscriptions")
+}
+
+enum SubscriptionStatus {
+  ACTIVE // Currently active and paid
+  TRIALING // In trial period
+  PAST_DUE // Payment failed, grace period
+  CANCELED // Canceled, access until period end
+  EXPIRED // Period ended, no access
+}
+
+/// LicenseAssignment: Explicit binding of a USER to a LICENSE
+/// This is the USAGE - who is consuming the inventory
+/// "Alice has a Pro seat for project-board"
+model LicenseAssignment {
+  id String @id @default(cuid())
+
+  // Who holds this license (User = License Holder)
+  userId String @map("user_id")
+
+  // Which tenant context (for the unique constraint)
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Which application (denormalized for the unique constraint)
+  applicationId String @map("application_id")
+
+  // Which subscription this license comes from
+  subscriptionId String          @map("subscription_id")
+  subscription   AppSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  // Assignment metadata
+  assignedAt   DateTime @default(now()) @map("assigned_at")
+  assignedById String?  @map("assigned_by_id") // Admin who granted this license
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // License type info (denormalized for audit)
+  licenseTypeId   String @map("license_type_id")
+  licenseTypeName String @map("license_type_name")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Reverse relation for AppAccess
+  appAccess AppAccess?
+
+  // ==========================================================================
+  // CRITICAL CONSTRAINT: A user can only have ONE license per app per tenant
+  // They cannot be Pro AND Standard for the same app simultaneously
+  // ==========================================================================
+  @@unique([tenantId, userId, applicationId])
+  @@index([tenantId])
+  @@index([userId])
+  @@index([subscriptionId])
+  @@index([applicationId])
+  @@map("license_assignments")
+}
+
+// =============================================================================
+// APPLICATION ACCESS (Entitlement)
+// =============================================================================
+// Core Philosophy: Access is EXPLICIT - every user's access to every app is recorded
+// Separate from LicenseAssignment (seat consumption) and MembershipRole (permissions)
+// =============================================================================
+
+/// AppAccess: Explicit grant of application access to a user within a tenant
+/// This is the ENTITLEMENT - "User X can access App Y in Tenant Z"
+model AppAccess {
+  id String @id @default(cuid())
+
+  userId        String @map("user_id")
+  tenantId      String @map("tenant_id")
+  applicationId String @map("application_id")
+
+  // How was this access granted?
+  accessType AccessType @default(GRANTED) @map("access_type")
+
+  // Current status
+  status AccessStatus @default(ACTIVE)
+
+  // Audit fields
+  grantedAt   DateTime  @default(now()) @map("granted_at")
+  grantedById String?   @map("granted_by_id") // Who granted access (null = system)
+  revokedAt   DateTime? @map("revoked_at")
+  revokedById String?   @map("revoked_by_id")
+
+  // Relations
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // For PER_SEAT apps: optional link to license assignment
+  licenseAssignmentId String?            @unique @map("license_assignment_id")
+  licenseAssignment   LicenseAssignment? @relation(fields: [licenseAssignmentId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, tenantId, applicationId])
+  @@index([tenantId, applicationId])
+  @@index([userId])
+  @@index([status])
+  @@map("app_access")
+}
+
+enum AccessType {
+  GRANTED // Explicitly granted by admin
+  INVITED // Granted via invitation
+  AUTO_FREE // Auto-granted for FREE app
+  AUTO_TENANT // Auto-granted for TENANT_WIDE app  
+  AUTO_OWNER // Auto-granted to tenant owner on signup
+}
+
+enum AccessStatus {
+  ACTIVE
+  REVOKED
+  SUSPENDED
+}

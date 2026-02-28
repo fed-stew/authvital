@@ -1,0 +1,20 @@
+{
+  "name": "authvital-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "build:shared": "npm run build -w @authvital/shared",
+    "dev:backend": "npm run start:dev -w @authvital/backend",
+    "dev:frontend": "npm run dev -w @authvital/frontend",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "clean": "rm -rf packages/*/dist packages/*/node_modules node_modules"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -123,6 +123,11 @@ nav:
       - Tenant Isolation: sdk/identity-sync/tenant-isolation.md
       - Event Details: sdk/identity-sync/events.md
       - Advanced: sdk/identity-sync/advanced.md
+    - Organization Sync:
+      - Overview: sdk/organization-sync/index.md
+      - Event Details: sdk/organization-sync/events.md
+      - Prisma Schema: sdk/organization-sync/prisma-schema.md
+      - Use Cases: sdk/organization-sync/use-cases.md
     - Webhooks:
       - Overview: sdk/webhooks.md
       - Event Types: sdk/webhooks-events.md

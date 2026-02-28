@@ -11,6 +11,9 @@ AuthVital emits webhooks for key events across your identity system:
 - **Invitation Events** - Invite lifecycle
 - **App Access Events** - Application role assignments
 - **License Events** - License assignments and changes
+- **Tenant Events** - Organization lifecycle
+- **Application Events** - App registration and config
+- **SSO Provider Events** - SSO configuration changes
 
 **Related documentation:**
 
@@ -277,6 +280,16 @@ curl -X POST https://your-authvital-host/api/admin/webhooks \
 | **License** | `license.assigned` | License assigned |
 | | `license.revoked` | License revoked |
 | | `license.changed` | License type changed |
+| **Tenant** | `tenant.created` | Tenant/organization created |
+| | `tenant.updated` | Tenant settings changed |
+| | `tenant.deleted` | Tenant permanently removed |
+| | `tenant.suspended` | Tenant deactivated |
+| **Application** | `application.created` | Application registered |
+| | `application.updated` | Application config changed |
+| | `application.deleted` | Application removed |
+| **SSO** | `sso.provider_added` | SSO provider configured |
+| | `sso.provider_updated` | SSO settings changed |
+| | `sso.provider_removed` | SSO provider disconnected |
 
 ➡️ **See [Event Types & Payloads](./webhooks-events.md) for full payload documentation.**
 
@@ -290,4 +303,5 @@ curl -X POST https://your-authvital-host/api/admin/webhooks \
 - [Manual Verification](./webhooks-verification.md) - Low-level AuthVitalWebhooks class
 - [Best Practices](./webhooks-advanced.md) - Error handling, retries, idempotency, testing
 - [Identity Sync](./identity-sync/index.md) - Patterns for syncing users to your database
+- [Organization Sync](./organization-sync/index.md) - Sync tenant, app, and SSO config locally
 - [Server SDK](./server-sdk/index.md) - Server-side SDK reference

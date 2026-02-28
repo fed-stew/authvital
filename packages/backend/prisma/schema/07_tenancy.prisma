@@ -1,0 +1,180 @@
+// =============================================================================
+// Tenancy Models
+// =============================================================================
+
+model Tenant {
+  id       String @id @default(uuid())
+  name     String
+  slug     String
+  settings Json   @default("{}")
+
+  // Initiate Login URI - URL to redirect users to start login for this tenant
+  // Useful for tenant-specific login pages (e.g., subdomain-based apps)
+  // Example: "https://acme.myapp.com/login" or "https://myapp.com/acme/login"
+  initiateLoginUri String? @map("initiate_login_uri")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  domains     Domain[]
+  invitations Invitation[]
+
+  // License Pool System
+  appSubscriptions   AppSubscription[]
+  licenseAssignments LicenseAssignment[]
+
+  // Application Access
+  appAccess AppAccess[]
+
+  // Groups (tenant-scoped)
+  groups Group[]
+
+  // SSO Configuration (tenant-level overrides)
+  ssoConfigs TenantSsoConfig[]
+
+  // MFA Policy
+  mfaPolicy          MfaPolicy @default(OPTIONAL) @map("mfa_policy")
+  mfaGracePeriodDays Int       @default(7) @map("mfa_grace_period_days")
+
+  @@unique([slug])
+  @@map("tenants")
+}
+
+model Membership {
+  id        String           @id @default(cuid())
+  status    MembershipStatus @default(INVITED)
+  joinedAt  DateTime?        @map("joined_at")
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
+
+  userId   String @map("user_id")
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  membershipRoles       MembershipRole[]
+  membershipTenantRoles MembershipTenantRole[]
+  groups                MembershipGroup[]
+
+  // Back-relation for invitation that created this membership
+  invitation Invitation?
+
+  @@unique([userId, tenantId])
+  @@index([userId])
+  @@index([tenantId])
+  @@map("memberships")
+}
+
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+}
+
+enum MfaPolicy {
+  DISABLED // MFA not available for this tenant
+  OPTIONAL // Users can enable MFA voluntarily
+  ENCOURAGED // Prompt users to enable MFA but don't require
+  REQUIRED // Users must have MFA enabled to access tenant
+}
+
+// =============================================================================
+// INVITATIONS (for inviting users who may not have accounts yet)
+// =============================================================================
+
+/// Invitation: Pending invite to join a tenant (user may not exist yet)
+model Invitation {
+  id         String    @id @default(cuid())
+  email      String // Email of invitee (user may not exist yet!)
+  token      String    @unique // Secure token for invite link
+  expiresAt  DateTime  @map("expires_at") // When the invite expires
+  consumedAt DateTime? @map("consumed_at") // When the invite was used (null = pending)
+  metadata   Json?     @default("{}") // Stored license type ID and other custom data
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  // The tenant being invited to
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // The application this invite is for (determines redirect URL)
+  // References Application.clientId for OAuth consistency
+  clientId String? @map("client_id")
+
+  // Who sent the invite (optional - could be system/admin)
+  invitedById String? @map("invited_by_id")
+  invitedBy   User?   @relation("InvitationsSent", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  // Who consumed the invite (set when accepted)
+  consumedById String? @map("consumed_by_id")
+  consumedBy   User?   @relation("InvitationsReceived", fields: [consumedById], references: [id], onDelete: SetNull)
+
+  // Link to the membership created for this invitation
+  membershipId String?     @unique @map("membership_id")
+  membership   Membership? @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([token])
+  @@index([tenantId])
+  @@index([clientId])
+  @@map("invitations")
+}
+
+// =============================================================================
+// DOMAIN VERIFICATION
+// =============================================================================
+
+model Domain {
+  id                String    @id @default(cuid())
+  domainName        String    @map("domain_name")
+  verificationToken String    @map("verification_token")
+  isVerified        Boolean   @default(false) @map("is_verified")
+  verifiedAt        DateTime? @map("verified_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([domainName, tenantId])
+  @@index([tenantId])
+  @@index([domainName])
+  @@map("domains")
+}
+
+// =============================================================================
+// PENDING SIGNUPS (Email Verification)
+// =============================================================================
+
+/// PendingSignup: Tracks signup attempts awaiting email verification
+model PendingSignup {
+  id                    String  @id @default(cuid())
+  email                 String
+  verificationToken     String  @unique @map("verification_token") // URL-safe token for email link
+  tenantName            String? @map("tenant_name") // For new tenant signups
+  givenName             String? @map("given_name")
+  familyName            String? @map("family_name")
+  redirectUri           String? @map("redirect_uri") // Legacy - use application.appUrlTemplate instead
+  applicationId         String? @map("application_id") // The app that initiated signup (to get appUrlTemplate)
+  selectedLicenseTypeId String? @map("selected_license_type_id") // User's selected license type for auto-provisioning
+
+  status      PendingSignupStatus @default(PENDING)
+  expiresAt   DateTime            @map("expires_at")
+  verifiedAt  DateTime?           @map("verified_at")
+  completedAt DateTime?           @map("completed_at") // When signup was completed
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+
+  @@unique([email]) // Email unique across instance
+  @@index([status])
+  @@index([verificationToken])
+  @@map("pending_signups")
+}
+
+enum PendingSignupStatus {
+  PENDING // Awaiting email verification
+  VERIFIED // Email verified, awaiting completion
+  COMPLETED // Signup completed
+  EXPIRED // Verification expired
+  CANCELLED // User cancelled
+}

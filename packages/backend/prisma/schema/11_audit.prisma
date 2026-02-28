@@ -1,0 +1,98 @@
+// =============================================================================
+// Audit Logging
+// =============================================================================
+
+/// AuditLog: Tracks security-relevant operations for compliance
+model AuditLog {
+  id         String   @id @default(cuid())
+  tenantId   String?  @map("tenant_id")
+  userId     String?  @map("user_id")
+  action     String // e.g., "license:assign", "role:create", "member:remove"
+  targetType String @map("target_type") // e.g., "user", "role", "license", "permission"
+  targetId   String?  @map("target_id")
+  metadata   Json     @default("{}") // Additional context
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([action])
+  @@index([targetType])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// =============================================================================
+// SYNC EVENTS (Webhook & Polling)
+// =============================================================================
+
+/// SyncEvent: Tracks events for webhook delivery and polling API
+/// Events are retained for 30 days for catch-up sync
+model SyncEvent {
+  id            String @id @default(cuid())
+  eventType     String @map("event_type") // "user.created", "invite.accepted", etc.
+  tenantId      String @map("tenant_id")
+  applicationId String @map("application_id")
+  payload       Json // Full event data
+
+  // Webhook delivery tracking
+  webhookStatus   WebhookStatus @default(PENDING) @map("webhook_status")
+  webhookAttempts Int           @default(0) @map("webhook_attempts")
+  lastAttemptAt   DateTime?     @map("last_attempt_at")
+  deliveredAt     DateTime?     @map("delivered_at")
+  lastError       String?       @map("last_error")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, applicationId, createdAt])
+  @@index([applicationId, webhookStatus])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("sync_events")
+}
+
+enum WebhookStatus {
+  PENDING // Not yet attempted
+  DELIVERED // Successfully delivered
+  FAILED // All retries exhausted
+  SKIPPED // Webhook not configured or disabled
+}
+
+/// LicenseAuditLog: Tracks all license assignment changes for compliance
+/// Records grants, revokes, and changes with full context
+model LicenseAuditLog {
+  id                      String             @id @default(cuid())
+  tenantId                String             @map("tenant_id")
+  userId                  String             @map("user_id")
+  userEmail               String             @map("user_email")
+  userName                String?            @map("user_name")
+  applicationId           String             @map("application_id")
+  applicationName         String             @map("application_name")
+  licenseTypeId           String             @map("license_type_id")
+  licenseTypeName         String             @map("license_type_name")
+  action                  LicenseAuditAction @default(GRANTED)
+  previousLicenseTypeName String?            @map("previous_license_type_name") // Set when CHANGED
+  performedBy             String             @map("performed_by") // Admin user ID who performed the action
+  performedByEmail        String             @map("performed_by_email") // Admin email
+  performedByName         String?            @map("performed_by_name") // Admin name
+  membershipId            String?            @map("membership_id") // Related membership
+  reason                  String?
+  ipAddress               String?            @map("ip_address")
+  createdAt               DateTime           @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([applicationId])
+  @@index([licenseTypeId])
+  @@index([action])
+  @@index([createdAt])
+  @@index([performedBy])
+  @@map("license_audit_logs")
+}
+
+enum LicenseAuditAction {
+  GRANTED
+  REVOKED
+  CHANGED // When license type is upgraded/downgraded
+}

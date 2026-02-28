@@ -185,11 +185,11 @@
   "project": {
     "version": "0.0.1",
     "restore": {
-      "projectUniqueName": "/home/g/repos/stewfed/authvital/sdks/dotnet/AuthVital.SDK/AuthVital.SDK.csproj",
+      "projectUniqueName": "/home/g/repos/fedstew/authvital/sdks/dotnet/AuthVital.SDK/AuthVital.SDK.csproj",
       "projectName": "AuthVital.SDK",
-      "projectPath": "/home/g/repos/stewfed/authvital/sdks/dotnet/AuthVital.SDK/AuthVital.SDK.csproj",
+      "projectPath": "/home/g/repos/fedstew/authvital/sdks/dotnet/AuthVital.SDK/AuthVital.SDK.csproj",
       "packagesPath": "/home/g/.nuget/packages/",
-      "outputPath": "/home/g/repos/stewfed/authvital/sdks/dotnet/AuthVital.SDK/obj/",
+      "outputPath": "/home/g/repos/fedstew/authvital/sdks/dotnet/AuthVital.SDK/obj/",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "/home/g/.nuget/NuGet/NuGet.Config"

@@ -1,0 +1,15 @@
+// =============================================================================
+// Base Configuration
+// =============================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../../../../node_modules/.prisma/client"
+  binaryTargets   = ["native", "linux-musl-openssl-3.0.x"]
+  previewFeatures = ["prismaSchemaFolder"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

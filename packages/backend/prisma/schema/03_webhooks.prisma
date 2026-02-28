@@ -1,0 +1,51 @@
+// =============================================================================
+// System Webhooks (Instance-level event notifications)
+// =============================================================================
+
+/// SystemWebhook: Webhook endpoints for instance-wide events
+model SystemWebhook {
+  id          String   @id @default(cuid())
+  name        String   // User-friendly name
+  url         String   // Endpoint URL to POST to
+  secret      String   // Secret for HMAC signature (encrypted)
+  events      String[] // Events to subscribe to
+  isActive    Boolean  @default(true) @map("is_active")
+  
+  // Metadata
+  description String?
+  headers     Json?    // Custom headers to include (encrypted)
+  
+  // Stats
+  lastTriggeredAt DateTime? @map("last_triggered_at")
+  lastStatus      Int?      @map("last_status") // HTTP status of last call
+  failureCount    Int       @default(0) @map("failure_count")
+  
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  deliveries SystemWebhookDelivery[]
+
+  @@map("system_webhooks")
+}
+
+/// SystemWebhookDelivery: Log of webhook delivery attempts
+model SystemWebhookDelivery {
+  id        String   @id @default(cuid())
+  webhookId String   @map("webhook_id")
+  webhook   SystemWebhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  
+  event     String   // Event type that triggered this
+  payload   Json     // The payload that was sent
+  
+  // Response
+  status    Int?     // HTTP status code
+  response  String?  // Response body (truncated)
+  duration  Int?     // Request duration in ms
+  error     String?  // Error message if failed
+  
+  attemptedAt DateTime @default(now()) @map("attempted_at")
+
+  @@index([webhookId])
+  @@index([attemptedAt])
+  @@map("system_webhook_deliveries")
+}

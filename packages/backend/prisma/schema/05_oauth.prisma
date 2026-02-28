@@ -1,0 +1,249 @@
+// =============================================================================
+// OAuth 2.0 / OIDC Models
+// =============================================================================
+
+/// Application: OAuth Client (SPA or Machine-to-Machine)
+model Application {
+  id          String          @id @default(cuid())
+  name        String
+  slug        String
+  description String?
+  type        ApplicationType @default(SPA)
+
+  // OAuth Client Credentials
+  clientId     String  @unique @default(uuid()) @map("client_id")
+  clientSecret String? @map("client_secret") // Hashed, only for MACHINE type
+
+  // OAuth URIs (strict validation)
+  redirectUris           String[] @default([]) @map("redirect_uris")
+  postLogoutRedirectUris String[] @default([]) @map("post_logout_redirect_uris")
+
+  // Initiate Login URI - URI for third-party initiated login (OIDC standard)
+  // When set, allows the IDP to redirect here to start the login flow
+  // Use {tenant} as placeholder for tenant slug
+  // Example: "https://{tenant}.myapp.com/login"
+  initiateLoginUri String? @map("initiate_login_uri")
+
+  // Allowed Web Origins - Origins allowed to make CORS requests to OAuth endpoints
+  // Example: ["https://myapp.com", "http://localhost:3000"]
+  allowedWebOrigins String[] @default([]) @map("allowed_web_origins")
+
+  // Token settings
+  accessTokenTtl  Int @default(3600) @map("access_token_ttl") // 1 hour in seconds
+  refreshTokenTtl Int @default(604800) @map("refresh_token_ttl") // 7 days in seconds
+
+  // ==========================================================================
+  // BRANDING - Customizes the login experience for this application
+  // ==========================================================================
+
+  // Display name shown on login screen (defaults to `name` if not set)
+  brandingName String? @map("branding_name")
+
+  // Logo URL (displayed on login screen, recommended: 200x50px or similar)
+  brandingLogoUrl String? @map("branding_logo_url")
+
+  // Icon URL (square, for favicon/small displays, recommended: 64x64px)
+  brandingIconUrl String? @map("branding_icon_url")
+
+  // Primary brand color (hex, e.g., "#6366f1" for indigo)
+  brandingPrimaryColor String? @map("branding_primary_color")
+
+  // Background color or gradient (hex or CSS gradient)
+  brandingBackgroundColor String? @map("branding_background_color")
+
+  // Accent/secondary color (hex)
+  brandingAccentColor String? @map("branding_accent_color")
+
+  // Support/help URL shown on login page
+  brandingSupportUrl String? @map("branding_support_url")
+
+  // Privacy policy URL
+  brandingPrivacyUrl String? @map("branding_privacy_url")
+
+  // Terms of service URL
+  brandingTermsUrl String? @map("branding_terms_url")
+
+  // ==========================================================================
+  // LICENSING CONFIGURATION
+  // ==========================================================================
+
+  // How licensing works for this app
+  licensingMode LicensingMode @default(FREE) @map("licensing_mode")
+
+  // Default license type to provision for new tenants (when autoProvisionOnSignup=true)
+  defaultLicenseTypeId String?      @map("default_license_type_id")
+  defaultLicenseType   LicenseType? @relation("DefaultLicenseType", fields: [defaultLicenseTypeId], references: [id], onDelete: SetNull)
+
+  // How many seats to provision by default (for PER_SEAT mode)
+  defaultSeatCount Int @default(5) @map("default_seat_count")
+
+  // Automatically create subscription when tenant signs up
+  autoProvisionOnSignup Boolean @default(false) @map("auto_provision_on_signup")
+
+  // For PER_SEAT mode: automatically grant license to tenant owner
+  autoGrantToOwner Boolean @default(true) @map("auto_grant_to_owner")
+
+  // Available features that can be enabled per license type
+  // Array of feature definitions: [{key: "sso", name: "Single Sign-On", description: "..."}]
+  availableFeatures Json @default("[]") @map("available_features")
+
+  // Allow tenants to have multiple subscription license types for the same app
+  // When false: one license type per tenant (upgrade replaces)
+  // When true: can have Pro AND Enterprise simultaneously
+  allowMixedLicensing Boolean @default(false) @map("allow_mixed_licensing")
+
+  // ==========================================================================
+  // ACCESS CONTROL (separate from licensing)
+  // ==========================================================================
+  
+  // How access is granted to users within tenants
+  // AUTOMATIC: All tenant members automatically get access
+  // MANUAL_AUTO_GRANT: Manual assignment, but new members get access by default
+  // MANUAL_NO_DEFAULT: Manual assignment, new members must be explicitly granted
+  // DISABLED: No new access grants (existing access preserved)
+  accessMode AccessMode @default(AUTOMATIC) @map("access_mode")
+
+  // ==========================================================================
+  // WEBHOOK CONFIGURATION
+  // ==========================================================================
+
+  // Single webhook endpoint for all sync events
+  webhookUrl     String?  @map("webhook_url")
+  webhookEnabled Boolean  @default(false) @map("webhook_enabled")
+  // Optional event filter: ["user.*", "invite.*"] - empty array means all events
+  webhookEvents  String[] @default([]) @map("webhook_events")
+
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  roles              Role[]
+  authorizationCodes AuthorizationCode[]
+  refreshTokens      RefreshToken[]
+
+  // License Pool System
+  licenseTypes     LicenseType[]
+  appSubscriptions AppSubscription[]
+
+  @@unique([slug])
+  @@index([clientId])
+  @@map("applications")
+}
+
+enum ApplicationType {
+  SPA // Single Page App - uses PKCE, no client secret
+  MACHINE // Machine-to-Machine - uses client secret
+}
+
+enum LicensingMode {
+  FREE // Free tier - auto-provisioned, all members get access
+  PER_SEAT // Each user needs assigned seat
+  TENANT_WIDE // Tenant subscribes, all members have access
+}
+
+enum AccessMode {
+  AUTOMATIC           // All members automatically get access when they join
+  MANUAL_AUTO_GRANT   // Manual control, but new members get access by default
+  MANUAL_NO_DEFAULT   // Manual control, new members don't get access by default
+  DISABLED            // No new access grants allowed (existing access remains)
+}
+
+/// AuthorizationCode: Pending OAuth authorization codes with PKCE
+model AuthorizationCode {
+  id          String  @id @default(cuid())
+  code        String  @unique @default(uuid())
+  redirectUri String  @map("redirect_uri") // Must match exactly on token exchange
+  scope       String? // Requested scopes
+  state       String? // Client state parameter
+  nonce       String? // OIDC nonce for ID token
+
+  // PKCE (Required for SPA, optional for MACHINE)
+  codeChallenge       String?              @map("code_challenge")
+  codeChallengeMethod CodeChallengeMethod? @map("code_challenge_method")
+
+  // Tenant scoping for separate token per tenant
+  // When set, the resulting token will ONLY include this tenant
+  tenantId        String? @map("tenant_id") // The specific tenant this code is for
+  tenantSubdomain String? @map("tenant_subdomain") // The subdomain (e.g., "acme")
+
+  expiresAt DateTime  @map("expires_at") // Short-lived (typically 10 minutes)
+  usedAt    DateTime? @map("used_at") // Mark as used to prevent replay
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  userId        String      @map("user_id")
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId String      @map("application_id")
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([code])
+  @@index([userId])
+  @@index([applicationId])
+  @@map("authorization_codes")
+}
+
+enum CodeChallengeMethod {
+  S256
+  PLAIN // Not recommended, but part of spec
+}
+
+/// RefreshToken: Long-lived tokens for obtaining new access tokens
+/// Token Ghosting: The refresh token is a JWT with `sid` claim pointing to this record's `id`
+/// On refresh, we verify JWT signature first, then check this record for revocation
+model RefreshToken {
+  id        String   @id @default(uuid()) // UUID for Token Ghosting (this is the `sid` claim)
+  scope     String?
+  expiresAt DateTime @map("expires_at")
+
+  // Token Ghosting: revocation tracking
+  revoked   Boolean   @default(false) // Fast boolean check for session validity
+  revokedAt DateTime? @map("revoked_at") // When the session was revoked (for audit)
+
+  // Session metadata (for Token Ghosting)
+  userAgent String? @map("user_agent")
+  ipAddress String? @map("ip_address")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Tenant scoping for separate token per tenant
+  // When set, refreshed tokens will ONLY include this tenant
+  tenantId        String? @map("tenant_id") // The specific tenant this token is for
+  tenantSubdomain String? @map("tenant_subdomain") // The subdomain (e.g., "acme")
+
+  userId        String      @map("user_id")
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId String      @map("application_id")
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([applicationId])
+  @@index([revoked]) // For filtering active sessions
+  @@map("refresh_tokens")
+}
+
+// =============================================================================
+// SIGNING KEYS (JWT/JWKS Management)
+// =============================================================================
+
+/// SigningKey: RSA key pairs for JWT signing with rotation support
+model SigningKey {
+  id         String           @id @default(uuid())
+  kid        String           @unique // Key ID (visible in JWT headers)
+  privateKey String           @map("private_key") // Encrypted private key (AES-256-GCM)
+  publicKey  String           @map("public_key") // Plaintext public key PEM
+  algorithm  String           @default("RS256")
+  status     SigningKeyStatus @default(ACTIVE)
+  expiresAt  DateTime?        @map("expires_at") // Optional: when to stop using for verification
+  createdAt  DateTime         @default(now()) @map("created_at")
+  updatedAt  DateTime         @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([kid])
+  @@map("signing_keys")
+}
+
+enum SigningKeyStatus {
+  ACTIVE // Currently used for signing new tokens
+  PASSIVE // Still valid for verification, not used for signing
+  ARCHIVED // No longer used, kept for audit
+  REVOKED // Explicitly revoked, should not be trusted
+}

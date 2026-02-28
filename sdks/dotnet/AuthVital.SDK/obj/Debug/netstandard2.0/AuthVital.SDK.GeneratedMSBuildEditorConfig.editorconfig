@@ -1,5 +1,5 @@
 is_global = true
 build_property.RootNamespace = AuthVital.SDK
-build_property.ProjectDir = /home/g/repos/stewfed/authvital/sdks/dotnet/AuthVital.SDK/
+build_property.ProjectDir = /home/g/repos/fedstew/authvital/sdks/dotnet/AuthVital.SDK/
 build_property.EnableComHosting = 
 build_property.EnableGeneratedComInterfaceComImportInterop = 

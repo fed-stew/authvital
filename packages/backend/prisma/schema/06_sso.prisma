@@ -1,0 +1,72 @@
+// =============================================================================
+// SSO Provider Models
+// =============================================================================
+// Single Sign-On (SSO) configuration for Google and Microsoft OAuth
+// Supports both instance-level (super admin) and tenant-level (tenant admin) config
+// =============================================================================
+
+enum SsoProviderType {
+  GOOGLE
+  MICROSOFT
+}
+
+/// SsoProvider: Instance-level SSO configuration (managed by super admin)
+/// Defines the global OAuth client credentials and settings for each provider
+model SsoProvider {
+  id               String          @id @default(cuid())
+  provider         SsoProviderType @unique
+  enabled          Boolean         @default(false)
+  clientId         String          @map("client_id")
+  clientSecretEnc  String          @map("client_secret_enc") // Encrypted client secret
+  scopes           String[]        @default([])
+  allowedDomains   String[]        @default([]) @map("allowed_domains") // Restrict to specific email domains (empty = all)
+  autoCreateUser   Boolean         @default(true) @map("auto_create_user")
+  autoLinkExisting Boolean         @default(true) @map("auto_link_existing") // Link to existing user with same email
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  @@map("sso_providers")
+}
+
+/// TenantSsoConfig: Tenant-level SSO configuration overrides
+/// Allows tenant admins to customize SSO behavior or use their own OAuth credentials
+model TenantSsoConfig {
+  id              String          @id @default(cuid())
+  tenantId        String          @map("tenant_id")
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  provider        SsoProviderType
+  enabled         Boolean         @default(false)
+  // If clientId/clientSecretEnc are null, uses instance-level config
+  clientId        String?         @map("client_id")
+  clientSecretEnc String?         @map("client_secret_enc")
+  enforced        Boolean         @default(false) // If true, password login disabled for this tenant
+  allowedDomains  String[]        @default([]) @map("allowed_domains")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  @@unique([tenantId, provider])
+  @@index([tenantId])
+  @@map("tenant_sso_configs")
+}
+
+/// UserSsoLink: Tracks SSO provider connections for users
+/// Records which SSO providers a user has linked to their account
+model UserSsoLink {
+  id             String          @id @default(cuid())
+  userId         String          @map("user_id")
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider       SsoProviderType
+  providerUserId String          @map("provider_user_id") // Google/Microsoft user ID
+  email          String // Email from SSO provider
+  displayName    String?         @map("display_name")
+  avatarUrl      String?         @map("avatar_url")
+  rawProfile     Json?           @map("raw_profile") // Full profile from provider for debugging
+  lastUsedAt     DateTime?       @map("last_used_at")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  @@unique([provider, providerUserId])
+  @@unique([userId, provider])
+  @@index([userId])
+  @@index([email])
+  @@map("user_sso_links")
+}
