@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyDescriptionAttribute("Official .NET SDK for AuthVital Identity Platform - Coming Soon")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("0.0.1.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.0.1+4206ef24251633ee2914c0456883671c54ddb9ca")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.0.1+53b9c18376df1c595fd139d84dcf6939aabc746a")]
 [assembly: System.Reflection.AssemblyProductAttribute("AuthVital.SDK")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AuthVital.SDK")]
 [assembly: System.Reflection.AssemblyVersionAttribute("0.0.1.0")]
