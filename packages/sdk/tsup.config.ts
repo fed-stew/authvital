@@ -6,10 +6,12 @@ export default defineConfig({
     server: 'src/server.ts',
   },
   format: ['cjs', 'esm'],
-  dts: true,
+  dts: {
+    // Bundle types from @authvital/shared into the SDK's .d.ts files
+    resolve: true,
+  },
   splitting: true,
   clean: true,
-  // Ensure all source files are included (not treated as external)
-  // This is critical for bundling ./sync and ./webhooks properly
-  noExternal: [/^\./, /^src\//],
+  // Bundle @authvital/shared (don't treat as external)
+  noExternal: [/^\./, /^src\//, /@authvital\/shared/],
 });
