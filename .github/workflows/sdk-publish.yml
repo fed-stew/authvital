@@ -9,6 +9,7 @@ on:
     tags: ['v*']
     paths:
       - 'packages/sdk/**'
+      - 'packages/shared/**'
   workflow_dispatch:
     inputs:
       tag:
@@ -23,9 +24,6 @@ jobs:
   publish:
     name: Publish to npm
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/sdk
     
     steps:
       - name: Checkout
@@ -37,20 +35,23 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
-          cache-dependency-path: packages/sdk/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --legacy-peer-deps
 
-      - name: Build
-        run: npm run build
+      - name: Build shared package
+        run: npm run build -w @authvital/shared
 
-      - name: Typecheck
-        run: npm run typecheck
+      - name: Build SDK
+        run: npm run build -w authvital-sdk
+
+      - name: Typecheck SDK
+        run: npm run typecheck -w authvital-sdk
 
       # Dev publish on main branch pushes
       - name: Publish dev version
         if: github.ref == 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
+        working-directory: packages/sdk
         run: |
           SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
           BUILD_NUM=${{ github.run_number }}
@@ -62,6 +63,7 @@ jobs:
       # Release publish on version tags
       - name: Publish release version
         if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: packages/sdk
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           npm version $VERSION --no-git-tag-version --allow-same-version
