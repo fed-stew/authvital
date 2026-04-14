@@ -41,7 +41,6 @@ export function SettingsTab({ app, appId, onRefresh }: SettingsTabProps) {
     initiateLoginUri?: string;
     accessTokenTtl?: number;
     refreshTokenTtl?: number;
-    isActive: boolean;
     clientId: string;
     clientSecret?: string;
     // Webhooks
@@ -57,7 +56,6 @@ export function SettingsTab({ app, appId, onRefresh }: SettingsTabProps) {
     initiateLoginUri: app.initiateLoginUri,
     accessTokenTtl: app.accessTokenTtl,
     refreshTokenTtl: app.refreshTokenTtl,
-    isActive: app.isActive,
     clientId: app.clientId,
     // Webhooks
     webhookUrl: app.webhookUrl || '',
@@ -151,7 +149,6 @@ export function SettingsTab({ app, appId, onRefresh }: SettingsTabProps) {
         initiateLoginUri: formData.initiateLoginUri,
         accessTokenTtl: formData.accessTokenTtl,
         refreshTokenTtl: formData.refreshTokenTtl,
-        isActive: formData.isActive,
         // Webhooks
         webhookUrl: formData.webhookUrl || null,
         webhookEnabled: formData.webhookEnabled,

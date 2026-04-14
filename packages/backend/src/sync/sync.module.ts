@@ -5,6 +5,7 @@ import { PrismaModule } from '../prisma';
 import { KeyModule } from '../oauth/key.module';
 import { AuthModule } from '../auth';
 import { SuperAdminModule } from '../super-admin/super-admin.module';
+import { PubSubModule } from '../pubsub';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { SuperAdminModule } from '../super-admin/super-admin.module';
     KeyModule,
     forwardRef(() => AuthModule), // For JwtAuthGuard dependencies
     forwardRef(() => SuperAdminModule), // For SuperAdminGuard on event-types endpoint
+    PubSubModule,
   ],
   controllers: [SyncController],
   providers: [SyncEventService],

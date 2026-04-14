@@ -415,6 +415,21 @@ export const superAdminApi = {
     return data;
   },
 
+  forgotPassword: async (email: string) => {
+    const { data } = await superAdminClient.post('/super-admin/forgot-password', { email });
+    return data;
+  },
+
+  verifyResetToken: async (token: string) => {
+    const { data } = await superAdminClient.post('/super-admin/verify-reset-token', { token });
+    return data;
+  },
+
+  resetPassword: async (token: string, newPassword: string) => {
+    const { data } = await superAdminClient.post('/super-admin/reset-password', { token, newPassword });
+    return data;
+  },
+
   getProfile: async () => {
     const { data } = await superAdminClient.get('/super-admin/profile');
     return data;
@@ -721,6 +736,16 @@ export const superAdminApi = {
 
   deleteApplication: async (appId: string) => {
     const { data } = await superAdminClient.delete(`/super-admin/applications/${appId}`);
+    return data;
+  },
+
+  disableApplication: async (appId: string) => {
+    const { data } = await superAdminClient.post(`/super-admin/applications/${appId}/disable`);
+    return data;
+  },
+
+  enableApplication: async (appId: string) => {
+    const { data } = await superAdminClient.post(`/super-admin/applications/${appId}/enable`);
     return data;
   },
 
@@ -1157,6 +1182,72 @@ export const superAdminApi = {
 
   testWebhook: async (id: string) => {
     const { data } = await superAdminClient.post(`/super-admin/webhooks/${id}/test`);
+    return data;
+  },
+
+  // ==========================================================================
+  // PUB/SUB CONFIGURATION & OUTBOX
+  // ==========================================================================
+
+  /** Get current Pub/Sub configuration */
+  getPubSubConfig: async () => {
+    const { data } = await superAdminClient.get<{
+      id: string;
+      enabled: boolean;
+      topic: string;
+      orderingEnabled: boolean;
+      events: string[];
+      createdAt: string;
+      updatedAt: string;
+    }>('/super-admin/pubsub/config');
+    return data;
+  },
+
+  /** Update Pub/Sub configuration */
+  updatePubSubConfig: async (params: {
+    enabled?: boolean;
+    topic?: string;
+    orderingEnabled?: boolean;
+    events?: string[];
+  }) => {
+    const { data } = await superAdminClient.put('/super-admin/pubsub/config', params);
+    return data;
+  },
+
+  /** Get available event types for the Pub/Sub event picker */
+  getPubSubEventTypes: async () => {
+    const { data } = await superAdminClient.get<{
+      categories: Array<{
+        slug: string;
+        name: string;
+        description: string;
+        events: Array<{ type: string; description: string }>;
+      }>;
+    }>('/super-admin/pubsub/event-types');
+    return data.categories;
+  },
+
+  /** Get outbox statistics (counts by status) */
+  getPubSubOutboxStats: async () => {
+    const { data } = await superAdminClient.get<Record<string, number>>('/super-admin/pubsub/outbox');
+    return data;
+  },
+
+  /** Get recent outbox events with optional filtering */
+  getPubSubOutboxEvents: async (params?: { status?: string; limit?: number }) => {
+    const { data } = await superAdminClient.get('/super-admin/pubsub/outbox/events', { params });
+    return data;
+  },
+
+  /** Retry a single failed outbox event */
+  retryPubSubEvent: async (id: string) => {
+    const { data } = await superAdminClient.post<{ success: boolean; message: string }>(`/super-admin/pubsub/outbox/${id}/retry`);
+    return data;
+  },
+
+  /** Retry all failed outbox events */
+  retryAllPubSubEvents: async () => {
+    const { data } = await superAdminClient.post<{ success: boolean; count: number }>('/super-admin/pubsub/outbox/retry-all');
     return data;
   },
 };

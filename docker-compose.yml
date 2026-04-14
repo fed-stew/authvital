@@ -87,6 +87,9 @@ services:
       
       # Run mode
       RUN_MODE: ${RUN_MODE:-full}
+      # GCP Pub/Sub (optional - config managed via admin dashboard)
+      PUBSUB_PROJECT_ID: ${PUBSUB_PROJECT_ID:-}
+      PUBSUB_EMULATOR_HOST: ${PUBSUB_EMULATOR_HOST:-}
     networks:
       - authvital
     healthcheck:

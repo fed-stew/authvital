@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma';
 import { KeyService } from '../oauth/key.service';
+import { PubSubOutboxService } from '../pubsub/pubsub-outbox.service';
 import { SyncEventType, BaseEventPayload } from './types';
 
 @Injectable()
@@ -14,6 +15,7 @@ export class SyncEventService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly keyService: KeyService,
+    private readonly pubSubOutboxService: PubSubOutboxService,
   ) {}
 
   /**
@@ -112,6 +114,21 @@ export class SyncEventService {
     this.logger.debug(
       `[SyncEvent] Event ${eventId} stored with webhookStatus=${webhookStatus}`,
     );
+
+    // Enqueue for Pub/Sub outbox
+    this.pubSubOutboxService.enqueue({
+      eventType,
+      eventSource: 'sync_event',
+      aggregateId: tenantId,
+      tenantId,
+      applicationId,
+      payload: payload as unknown as Record<string, unknown>,
+      orderingKey: `${tenantId}:${applicationId}`,
+    }).catch((err) => {
+      this.logger.warn(
+        `[SyncEvent] Failed to enqueue Pub/Sub outbox event for ${eventId}: ${err.message}`,
+      );
+    });
 
     // If webhook is configured, attempt immediate delivery
     if (webhookStatus === 'PENDING') {

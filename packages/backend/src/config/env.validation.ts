@@ -28,6 +28,10 @@ export interface RequiredEnvVars {
   
   // Super Admin bootstrap (optional)
   SUPER_ADMIN_EMAIL?: string;
+
+  // GCP Pub/Sub (optional — config managed via admin dashboard)
+  PUBSUB_PROJECT_ID?: string;
+  PUBSUB_EMULATOR_HOST?: string;
 }
 
 const REQUIRED_ENV_VARS = [

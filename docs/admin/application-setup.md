@@ -384,6 +384,58 @@ await authvital.admin.createApplication({
 });
 ```
 
+## Disabling & Deleting Applications
+
+### Disabling
+
+Disabling an application is a reversible operation that immediately:
+- Revokes all active user sessions (refresh tokens)
+- Blocks new OAuth authorization requests
+- Preserves all configuration, roles, and data
+
+```typescript
+// Via API
+await fetch('/api/super-admin/applications/{id}/disable', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+});
+
+// Response
+{
+  "success": true,
+  "message": "Application \"Project Manager\" has been disabled. 42 active sessions were revoked.",
+  "revokedSessions": 42
+}
+```
+
+To re-enable:
+
+```typescript
+await fetch('/api/super-admin/applications/{id}/enable', {
+  method: 'POST',
+});
+```
+
+### Deleting
+
+Deletion is **permanent and irreversible**. The application must be disabled first.
+
+```typescript
+// Step 1: Disable first
+await fetch('/api/super-admin/applications/{id}/disable', { method: 'POST' });
+
+// Step 2: Delete
+await fetch('/api/super-admin/applications/{id}', { method: 'DELETE' });
+
+// Response
+{
+  "success": true,
+  "message": "Application deleted"
+}
+```
+
+All associated data (roles, license types, subscriptions, tokens) is cascade-deleted.
+
 ## After Creation
 
 ### Get Credentials

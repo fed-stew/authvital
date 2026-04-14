@@ -19,7 +19,7 @@ export interface EventCategory {
 }
 
 interface WebhookEventPickerProps {
-  value: string[];  // Empty array = all events, non-empty = selected events
+  value: string[];  // ["*"] = all events, [] = none, ["tenant.*"] = category, ["tenant.created"] = exact
   onChange: (events: string[]) => void;
   categories: EventCategory[];
 }
@@ -37,16 +37,19 @@ export function WebhookEventPicker({ value, onChange, categories }: WebhookEvent
   // This handles the edge case where value=[] could mean "all" or "selected but empty"
   const [forceSelectedMode, setForceSelectedMode] = React.useState(false);
   
-  // Determine mode: if value has items, definitely "selected"
-  // If value is empty, check if user forced into selected mode
-  const mode = value.length > 0 || forceSelectedMode ? 'selected' : 'all';
+  // Determine mode: ["*"] = all events, [] = default all (unless user forced selected), [events] = selected
+  const isAllWildcard = value.length === 1 && value[0] === '*';
+  const mode = isAllWildcard || (value.length === 0 && !forceSelectedMode) ? 'all' : 'selected';
 
   // Expand selected events from wildcards to individual events for UI state
   const expandedSelection = React.useMemo(() => {
     const selected = new Set<string>();
     for (const v of value) {
-      if (v.endsWith('.*')) {
-        // Wildcard - expand to all events in category
+      if (v === '*') {
+        // Global wildcard - select everything
+        categories.forEach(c => c.events.forEach(e => selected.add(e.type)));
+      } else if (v.endsWith('.*')) {
+        // Category wildcard - expand to all events in category
         const categorySlug = v.slice(0, -2);
         const category = categories.find(c => c.slug === categorySlug);
         if (category) {
@@ -63,7 +66,7 @@ export function WebhookEventPicker({ value, onChange, categories }: WebhookEvent
   const handleModeChange = (newMode: 'all' | 'selected') => {
     if (newMode === 'all') {
       setForceSelectedMode(false);
-      onChange([]);  // Empty = all events
+      onChange(['*']);  // Global wildcard = all events
     } else {
       // Switching to 'selected' mode - set flag to show picker even with empty value
       setForceSelectedMode(true);

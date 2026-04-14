@@ -17,6 +17,7 @@ import { InstanceModule } from './instance/instance.module';
 import { SyncModule } from './sync';
 import { SsoModule } from './sso/sso.module';
 import { WebhooksModule } from './webhooks';
+import { PubSubModule } from './pubsub';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { WebhooksModule } from './webhooks';
     HealthModule,
     SsoModule, // SSO provider configuration and tenant SSO config
     WebhooksModule, // System-level webhooks for orchestration
+    PubSubModule, // GCP Pub/Sub outbox event publishing
   ],
 })
 export class AppModule {}

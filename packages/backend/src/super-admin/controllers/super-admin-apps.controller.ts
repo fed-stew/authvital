@@ -110,6 +110,16 @@ export class SuperAdminAppsController {
     return { success: true, message: 'Client secret revoked. M2M authentication is now disabled for this application.' };
   }
 
+  @Post('applications/:id/disable')
+  async disableApplication(@Param('id') id: string) {
+    return this.applicationsService.disableApplication(id);
+  }
+
+  @Post('applications/:id/enable')
+  async enableApplication(@Param('id') id: string) {
+    return this.applicationsService.enableApplication(id);
+  }
+
   @Delete('applications/:id')
   async deleteApplication(@Param('id') id: string) {
     return this.applicationsService.deleteApplication(id);

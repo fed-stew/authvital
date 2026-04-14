@@ -8,6 +8,7 @@ import {
   Settings,
   ShieldCheck,
   Webhook,
+  Radio,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -74,6 +75,11 @@ const navigation: NavSection[] = [
         to: '/admin/webhooks',
         label: 'Webhooks',
         icon: <Webhook className="h-5 w-5" />,
+      },
+      {
+        to: '/admin/pubsub',
+        label: 'Pub/Sub',
+        icon: <Radio className="h-5 w-5" />,
       },
       {
         to: '/admin/settings',

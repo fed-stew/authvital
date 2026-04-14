@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { AlertCircle, Lock } from 'lucide-react';
 import { useAdmin } from '@/contexts/AdminContext';
 import { Button } from '@/components/ui/Button';
@@ -147,6 +147,16 @@ export function AdminLogin() {
                   required
                   className="bg-card"
                 />
+              </div>
+
+              {/* Forgot Password Link */}
+              <div className="text-right">
+                <Link
+                  to="/admin/forgot-password"
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Forgot password?
+                </Link>
               </div>
 
               {/* Submit Button */}

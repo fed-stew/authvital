@@ -103,7 +103,7 @@ export function ApplicationsPage() {
       header: 'Name',
       accessor: 'name',
       cell: (_, row) => (
-        <div className="flex items-center gap-3">
+        <div className={`flex items-center gap-3 ${!row.isActive ? 'opacity-50' : ''}`}>
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-500/20">
             <AppWindow className="h-4 w-4 text-purple-400" />
           </div>

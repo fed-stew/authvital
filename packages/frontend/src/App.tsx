@@ -8,7 +8,7 @@ import { AdminGuard } from './components/admin/AdminGuard';
 import { ToastProvider } from './components/ui';
 
 // Admin pages
-import { AdminAccountsPage, AdminLogin, ChangePassword, MfaSetup, MfaVerify, WebhooksPage } from './pages/admin';
+import { AdminAccountsPage, AdminForgotPassword, AdminLogin, AdminResetPassword, ChangePassword, MfaSetup, MfaVerify, WebhooksPage, PubSubPage } from './pages/admin';
 import { Dashboard } from './pages/admin/Dashboard';
 import { UsersPage, UserDetailPage } from './pages/admin/users';
 import { TenantsPage, TenantDetailPage } from './pages/admin/tenants';
@@ -56,6 +56,8 @@ function AdminRoutes() {
         <Route path="change-password" element={<ChangePassword />} />
         <Route path="mfa/verify" element={<MfaVerify />} />
         <Route path="mfa/setup" element={<MfaSetup />} />
+        <Route path="forgot-password" element={<AdminForgotPassword />} />
+        <Route path="reset-password" element={<AdminResetPassword />} />
         <Route element={<AdminGuard />}>
           <Route index element={<Dashboard />} />
           
@@ -77,6 +79,9 @@ function AdminRoutes() {
           
           {/* Webhooks */}
           <Route path="webhooks" element={<WebhooksPage />} />
+          
+          {/* Pub/Sub */}
+          <Route path="pubsub" element={<PubSubPage />} />
           
           {/* Settings */}
           <Route path="settings" element={<SettingsPage />} />

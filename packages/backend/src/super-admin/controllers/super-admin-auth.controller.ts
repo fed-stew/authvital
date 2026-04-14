@@ -109,6 +109,32 @@ export class SuperAdminAuthController {
     return this.mfaService.getSuperAdminMfaStatus(req.user.id);
   }
 
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  async forgotPassword(@Body() dto: { email: string }) {
+    await this.authService.requestPasswordReset(dto.email);
+    return {
+      success: true,
+      message: 'If an account exists with this email, a reset link has been sent.',
+    };
+  }
+
+  @Post('verify-reset-token')
+  @HttpCode(HttpStatus.OK)
+  async verifyResetToken(@Body() dto: { token: string }) {
+    return this.authService.verifyResetToken(dto.token);
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  async resetPassword(@Body() dto: { token: string; newPassword: string }) {
+    await this.authService.resetPassword(dto.token, dto.newPassword);
+    return {
+      success: true,
+      message: 'Password has been reset successfully. Please login with your new password.',
+    };
+  }
+
   @Post('change-password')
   @UseGuards(SuperAdminGuard)
   @HttpCode(HttpStatus.OK)
