@@ -99,7 +99,7 @@ describe("OptionalAuthGuard", () => {
     mockKeyService.verifyJwt.mockRejectedValue(new Error("invalid token"));
 
     const { context } = createContext({
-      cookies: { idp_session: "cookie-token" },
+      authorization: "Bearer invalid-token",
     });
 
     await expect(guard.canActivate(context)).resolves.toBe(true);

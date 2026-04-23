@@ -73,7 +73,7 @@ describe("JwtAuthGuard", () => {
       const { context } = createContext();
 
       await expect(guard.canActivate(context)).rejects.toThrow(
-        new UnauthorizedException("No token provided"),
+        new UnauthorizedException("No Authorization header provided"),
       );
     });
 
@@ -110,7 +110,7 @@ describe("JwtAuthGuard", () => {
       const { context } = createContext({ authorization: "test-token" });
 
       await expect(guard.canActivate(context)).rejects.toThrow(
-        new UnauthorizedException("No token provided"),
+        new UnauthorizedException("No Authorization header provided"),
       );
       expect(mockKeyService.verifyJwt).not.toHaveBeenCalled();
     });
@@ -121,7 +121,7 @@ describe("JwtAuthGuard", () => {
       const { context } = createContext({ authorization: "Basic dXNlcjpwYXNz" });
 
       await expect(guard.canActivate(context)).rejects.toThrow(
-        new UnauthorizedException("No token provided"),
+        new UnauthorizedException("No Authorization header provided"),
       );
       expect(mockKeyService.verifyJwt).not.toHaveBeenCalled();
     });
@@ -132,7 +132,7 @@ describe("JwtAuthGuard", () => {
       const { context } = createContext({ authorization: "Bearer " });
 
       await expect(guard.canActivate(context)).rejects.toThrow(
-        new UnauthorizedException("No token provided"),
+        new UnauthorizedException("No Authorization header provided"),
       );
       expect(mockKeyService.verifyJwt).not.toHaveBeenCalled();
     });
@@ -157,7 +157,7 @@ describe("JwtAuthGuard", () => {
       } as any;
 
       await expect(guard.canActivate(context)).rejects.toThrow(
-        new UnauthorizedException("No token provided"),
+        new UnauthorizedException("No Authorization header provided"),
       );
       expect(mockKeyService.verifyJwt).not.toHaveBeenCalled();
     });
@@ -182,7 +182,7 @@ describe("JwtAuthGuard", () => {
       } as any;
 
       await expect(guard.canActivate(context)).rejects.toThrow(
-        new UnauthorizedException("No token provided"),
+        new UnauthorizedException("No Authorization header provided"),
       );
       expect(mockKeyService.verifyJwt).not.toHaveBeenCalled();
     });
