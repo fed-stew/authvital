@@ -6,3 +6,4 @@ export * from './oauth-introspection.service';
 export * from './oauth-license.service';
 export * from './key.service';
 export * from './redirect-uri-validator.service';
+export { M2MAuthGuard, M2MRequestInfo } from './m2m-auth.guard';

@@ -17,51 +17,19 @@ if (!process.env.DATABASE_URL && process.env.DB_HOST && process.env.DB_USERNAME 
   process.env.DATABASE_URL = `postgresql://${DB_USERNAME}:${encodeURIComponent(DB_PASSWORD)}@localhost/${DB_DATABASE}?host=${DB_HOST}`;
 }
 
-import { PrismaClient } from '@prisma/client';
 import { bootstrap } from './bootstrap';
-import { DEFAULT_TENANT_ROLES } from './authorization/constants/default-tenant-roles';
-
-async function ensureSystemTenantRoles(prisma: PrismaClient): Promise<void> {
-  console.log('Ensuring system tenant roles exist...');
-  
-  for (const roleData of DEFAULT_TENANT_ROLES) {
-    const existing = await prisma.tenantRole.findUnique({
-      where: { slug: roleData.slug },
-    });
-
-    if (!existing) {
-      await prisma.tenantRole.create({
-        data: {
-          name: roleData.name,
-          slug: roleData.slug,
-          description: roleData.description,
-          permissions: roleData.permissions,
-          isSystem: true,
-        },
-      });
-      console.log(`  Created system tenant role: ${roleData.name}`);
-    }
-  }
-}
 
 async function runMigration(): Promise<void> {
-  const prisma = new PrismaClient();
-  
   try {
-    // Run super admin bootstrap
-    console.log('Running bootstrap checks...');
+    // Run bootstrap (handles super admin creation, YAML seeding, and system roles)
+    console.log('Running bootstrap...');
     await bootstrap();
-    
-    // Ensure system tenant roles exist
-    await ensureSystemTenantRoles(prisma);
     
     console.log('Bootstrap complete');
     process.exit(0);
   } catch (error) {
     console.error('Bootstrap failed:', error);
     process.exit(1);
-  } finally {
-    await prisma.$disconnect();
   }
 }
 

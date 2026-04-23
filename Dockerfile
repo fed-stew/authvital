@@ -14,6 +14,7 @@ COPY package.json ./
 
 # Copy all package.json files first (for better layer caching)
 COPY packages/shared/package.json ./packages/shared/
+COPY packages/contracts/package.json ./packages/contracts/
 COPY packages/backend/package.json ./packages/backend/
 COPY packages/frontend/package.json ./packages/frontend/
 
@@ -23,6 +24,10 @@ RUN npm install --legacy-peer-deps
 # Copy shared source and build it first
 COPY packages/shared/ ./packages/shared/
 RUN npm run build -w @authvital/shared
+
+# Copy contracts source and build it
+COPY packages/contracts/ ./packages/contracts/
+RUN npm run build -w @authvital/contracts
 
 # Copy prisma schema (needed for generate)
 COPY packages/backend/prisma/ ./packages/backend/prisma/
@@ -54,6 +59,7 @@ COPY package.json ./
 
 # Copy package.json files for workspaces
 COPY packages/shared/package.json ./packages/shared/
+COPY packages/contracts/package.json ./packages/contracts/
 COPY packages/backend/package.json ./packages/backend/
 
 # Install production dependencies only
@@ -61,6 +67,7 @@ RUN npm install --omit=dev --legacy-peer-deps
 
 # Copy built shared package
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
+COPY --from=builder /app/packages/contracts/dist ./packages/contracts/dist
 
 # Copy prisma schema and migrations (to expected location)
 COPY packages/backend/prisma/ ./prisma/
@@ -86,9 +93,5 @@ ENV NODE_ENV=production
 ENV PORT=8000
 
 EXPOSE 8000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:8000/api/health || exit 1
 
 CMD ["./start.sh"]

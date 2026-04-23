@@ -1,22 +1,15 @@
 import {
   Controller,
-  Post,
-  Get,
-  Put,
-  Delete,
-  Body,
-  Request,
   UseGuards,
+  Request,
   Res,
-  HttpCode,
-  HttpStatus,
-  BadRequestException,
   Logger,
+  BadRequestException,
 } from '@nestjs/common';
 import { Response } from 'express';
+import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
+import { superAdminContract as c } from '@authvital/contracts';
 import { SuperAdminGuard } from '../guards/super-admin.guard';
-import { LoginDto } from '../dto/login.dto';
-import { CreateSuperAdminDto } from '../dto/create-super-admin.dto';
 import { AdminAuthService } from '../services/admin-auth.service';
 import { MfaService } from '../../auth/mfa/mfa.service';
 import { getBaseCookieOptions } from '../../common/utils/cookie.utils';
@@ -26,7 +19,7 @@ const getSuperAdminCookieOptions = () => ({
   maxAge: 24 * 60 * 60 * 1000, // 24 hours
 });
 
-@Controller('super-admin')
+@Controller()
 export class SuperAdminAuthController {
   private readonly logger = new Logger(SuperAdminAuthController.name);
 
@@ -35,181 +28,233 @@ export class SuperAdminAuthController {
     private readonly mfaService: MfaService,
   ) {}
 
-  @Post('login')
-  @HttpCode(HttpStatus.OK)
-  async login(
-    @Body() dto: LoginDto,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    try {
-      this.logger.warn(`Login attempt for: ${dto.email}`);
-      const result = await this.authService.login(dto.email, dto.password);
+  // =========================================================================
+  // AUTH (no guard — public login endpoints)
+  // =========================================================================
+
+  @TsRestHandler(c.login)
+  async login(@Res({ passthrough: true }) res: Response) {
+    return tsRestHandler(c.login, async ({ body }) => {
+      this.logger.warn(`Login attempt for: ${body.email}`);
+      const result = await this.authService.login(body.email, body.password);
 
       if (result.mfaRequired || result.mfaSetupRequired) {
         return {
-          mfaRequired: result.mfaRequired,
-          mfaSetupRequired: result.mfaSetupRequired,
-          mfaChallengeToken: result.mfaChallengeToken,
+          status: 200 as const,
+          body: {
+            mfaRequired: true as const,
+            mfaSetupRequired: result.mfaSetupRequired,
+            mfaChallengeToken: result.mfaChallengeToken!,
+          } as any,
         };
       }
 
       res.cookie('super_admin_session', result.accessToken, getSuperAdminCookieOptions());
 
       return {
-        admin: result.admin,
-        mustChangePassword: result.mustChangePassword,
+        status: 200 as const,
+        body: {
+          admin: result.admin!,
+          mustChangePassword: result.mustChangePassword,
+        } as any,
       };
-    } catch (error) {
-      this.logger.error(`Login failed for ${dto.email}:`, error);
-      throw error;
-    }
-  }
-
-  @Post('mfa/verify')
-  @HttpCode(HttpStatus.OK)
-  async verifyMfa(
-    @Body() dto: { challengeToken: string; code: string },
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    const result = await this.authService.verifyMfaAndLogin(dto.challengeToken, dto.code);
-    res.cookie('super_admin_session', result.accessToken, getSuperAdminCookieOptions());
-    return { admin: result.admin, mustChangePassword: result.mustChangePassword };
-  }
-
-  @Post('mfa/setup')
-  @UseGuards(SuperAdminGuard)
-  async setupMfa(@Request() req: { user: { id: string } }) {
-    const admin = await this.authService.getProfile(req.user.id);
-    return this.mfaService.generateSetup(admin.email);
-  }
-
-  @Post('mfa/enable')
-  @UseGuards(SuperAdminGuard)
-  @HttpCode(HttpStatus.OK)
-  async enableMfa(
-    @Request() req: { user: { id: string } },
-    @Body() dto: { secret: string; code: string; backupCodes: string[] },
-  ) {
-    return this.mfaService.enableMfaForSuperAdmin(req.user.id, dto.secret, dto.code, dto.backupCodes);
-  }
-
-  @Delete('mfa/disable')
-  @UseGuards(SuperAdminGuard)
-  @HttpCode(HttpStatus.OK)
-  async disableMfa(
-    @Request() req: { user: { id: string } },
-    @Body() dto: { code: string },
-  ) {
-    return this.mfaService.disableMfaForSuperAdmin(req.user.id, dto.code);
-  }
-
-  @Get('mfa/status')
-  @UseGuards(SuperAdminGuard)
-  async getMfaStatus(@Request() req: { user: { id: string } }) {
-    return this.mfaService.getSuperAdminMfaStatus(req.user.id);
-  }
-
-  @Post('forgot-password')
-  @HttpCode(HttpStatus.OK)
-  async forgotPassword(@Body() dto: { email: string }) {
-    await this.authService.requestPasswordReset(dto.email);
-    return {
-      success: true,
-      message: 'If an account exists with this email, a reset link has been sent.',
-    };
-  }
-
-  @Post('verify-reset-token')
-  @HttpCode(HttpStatus.OK)
-  async verifyResetToken(@Body() dto: { token: string }) {
-    return this.authService.verifyResetToken(dto.token);
-  }
-
-  @Post('reset-password')
-  @HttpCode(HttpStatus.OK)
-  async resetPassword(@Body() dto: { token: string; newPassword: string }) {
-    await this.authService.resetPassword(dto.token, dto.newPassword);
-    return {
-      success: true,
-      message: 'Password has been reset successfully. Please login with your new password.',
-    };
-  }
-
-  @Post('change-password')
-  @UseGuards(SuperAdminGuard)
-  @HttpCode(HttpStatus.OK)
-  async changePassword(
-    @Request() req: { user: { id: string } },
-    @Body() dto: { currentPassword: string; newPassword: string },
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    const result = await this.authService.changePassword(req.user.id, dto.currentPassword, dto.newPassword);
-    res.cookie('super_admin_session', result.accessToken, getSuperAdminCookieOptions());
-    return { success: true };
-  }
-
-  @Post('logout')
-  @HttpCode(HttpStatus.OK)
-  async logout(@Res({ passthrough: true }) res: Response) {
-    res.clearCookie('super_admin_session', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax' as const,
-      path: '/',
     });
-    return { success: true };
   }
 
-  @Get('profile')
-  @UseGuards(SuperAdminGuard)
-  async getProfile(@Request() req: { user: { id: string } }) {
-    return this.authService.getProfile(req.user.id);
+  @TsRestHandler(c.mfaVerify)
+  async mfaVerify(@Res({ passthrough: true }) res: Response) {
+    return tsRestHandler(c.mfaVerify, async ({ body }) => {
+      const result = await this.authService.verifyMfaAndLogin(body.challengeToken, body.code);
+      res.cookie('super_admin_session', result.accessToken, getSuperAdminCookieOptions());
+      return {
+        status: 200 as const,
+        body: { admin: result.admin, mustChangePassword: result.mustChangePassword } as any,
+      };
+    });
   }
 
-  @Post('create-admin')
-  @UseGuards(SuperAdminGuard)
-  async createSuperAdmin(@Body() dto: CreateSuperAdminDto) {
-    return this.authService.createSuperAdmin(dto);
+  @TsRestHandler(c.forgotPassword)
+  async forgotPassword() {
+    return tsRestHandler(c.forgotPassword, async ({ body }) => {
+      await this.authService.requestPasswordReset(body.email);
+      return {
+        status: 200 as const,
+        body: {
+          success: true as const,
+          message: 'If an account exists with this email, a reset link has been sent.',
+        },
+      };
+    });
   }
 
-  @Get('admins')
-  @UseGuards(SuperAdminGuard)
-  async getSuperAdmins() {
-    return this.authService.getSuperAdmins();
+  @TsRestHandler(c.verifyResetToken)
+  async verifyResetToken() {
+    return tsRestHandler(c.verifyResetToken, async ({ body }) => {
+      const result = await this.authService.verifyResetToken(body.token);
+      return { status: 200 as const, body: result as any };
+    });
   }
 
-  @Delete('admins/:id')
+  @TsRestHandler(c.resetPassword)
+  async resetPassword() {
+    return tsRestHandler(c.resetPassword, async ({ body }) => {
+      await this.authService.resetPassword(body.token, body.newPassword);
+      return {
+        status: 200 as const,
+        body: {
+          success: true as const,
+          message: 'Password has been reset successfully. Please login with your new password.',
+        },
+      };
+    });
+  }
+
+  @TsRestHandler(c.logout)
+  async logout(@Res({ passthrough: true }) res: Response) {
+    return tsRestHandler(c.logout, async () => {
+      res.clearCookie('super_admin_session', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax' as const,
+        path: '/',
+      });
+      return { status: 200 as const, body: { success: true as const } };
+    });
+  }
+
+  // =========================================================================
+  // PROFILE & PASSWORD (guarded)
+  // =========================================================================
+
+  @TsRestHandler(c.getProfile)
   @UseGuards(SuperAdminGuard)
-  async deleteSuperAdmin(
-    @Request() req: { user: { id: string } },
+  async getProfile(@Request() req: any) {
+    return tsRestHandler(c.getProfile, async () => {
+      const profile = await this.authService.getProfile(req.user.id);
+      return { status: 200 as const, body: profile as any };
+    });
+  }
+
+  @TsRestHandler(c.changePassword)
+  @UseGuards(SuperAdminGuard)
+  async changePassword(
+    @Request() req: any,
+    @Res({ passthrough: true }) res: Response,
   ) {
-    const adminId = req.user.id; // This should come from Param, but keeping structure
-    return this.authService.deleteSuperAdmin(adminId, req.user.id);
+    return tsRestHandler(c.changePassword, async ({ body }) => {
+      const result = await this.authService.changePassword(
+        req.user.id,
+        body.currentPassword,
+        body.newPassword,
+      );
+      res.cookie('super_admin_session', result.accessToken, getSuperAdminCookieOptions());
+      return { status: 200 as const, body: { success: true as const } };
+    });
   }
 
-  @Put('settings/mfa-policy')
+  // =========================================================================
+  // ADMIN ACCOUNTS (guarded)
+  // =========================================================================
+
+  @TsRestHandler(c.getAdmins)
   @UseGuards(SuperAdminGuard)
-  @HttpCode(HttpStatus.OK)
-  async updateMfaPolicy(
-    @Request() req: { user: { id: string } },
-    @Body() dto: { required: boolean },
-  ) {
-    if (dto.required) {
-      const adminMfaStatus = await this.mfaService.getSuperAdminMfaStatus(req.user.id);
-      if (!adminMfaStatus.enabled) {
-        throw new BadRequestException(
-          'You must set up MFA for your own account before requiring it for all admins'
-        );
-      }
-    }
-    await this.mfaService.setSuperAdminMfaRequired(dto.required);
-    return { success: true, superAdminMfaRequired: dto.required };
+  async getAdmins() {
+    return tsRestHandler(c.getAdmins, async () => {
+      const admins = await this.authService.getSuperAdmins();
+      return { status: 200 as const, body: admins as any };
+    });
   }
 
-  @Get('settings/mfa-policy')
+  @TsRestHandler(c.createAdmin)
+  @UseGuards(SuperAdminGuard)
+  async createAdmin() {
+    return tsRestHandler(c.createAdmin, async ({ body }) => {
+      const admin = await this.authService.createSuperAdmin(body as any);
+      return { status: 201 as const, body: admin as any };
+    });
+  }
+
+  @TsRestHandler(c.deleteAdmin)
+  @UseGuards(SuperAdminGuard)
+  async deleteAdmin(@Request() req: any) {
+    return tsRestHandler(c.deleteAdmin, async ({ params: { id } }) => {
+      await this.authService.deleteSuperAdmin(id, req.user.id);
+      return { status: 200 as const, body: { success: true as const } };
+    });
+  }
+
+  // =========================================================================
+  // MFA (guarded)
+  // =========================================================================
+
+  @TsRestHandler(c.mfaSetup)
+  @UseGuards(SuperAdminGuard)
+  async mfaSetup(@Request() req: any) {
+    return tsRestHandler(c.mfaSetup, async () => {
+      const admin = await this.authService.getProfile(req.user.id);
+      const setup = await this.mfaService.generateSetup(admin.email);
+      return { status: 200 as const, body: setup as any };
+    });
+  }
+
+  @TsRestHandler(c.mfaEnable)
+  @UseGuards(SuperAdminGuard)
+  async mfaEnable(@Request() req: any) {
+    return tsRestHandler(c.mfaEnable, async ({ body }) => {
+      await this.mfaService.enableMfaForSuperAdmin(
+        req.user.id,
+        body.secret,
+        body.code,
+        body.backupCodes,
+      );
+      return { status: 200 as const, body: { success: true as const } };
+    });
+  }
+
+  @TsRestHandler(c.mfaDisable)
+  @UseGuards(SuperAdminGuard)
+  async mfaDisable(@Request() req: any) {
+    return tsRestHandler(c.mfaDisable, async ({ body }) => {
+      await this.mfaService.disableMfaForSuperAdmin(req.user.id, body.code);
+      return { status: 200 as const, body: { success: true as const } };
+    });
+  }
+
+  @TsRestHandler(c.mfaStatus)
+  @UseGuards(SuperAdminGuard)
+  async mfaStatus(@Request() req: any) {
+    return tsRestHandler(c.mfaStatus, async () => {
+      const status = await this.mfaService.getSuperAdminMfaStatus(req.user.id);
+      return { status: 200 as const, body: status as any };
+    });
+  }
+
+  @TsRestHandler(c.getMfaPolicy)
   @UseGuards(SuperAdminGuard)
   async getMfaPolicy() {
-    const required = await this.mfaService.isSuperAdminMfaRequired();
-    return { superAdminMfaRequired: required };
+    return tsRestHandler(c.getMfaPolicy, async () => {
+      const required = await this.mfaService.isSuperAdminMfaRequired();
+      return { status: 200 as const, body: { superAdminMfaRequired: required } as any };
+    });
+  }
+
+  @TsRestHandler(c.updateMfaPolicy)
+  @UseGuards(SuperAdminGuard)
+  async updateMfaPolicy(@Request() req: any) {
+    return tsRestHandler(c.updateMfaPolicy, async ({ body }) => {
+      if (body.required) {
+        const adminMfaStatus = await this.mfaService.getSuperAdminMfaStatus(req.user.id);
+        if (!adminMfaStatus.enabled) {
+          throw new BadRequestException(
+            'You must set up MFA for your own account before requiring it for all admins',
+          );
+        }
+      }
+      await this.mfaService.setSuperAdminMfaRequired(body.required);
+      return {
+        status: 200 as const,
+        body: { success: true as const, superAdminMfaRequired: body.required } as any,
+      };
+    });
   }
 }

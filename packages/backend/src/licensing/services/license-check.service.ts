@@ -248,6 +248,7 @@ export class LicenseCheckService {
         tenantId,
         applicationId,
         status: { in: ['ACTIVE', 'TRIALING'] },
+        currentPeriodEnd: { gt: new Date() },  // Must not be expired
       },
       include: { licenseType: true },
       orderBy: { licenseType: { displayOrder: 'desc' } },

@@ -1,20 +1,12 @@
-import {
-  Controller,
-  Post,
-  Get,
-  Put,
-  Delete,
-  Body,
-  Param,
-  UseGuards,
-} from '@nestjs/common';
-import { SsoProviderType } from '@prisma/client';
+import { Controller, UseGuards } from '@nestjs/common';
+import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
+import { superAdminContract as c } from '@authvital/contracts';
 import { SuperAdminGuard } from '../guards/super-admin.guard';
 import { AdminSsoService } from '../services/admin-sso.service';
 import { DomainsService } from '../../tenants/domains/domains.service';
 import { TenantRolesService } from '../../authorization';
 
-@Controller('super-admin')
+@Controller()
 @UseGuards(SuperAdminGuard)
 export class SuperAdminSsoController {
   constructor(
@@ -23,128 +15,144 @@ export class SuperAdminSsoController {
     private readonly tenantRolesService: TenantRolesService,
   ) {}
 
-  // Domain Management
-  @Get('domains/tenant/:tenantId')
-  async getTenantDomains(@Param('tenantId') tenantId: string) {
-    return this.domainsService.getTenantDomains(tenantId);
-  }
+  // =========================================================================
+  // DOMAINS
+  // =========================================================================
 
-  @Post('domains/register')
-  async registerDomain(@Body() dto: { tenantId: string; domainName: string }) {
-    return this.domainsService.registerDomain(dto.tenantId, dto.domainName);
-  }
-
-  @Post('domains/:domainId/verify')
-  async verifyDomain(@Param('domainId') domainId: string) {
-    return this.domainsService.verifyDomain(domainId);
-  }
-
-  @Delete('domains/:domainId')
-  async deleteDomain(@Param('domainId') domainId: string) {
-    return this.domainsService.deleteDomain(domainId);
-  }
-
-  // Tenant Role Management
-  @Get('tenant-roles')
-  async getTenantRoles() {
-    return this.tenantRolesService.getTenantRoles();
-  }
-
-  @Get('memberships/:membershipId/tenant-roles')
-  async getMembershipTenantRoles(@Param('membershipId') membershipId: string) {
-    return this.tenantRolesService.getMembershipTenantRoles(membershipId);
-  }
-
-  @Post('memberships/:membershipId/tenant-roles')
-  async assignTenantRole(
-    @Param('membershipId') membershipId: string,
-    @Body() body: { tenantRoleSlug: string },
-  ) {
-    await this.tenantRolesService.assignTenantRole(membershipId, body.tenantRoleSlug);
-    const roles = await this.tenantRolesService.getMembershipTenantRoles(membershipId);
-    return { success: true, message: 'Tenant role assigned successfully', roles };
-  }
-
-  @Delete('memberships/:membershipId/tenant-roles/:roleSlug')
-  async removeTenantRole(
-    @Param('membershipId') membershipId: string,
-    @Param('roleSlug') roleSlug: string,
-  ) {
-    await this.tenantRolesService.removeTenantRole(membershipId, roleSlug);
-    return { success: true, message: 'Tenant role removed successfully' };
-  }
-
-  @Put('memberships/:membershipId/roles')
-  async updateMemberRoles(
-    @Param('membershipId') membershipId: string,
-    @Body('roleIds') roleIds: string[],
-  ) {
-    // This endpoint is handled by AdminTenantsService
-    // Keeping here for backwards compatibility routing
-    throw new Error('Use /super-admin/tenants endpoints for member role updates');
-  }
-
-  @Put('memberships/:membershipId/status')
-  async updateMembershipStatus(
-    @Param('membershipId') membershipId: string,
-    @Body('status') status: 'ACTIVE' | 'SUSPENDED' | 'INVITED',
-  ) {
-    throw new Error('Use /super-admin/tenants endpoints for membership status updates');
-  }
-
-  // SSO Configuration
-  @Get('sso/providers')
-  async getSsoProviders() {
-    return this.ssoService.getAllProviders();
-  }
-
-  @Get('sso/providers/:provider')
-  async getSsoProvider(@Param('provider') provider: string) {
-    return this.ssoService.getProvider(provider.toUpperCase() as SsoProviderType);
-  }
-
-  @Post('sso/providers')
-  async createSsoProvider(
-    @Body() dto: {
-      provider: string;
-      clientId: string;
-      clientSecret: string;
-      enabled?: boolean;
-      scopes?: string[];
-      allowedDomains?: string[];
-      autoCreateUser?: boolean;
-      autoLinkExisting?: boolean;
-    },
-  ) {
-    return this.ssoService.upsertProvider({
-      ...dto,
-      provider: dto.provider.toUpperCase() as SsoProviderType,
+  @TsRestHandler(c.getTenantDomains)
+  async getTenantDomains() {
+    return tsRestHandler(c.getTenantDomains, async ({ params: { tenantId } }) => {
+      const domains = await this.domainsService.getTenantDomains(tenantId);
+      return { status: 200 as const, body: domains as any };
     });
   }
 
-  @Put('sso/providers/:provider')
-  async updateSsoProvider(
-    @Param('provider') provider: string,
-    @Body() dto: {
-      clientId?: string;
-      clientSecret?: string;
-      enabled?: boolean;
-      scopes?: string[];
-      allowedDomains?: string[];
-      autoCreateUser?: boolean;
-      autoLinkExisting?: boolean;
-    },
-  ) {
-    return this.ssoService.updateProvider(provider.toUpperCase() as SsoProviderType, dto);
+  @TsRestHandler(c.registerDomain)
+  async registerDomain() {
+    return tsRestHandler(c.registerDomain, async ({ body }) => {
+      const domain = await this.domainsService.registerDomain(body.tenantId, body.domainName);
+      return { status: 201 as const, body: domain as any };
+    });
   }
 
-  @Delete('sso/providers/:provider')
-  async deleteSsoProvider(@Param('provider') provider: string) {
-    return this.ssoService.deleteProvider(provider.toUpperCase() as SsoProviderType);
+  @TsRestHandler(c.verifyDomain)
+  async verifyDomain() {
+    return tsRestHandler(c.verifyDomain, async ({ params: { domainId } }) => {
+      const domain = await this.domainsService.verifyDomain(domainId);
+      return { status: 200 as const, body: domain as any };
+    });
   }
 
-  @Post('sso/providers/:provider/test')
-  async testSsoProvider(@Param('provider') provider: string) {
-    return this.ssoService.testProvider(provider.toUpperCase() as SsoProviderType);
+  @TsRestHandler(c.deleteDomain)
+  async deleteDomain() {
+    return tsRestHandler(c.deleteDomain, async ({ params: { domainId } }) => {
+      await this.domainsService.deleteDomain(domainId);
+      return { status: 200 as const, body: { success: true as const } };
+    });
+  }
+
+  // =========================================================================
+  // TENANT ROLES
+  // =========================================================================
+
+  @TsRestHandler(c.getTenantRoles)
+  async getTenantRoles() {
+    return tsRestHandler(c.getTenantRoles, async () => {
+      const roles = await this.tenantRolesService.getTenantRoles();
+      return { status: 200 as const, body: roles as any };
+    });
+  }
+
+  @TsRestHandler(c.getMembershipTenantRoles)
+  async getMembershipTenantRoles() {
+    return tsRestHandler(c.getMembershipTenantRoles, async ({ params: { membershipId } }) => {
+      const roles = await this.tenantRolesService.getMembershipTenantRoles(membershipId);
+      return { status: 200 as const, body: roles as any };
+    });
+  }
+
+  @TsRestHandler(c.assignTenantRole)
+  async assignTenantRole() {
+    return tsRestHandler(c.assignTenantRole, async ({ params: { membershipId }, body }) => {
+      await this.tenantRolesService.assignTenantRole(membershipId, body.tenantRoleSlug);
+      const roles = await this.tenantRolesService.getMembershipTenantRoles(membershipId);
+      return {
+        status: 200 as const,
+        body: {
+          success: true as const,
+          message: 'Tenant role assigned successfully',
+          roles: roles as any,
+        },
+      };
+    });
+  }
+
+  @TsRestHandler(c.removeTenantRole)
+  async removeTenantRole() {
+    return tsRestHandler(c.removeTenantRole, async ({ params: { membershipId, roleSlug } }) => {
+      await this.tenantRolesService.removeTenantRole(membershipId, roleSlug);
+      return {
+        status: 200 as const,
+        body: { success: true as const, message: 'Tenant role removed successfully' },
+      };
+    });
+  }
+
+  // =========================================================================
+  // SSO PROVIDERS
+  // =========================================================================
+
+  @TsRestHandler(c.getSsoProviders)
+  async getSsoProviders() {
+    return tsRestHandler(c.getSsoProviders, async () => {
+      const providers = await this.ssoService.getAllProviders();
+      return { status: 200 as const, body: providers as any };
+    });
+  }
+
+  @TsRestHandler(c.getSsoProvider)
+  async getSsoProvider() {
+    return tsRestHandler(c.getSsoProvider, async ({ params: { provider } }) => {
+      const result = await this.ssoService.getProvider(provider.toUpperCase() as any);
+      return { status: 200 as const, body: result as any };
+    });
+  }
+
+  @TsRestHandler(c.createSsoProvider)
+  async createSsoProvider() {
+    return tsRestHandler(c.createSsoProvider, async ({ body }) => {
+      const provider = await this.ssoService.upsertProvider({
+        ...body,
+        provider: body.provider.toUpperCase(),
+      } as any);
+      return { status: 201 as const, body: provider as any };
+    });
+  }
+
+  @TsRestHandler(c.updateSsoProvider)
+  async updateSsoProvider() {
+    return tsRestHandler(c.updateSsoProvider, async ({ params: { provider }, body }) => {
+      const result = await this.ssoService.updateProvider(
+        provider.toUpperCase() as any,
+        body as any,
+      );
+      return { status: 200 as const, body: result as any };
+    });
+  }
+
+  @TsRestHandler(c.deleteSsoProvider)
+  async deleteSsoProvider() {
+    return tsRestHandler(c.deleteSsoProvider, async ({ params: { provider } }) => {
+      await this.ssoService.deleteProvider(provider.toUpperCase() as any);
+      return { status: 200 as const, body: { success: true as const } };
+    });
+  }
+
+  @TsRestHandler(c.testSsoProvider)
+  async testSsoProvider() {
+    return tsRestHandler(c.testSsoProvider, async ({ params: { provider } }) => {
+      const result = await this.ssoService.testProvider(provider.toUpperCase() as any);
+      return { status: 200 as const, body: result as any };
+    });
   }
 }

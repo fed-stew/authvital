@@ -10,74 +10,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AdminRolesService } from './admin-roles.service';
 import { SystemWebhookService } from '../../webhooks/system-webhook.service';
 import { AccessMode } from '@prisma/client';
-
-// ===========================================================================
-// URI VALIDATION HELPERS
-// ===========================================================================
-
-/**
- * Validate a redirect URI for security
- * Supports:
- * - Exact matches
- * - Wildcards only in subdomain position (e.g., http://*.example.com/callback)
- * - Tenant placeholder only in subdomain position (e.g., https://{tenant}.example.com/callback)
- */
-function validateRedirectUri(uri: string): { valid: boolean; error?: string } {
-  if (!uri.match(/^https?:\/\//)) {
-    return { valid: false, error: `Invalid URI "${uri}": Must start with http:// or https://` };
-  }
-
-  if (uri.includes('*')) {
-    const wildcardPattern = /^https?:\/\/\*\.([a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+(:\d+)?(\/.*)?$/;
-
-    if (!wildcardPattern.test(uri)) {
-      return {
-        valid: false,
-        error: `Invalid wildcard in "${uri}": Wildcards are only allowed in subdomain position (e.g., http://*.example.com/callback)`,
-      };
-    }
-
-    const hostMatch = uri.match(/^https?:\/\/\*\.([^/]+)/);
-    if (hostMatch) {
-      const domainPart = hostMatch[1];
-      if (!domainPart.includes('.') && !domainPart.match(/^localhost(:\d+)?$/)) {
-        return {
-          valid: false,
-          error: `Invalid wildcard in "${uri}": Must have a valid domain after *. (e.g., *.example.com or *.localhost:3000)`,
-        };
-      }
-    }
-  }
-
-  if (uri.includes('{tenant}')) {
-    const tenantPattern = /^https?:\/\/{tenant}\.([a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+(:\d+)?(\/.*)?$/;
-
-    if (!tenantPattern.test(uri)) {
-      return {
-        valid: false,
-        error: `Invalid tenant placeholder in "${uri}": {tenant} is only allowed in subdomain position (e.g., https://{tenant}.example.com/callback)`,
-      };
-    }
-  }
-
-  try {
-    const testUri = uri.replace('*', 'wildcard-test').replace('{tenant}', 'test-tenant');
-    new URL(testUri);
-  } catch {
-    return { valid: false, error: `Invalid URI "${uri}": Not a valid URL format` };
-  }
-
-  return { valid: true };
-}
-
-function validateRedirectUris(uris: string[]): void {
-  for (const uri of uris) {
-    const result = validateRedirectUri(uri);
-    if (!result.valid) {
-      throw new BadRequestException(result.error);
-    }
-  }
-}
+import {
+  validateRedirectUriPattern,
+  validateRedirectUriPatterns,
+  validateSafeUrl,
+} from '../../common/utils/url-validation.utils';
 
 // ===========================================================================
 // APPLICATION SERVICE
@@ -247,7 +184,37 @@ export class AdminApplicationsService {
   }) {
     // Validate redirect URIs for security
     if (data.redirectUris?.length) {
-      validateRedirectUris(data.redirectUris);
+      const result = validateRedirectUriPatterns(data.redirectUris);
+      if (!result.valid) {
+        throw new BadRequestException(result.error);
+      }
+    }
+
+    // Validate post-logout redirect URI for security
+    if (data.postLogoutRedirectUri) {
+      const result = validateRedirectUriPattern(data.postLogoutRedirectUri);
+      if (!result.valid) {
+        throw new BadRequestException(result.error);
+      }
+    }
+
+    // Validate branding URLs for security
+    const brandingUrlFields: { name: string; value: string | undefined }[] = [
+      { name: 'brandingLogoUrl', value: data.brandingLogoUrl },
+      { name: 'brandingIconUrl', value: data.brandingIconUrl },
+      { name: 'brandingSupportUrl', value: data.brandingSupportUrl },
+      { name: 'brandingPrivacyUrl', value: data.brandingPrivacyUrl },
+      { name: 'brandingTermsUrl', value: data.brandingTermsUrl },
+      { name: 'initiateLoginUri', value: data.initiateLoginUri },
+    ];
+
+    for (const { name, value } of brandingUrlFields) {
+      if (value) {
+        const result = validateSafeUrl(value);
+        if (!result.valid) {
+          throw new BadRequestException(result.error);
+        }
+      }
     }
 
     // Validate auto-provision settings
@@ -439,7 +406,38 @@ export class AdminApplicationsService {
 
     // Validate redirect URIs for security
     if (data.redirectUris?.length) {
-      validateRedirectUris(data.redirectUris);
+      const result = validateRedirectUriPatterns(data.redirectUris);
+      if (!result.valid) {
+        throw new BadRequestException(result.error);
+      }
+    }
+
+    // Validate post-logout redirect URI for security
+    if (data.postLogoutRedirectUri) {
+      const result = validateRedirectUriPattern(data.postLogoutRedirectUri);
+      if (!result.valid) {
+        throw new BadRequestException(result.error);
+      }
+    }
+
+    // Validate branding URLs for security
+    const brandingUrlFields: { name: string; value: string | null | undefined }[] = [
+      { name: 'brandingLogoUrl', value: data.brandingLogoUrl },
+      { name: 'brandingIconUrl', value: data.brandingIconUrl },
+      { name: 'brandingSupportUrl', value: data.brandingSupportUrl },
+      { name: 'brandingPrivacyUrl', value: data.brandingPrivacyUrl },
+      { name: 'brandingTermsUrl', value: data.brandingTermsUrl },
+      { name: 'initiateLoginUri', value: data.initiateLoginUri },
+      { name: 'webhookUrl', value: data.webhookUrl },
+    ];
+
+    for (const { name, value } of brandingUrlFields) {
+      if (value) {
+        const result = validateSafeUrl(value);
+        if (!result.valid) {
+          throw new BadRequestException(result.error);
+        }
+      }
     }
 
     // Validate auto-provision settings

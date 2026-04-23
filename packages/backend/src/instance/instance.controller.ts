@@ -1,18 +1,11 @@
-import {
-  Controller,
-  Get,
-  Patch,
-  Post,
-  Delete,
-  Body,
-  Param,
-  UseGuards,
-} from '@nestjs/common';
-import { InstanceService, UpdateInstanceDto } from './instance.service';
-import { InstanceApiKeyService, CreateInstanceApiKeyDto } from './instance-api-key.service';
+import { Controller, UseGuards } from '@nestjs/common';
+import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
+import { instanceContract as c } from '@authvital/contracts';
+import { InstanceService } from './instance.service';
+import { InstanceApiKeyService } from './instance-api-key.service';
 import { SuperAdminGuard } from '../super-admin/guards/super-admin.guard';
 
-@Controller('instance')
+@Controller()
 @UseGuards(SuperAdminGuard)
 export class InstanceController {
   constructor(
@@ -20,52 +13,75 @@ export class InstanceController {
     private readonly apiKeyService: InstanceApiKeyService,
   ) {}
 
-  // ===========================================================================
+  // =========================================================================
   // INSTANCE CONFIGURATION
-  // ===========================================================================
+  // =========================================================================
 
-  @Get()
+  @TsRestHandler(c.getInstanceMeta)
   async getInstanceMeta() {
-    return this.instanceService.getInstanceMeta();
+    return tsRestHandler(c.getInstanceMeta, async () => {
+      const meta = await this.instanceService.getInstanceMeta();
+      return { status: 200 as const, body: meta as any };
+    });
   }
 
-  @Get('uuid')
+  @TsRestHandler(c.getInstanceUuid)
   async getInstanceUuid() {
-    const uuid = await this.instanceService.getInstanceUuid();
-    return { instanceUuid: uuid };
+    return tsRestHandler(c.getInstanceUuid, async () => {
+      const uuid = await this.instanceService.getInstanceUuid();
+      return { status: 200 as const, body: { instanceUuid: uuid } };
+    });
   }
 
-  @Get('signup-config')
+  @TsRestHandler(c.getSignupConfig)
   async getSignupConfig() {
-    return this.instanceService.getSignupConfig();
+    return tsRestHandler(c.getSignupConfig, async () => {
+      const config = await this.instanceService.getSignupConfig();
+      return { status: 200 as const, body: config as any };
+    });
   }
 
-  @Get('branding')
+  @TsRestHandler(c.getBrandingConfig)
   async getBrandingConfig() {
-    return this.instanceService.getBrandingConfig();
+    return tsRestHandler(c.getBrandingConfig, async () => {
+      const branding = await this.instanceService.getBrandingConfig();
+      return { status: 200 as const, body: branding as any };
+    });
   }
 
-  @Patch()
-  async updateInstanceMeta(@Body() dto: UpdateInstanceDto) {
-    return this.instanceService.updateInstanceMeta(dto);
+  @TsRestHandler(c.updateInstanceMeta)
+  async updateInstanceMeta() {
+    return tsRestHandler(c.updateInstanceMeta, async ({ body }) => {
+      const meta = await this.instanceService.updateInstanceMeta(body as any);
+      return { status: 200 as const, body: meta as any };
+    });
   }
 
-  // ===========================================================================
-  // INSTANCE API KEYS (Fleet Manager)
-  // ===========================================================================
+  // =========================================================================
+  // INSTANCE API KEYS
+  // =========================================================================
 
-  @Get('api-keys')
+  @TsRestHandler(c.listApiKeys)
   async listApiKeys() {
-    return this.apiKeyService.listApiKeys();
+    return tsRestHandler(c.listApiKeys, async () => {
+      const keys = await this.apiKeyService.listApiKeys();
+      return { status: 200 as const, body: keys as any };
+    });
   }
 
-  @Post('api-keys')
-  async createApiKey(@Body() dto: CreateInstanceApiKeyDto) {
-    return this.apiKeyService.createApiKey(dto);
+  @TsRestHandler(c.createApiKey)
+  async createApiKey() {
+    return tsRestHandler(c.createApiKey, async ({ body }) => {
+      const result = await this.apiKeyService.createApiKey(body as any);
+      return { status: 201 as const, body: result as any };
+    });
   }
 
-  @Delete('api-keys/:id')
-  async revokeApiKey(@Param('id') id: string) {
-    return this.apiKeyService.revokeApiKey(id);
+  @TsRestHandler(c.revokeApiKey)
+  async revokeApiKey() {
+    return tsRestHandler(c.revokeApiKey, async ({ params: { id } }) => {
+      await this.apiKeyService.revokeApiKey(id);
+      return { status: 200 as const, body: { success: true as const } };
+    });
   }
 }

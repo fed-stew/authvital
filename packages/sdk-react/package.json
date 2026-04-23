@@ -1,0 +1,69 @@
+{
+  "name": "@authvital/react",
+  "version": "0.1.0",
+  "description": "AuthVital React SDK - Components, hooks, and provider for frontend integration",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": ">=17.0.0",
+    "react-dom": ">=17.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": false
+    },
+    "react-dom": {
+      "optional": false
+    }
+  },
+  "devDependencies": {
+    "@authvital/shared": "*",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "react",
+    "auth",
+    "oauth",
+    "authentication",
+    "authvital",
+    "identity",
+    "idp",
+    "multi-tenant",
+    "saas",
+    "hooks",
+    "components"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/intersparkio/authvital",
+    "directory": "packages/sdk-react"
+  },
+  "homepage": "https://github.com/intersparkio/authvital#readme",
+  "bugs": {
+    "url": "https://github.com/intersparkio/authvital/issues"
+  }
+}

@@ -1,141 +1,166 @@
-import {
-  Controller,
-  Post,
-  Get,
-  Put,
-  Delete,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-  HttpCode,
-  HttpStatus,
-} from '@nestjs/common';
+import { Controller, UseGuards } from '@nestjs/common';
+import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
+import { superAdminContract as c } from '@authvital/contracts';
 import { SuperAdminGuard } from '../guards/super-admin.guard';
 import { AdminTenantsService } from '../services/admin-tenants.service';
 import { AdminServiceAccountsService } from '../services/admin-service-accounts.service';
-import { DomainsService } from '../../tenants/domains/domains.service';
-import { TenantRolesService } from '../../authorization';
 import { MfaService } from '../../auth/mfa/mfa.service';
 
-@Controller('super-admin/tenants')
+@Controller()
 @UseGuards(SuperAdminGuard)
 export class SuperAdminTenantsController {
   constructor(
     private readonly tenantsService: AdminTenantsService,
     private readonly serviceAccountsService: AdminServiceAccountsService,
-    private readonly domainsService: DomainsService,
-    private readonly tenantRolesService: TenantRolesService,
     private readonly mfaService: MfaService,
   ) {}
 
-  @Get()
-  async getAllTenants(
-    @Query('search') search?: string,
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string,
-  ) {
-    return this.tenantsService.getTenants({
-      search,
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined,
+  // =========================================================================
+  // TENANTS CRUD
+  // =========================================================================
+
+  @TsRestHandler(c.getTenants)
+  async getTenants() {
+    return tsRestHandler(c.getTenants, async ({ query }) => {
+      const result = await this.tenantsService.getTenants(query);
+      return { status: 200 as const, body: result as any };
     });
   }
 
-  @Post()
-  async createTenant(@Body() dto: { name: string; slug: string; ownerEmail?: string }) {
-    return this.tenantsService.createTenant(dto);
+  @TsRestHandler(c.createTenant)
+  async createTenant() {
+    return tsRestHandler(c.createTenant, async ({ body }) => {
+      const tenant = await this.tenantsService.createTenant(body as any);
+      return { status: 201 as const, body: tenant as any };
+    });
   }
 
-  @Get(':id')
-  async getTenantDetail(@Param('id') id: string) {
-    return this.tenantsService.getTenant(id);
+  @TsRestHandler(c.getTenant)
+  async getTenant() {
+    return tsRestHandler(c.getTenant, async ({ params: { id } }) => {
+      const tenant = await this.tenantsService.getTenant(id);
+      return { status: 200 as const, body: tenant as any };
+    });
   }
 
-  @Put(':id')
-  async updateTenant(
-    @Param('id') id: string,
-    @Body() dto: { name?: string; slug?: string; initiateLoginUri?: string | null },
-  ) {
-    return this.tenantsService.updateTenant(id, dto);
+  @TsRestHandler(c.updateTenant)
+  async updateTenant() {
+    return tsRestHandler(c.updateTenant, async ({ params: { id }, body }) => {
+      const tenant = await this.tenantsService.updateTenant(id, body as any);
+      return { status: 200 as const, body: tenant as any };
+    });
   }
 
-  @Delete(':id')
-  async deleteTenant(@Param('id') id: string) {
-    return this.tenantsService.deleteTenant(id);
+  @TsRestHandler(c.deleteTenant)
+  async deleteTenant() {
+    return tsRestHandler(c.deleteTenant, async ({ params: { id } }) => {
+      await this.tenantsService.deleteTenant(id);
+      return { status: 200 as const, body: { success: true as const } };
+    });
   }
 
-  @Delete(':tenantId/members/:membershipId')
-  async removeTenantMember(
-    @Param('tenantId') tenantId: string,
-    @Param('membershipId') membershipId: string,
-  ) {
-    return this.tenantsService.removeTenantMember(tenantId, membershipId);
+  // =========================================================================
+  // MEMBER MANAGEMENT
+  // =========================================================================
+
+  @TsRestHandler(c.removeTenantMember)
+  async removeTenantMember() {
+    return tsRestHandler(c.removeTenantMember, async ({ params: { tenantId, membershipId } }) => {
+      await this.tenantsService.removeTenantMember(tenantId, membershipId);
+      return { status: 200 as const, body: { success: true as const } };
+    });
   }
 
-  @Get(':tenantId/available-users')
-  async getAvailableUsersForTenant(@Param('tenantId') tenantId: string) {
-    return this.tenantsService.getAvailableUsersForTenant(tenantId);
+  @TsRestHandler(c.getAvailableUsersForTenant)
+  async getAvailableUsersForTenant() {
+    return tsRestHandler(c.getAvailableUsersForTenant, async ({ params: { tenantId } }) => {
+      const users = await this.tenantsService.getAvailableUsersForTenant(tenantId);
+      return { status: 200 as const, body: users as any };
+    });
   }
 
-  @Post(':tenantId/invite')
-  async inviteUserToTenant(
-    @Param('tenantId') tenantId: string,
-    @Body('email') email: string,
-  ) {
-    return this.tenantsService.inviteUserToTenant(tenantId, email);
+  @TsRestHandler(c.inviteUserToTenant)
+  async inviteUserToTenant() {
+    return tsRestHandler(c.inviteUserToTenant, async ({ params: { tenantId }, body }) => {
+      await this.tenantsService.inviteUserToTenant(tenantId, body.email);
+      return { status: 200 as const, body: { success: true as const } };
+    });
   }
 
-  // MFA Policy
-  @Get(':tenantId/mfa-policy')
-  async getTenantMfaPolicy(@Param('tenantId') tenantId: string) {
-    return this.mfaService.getTenantMfaPolicy(tenantId);
+  // =========================================================================
+  // TENANT MFA
+  // =========================================================================
+
+  @TsRestHandler(c.getTenantMfaPolicy)
+  async getTenantMfaPolicy() {
+    return tsRestHandler(c.getTenantMfaPolicy, async ({ params: { tenantId } }) => {
+      const policy = await this.mfaService.getTenantMfaPolicy(tenantId);
+      return { status: 200 as const, body: policy as any };
+    });
   }
 
-  @Put(':tenantId/mfa-policy')
-  @HttpCode(HttpStatus.OK)
-  async updateTenantMfaPolicy(
-    @Param('tenantId') tenantId: string,
-    @Body() dto: { policy: 'DISABLED' | 'OPTIONAL' | 'ENCOURAGED' | 'REQUIRED'; gracePeriodDays?: number },
-  ) {
-    return this.mfaService.updateTenantMfaPolicy(tenantId, dto.policy, dto.gracePeriodDays);
+  @TsRestHandler(c.updateTenantMfaPolicy)
+  async updateTenantMfaPolicy() {
+    return tsRestHandler(c.updateTenantMfaPolicy, async ({ params: { tenantId }, body }) => {
+      const result = await this.mfaService.updateTenantMfaPolicy(
+        tenantId,
+        body.policy as any,
+        body.gracePeriodDays,
+      );
+      return { status: 200 as const, body: result as any };
+    });
   }
 
-  @Get(':tenantId/mfa-stats')
-  async getTenantMfaStats(@Param('tenantId') tenantId: string) {
-    return this.mfaService.getTenantMfaStats(tenantId);
+  @TsRestHandler(c.getTenantMfaStats)
+  async getTenantMfaStats() {
+    return tsRestHandler(c.getTenantMfaStats, async ({ params: { tenantId } }) => {
+      const stats = await this.mfaService.getTenantMfaStats(tenantId);
+      return { status: 200 as const, body: stats as any };
+    });
   }
 
-  // Service Accounts
-  @Get(':tenantId/service-accounts')
-  async listServiceAccounts(@Param('tenantId') tenantId: string) {
-    return this.serviceAccountsService.listTenantServiceAccounts(tenantId);
+  // =========================================================================
+  // SERVICE ACCOUNTS
+  // =========================================================================
+
+  @TsRestHandler(c.listServiceAccounts)
+  async listServiceAccounts() {
+    return tsRestHandler(c.listServiceAccounts, async ({ params: { tenantId } }) => {
+      const accounts = await this.serviceAccountsService.listTenantServiceAccounts(tenantId);
+      return { status: 200 as const, body: accounts as any };
+    });
   }
 
-  @Post(':tenantId/service-accounts')
-  async createServiceAccount(
-    @Param('tenantId') tenantId: string,
-    @Body() dto: { name: string; roleIds?: string[]; description?: string },
-  ) {
-    return this.serviceAccountsService.createServiceAccount(
-      tenantId, dto.name, dto.roleIds || [], dto.description,
-    );
+  @TsRestHandler(c.createServiceAccount)
+  async createServiceAccount() {
+    return tsRestHandler(c.createServiceAccount, async ({ params: { tenantId }, body }) => {
+      const account = await this.serviceAccountsService.createServiceAccount(
+        tenantId,
+        body.name,
+        body.roleIds || [],
+        body.description,
+      );
+      return { status: 201 as const, body: account as any };
+    });
   }
 
-  @Put(':tenantId/service-accounts/:serviceAccountId/roles')
-  async updateServiceAccountRoles(
-    @Param('tenantId') tenantId: string,
-    @Param('serviceAccountId') serviceAccountId: string,
-    @Body('roleIds') roleIds: string[],
-  ) {
-    return this.serviceAccountsService.updateServiceAccountRoles(tenantId, serviceAccountId, roleIds);
+  @TsRestHandler(c.updateServiceAccountRoles)
+  async updateServiceAccountRoles() {
+    return tsRestHandler(c.updateServiceAccountRoles, async ({ params: { tenantId, serviceAccountId }, body }) => {
+      const account = await this.serviceAccountsService.updateServiceAccountRoles(
+        tenantId,
+        serviceAccountId,
+        body.roleIds,
+      );
+      return { status: 200 as const, body: account as any };
+    });
   }
 
-  @Delete(':tenantId/service-accounts/:serviceAccountId')
-  async revokeServiceAccount(
-    @Param('tenantId') tenantId: string,
-    @Param('serviceAccountId') serviceAccountId: string,
-  ) {
-    return this.serviceAccountsService.revokeServiceAccount(tenantId, serviceAccountId);
+  @TsRestHandler(c.revokeServiceAccount)
+  async revokeServiceAccount() {
+    return tsRestHandler(c.revokeServiceAccount, async ({ params: { tenantId, serviceAccountId } }) => {
+      await this.serviceAccountsService.revokeServiceAccount(tenantId, serviceAccountId);
+      return { status: 200 as const, body: { success: true as const } };
+    });
   }
 }

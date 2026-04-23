@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Plus, X, Pencil, Trash2, Check, RefreshCw, Copy } from 'lucide-react';
-import { superAdminApi, syncApi } from '@/lib/api';
+import { superAdminApi } from '@/lib/api';
 import { WebhookEventPicker, type EventCategory } from '@/components/WebhookEventPicker';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -80,7 +80,7 @@ export function SettingsTab({ app, appId, onRefresh }: SettingsTabProps) {
   
   // Fetch available event types on mount
   React.useEffect(() => {
-    syncApi.getEventTypes()
+    superAdminApi.getSyncEventTypes()
       .then(data => setEventTypes(data))
       .catch(err => console.error('Failed to load event types:', err));
   }, []);

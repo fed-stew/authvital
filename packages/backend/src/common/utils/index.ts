@@ -13,3 +13,12 @@ export {
   getAuthFlowCookieOptions,
   type CookieOptions,
 } from './cookie.utils';
+
+export {
+  validateRedirectUriPattern as validateSecureRedirectUriPattern,
+  validateRedirectUriPatterns,
+  validateSafeUrl,
+  validateSafeUrls,
+  DANGEROUS_SCHEMES,
+  DANGEROUS_PATTERNS,
+} from './url-validation.utils';

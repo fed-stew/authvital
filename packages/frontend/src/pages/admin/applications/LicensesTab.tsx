@@ -325,7 +325,7 @@ export function LicensesTab({ app, appId, onRefresh }: LicensesTabProps) {
 
   // Get stats for a specific license type
   const getStatsForType = (licenseTypeId: string): LicenseTypeStats | undefined => {
-    return subscriptionStats?.licenseTypes.find(lt => lt.licenseTypeId === licenseTypeId);
+    return subscriptionStats?.licenseTypes?.find(lt => lt.licenseTypeId === licenseTypeId);
   };
 
   // Toggle expanded state
@@ -527,7 +527,7 @@ export function LicensesTab({ app, appId, onRefresh }: LicensesTabProps) {
         </div>
 
         {/* Summary Stats */}
-        {subscriptionStats && subscriptionStats.totals.totalSubscriptions > 0 && (
+        {(subscriptionStats?.totals?.totalSubscriptions ?? 0) > 0 && (
           <div className="grid gap-4 md:grid-cols-3">
             <Card>
               <CardHeader className="pb-2">
@@ -536,7 +536,7 @@ export function LicensesTab({ app, appId, onRefresh }: LicensesTabProps) {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{subscriptionStats.totals.totalSubscriptions}</div>
+                <div className="text-2xl font-bold">{subscriptionStats?.totals?.totalSubscriptions ?? 0}</div>
                 <p className="text-xs text-muted-foreground">across all tenants</p>
               </CardContent>
             </Card>
@@ -547,7 +547,7 @@ export function LicensesTab({ app, appId, onRefresh }: LicensesTabProps) {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{subscriptionStats.totals.totalSeatsPurchased}</div>
+                <div className="text-2xl font-bold">{subscriptionStats?.totals?.totalSeatsPurchased ?? 0}</div>
                 <p className="text-xs text-muted-foreground">total capacity</p>
               </CardContent>
             </Card>
@@ -559,13 +559,13 @@ export function LicensesTab({ app, appId, onRefresh }: LicensesTabProps) {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {subscriptionStats.totals.totalSeatsAssigned}
+                  {subscriptionStats?.totals?.totalSeatsAssigned ?? 0}
                   <span className="text-sm font-normal text-muted-foreground ml-1">
-                    / {subscriptionStats.totals.totalSeatsPurchased}
+                    / {subscriptionStats?.totals?.totalSeatsPurchased ?? 0}
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {subscriptionStats.totals.totalSeatsPurchased - subscriptionStats.totals.totalSeatsAssigned} available
+                  {(subscriptionStats?.totals?.totalSeatsPurchased ?? 0) - (subscriptionStats?.totals?.totalSeatsAssigned ?? 0)} available
                 </p>
               </CardContent>
             </Card>

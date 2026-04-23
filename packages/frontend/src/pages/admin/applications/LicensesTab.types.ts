@@ -72,8 +72,8 @@ export interface LicenseTypeStats {
 
 export interface ApplicationSubscriptionStats {
   applicationId: string;
-  licenseTypes: LicenseTypeStats[];
-  totals: {
+  licenseTypes?: LicenseTypeStats[];
+  totals?: {
     totalSubscriptions: number;
     totalSeatsPurchased: number;
     totalSeatsAssigned: number;

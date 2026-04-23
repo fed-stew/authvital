@@ -7,7 +7,7 @@ import {
   MoreHorizontal,
   Crown,
 } from 'lucide-react';
-import { superAdminApi, accessControlApi } from '@/lib/api';
+import { superAdminApi } from '@/lib/api';
 import { Table, type Column } from '@/components/ui/Table';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -114,7 +114,7 @@ export function MembersTab({ tenantId, onRefresh: _onRefresh }: MembersTabProps)
   const loadTenantRoles = React.useCallback(async () => {
     try {
       setIsLoadingTenantRoles(true);
-      const roles = await accessControlApi.getTenantRoles();
+      const roles = await superAdminApi.getTenantRoles();
       setTenantRoles(roles);
     } catch (err: any) {
       const errorMessage =
@@ -159,9 +159,9 @@ export function MembersTab({ tenantId, onRefresh: _onRefresh }: MembersTabProps)
     roleSlug: string,
   ) => {
     try {
-      await accessControlApi.assignTenantRole(member.id, roleSlug);
+      await superAdminApi.assignTenantRole(member.id, roleSlug);
       // Refresh tenant roles for this member
-      const roles = await accessControlApi.getMembershipTenantRoles(member.id);
+      const roles = await superAdminApi.getMembershipTenantRoles(member.id);
       setMembers((prev) =>
         prev.map((m) =>
           m.id === member.id ? { ...m, tenantRoles: roles } : m,
@@ -546,7 +546,7 @@ export function MembersTab({ tenantId, onRefresh: _onRefresh }: MembersTabProps)
                           // Remove current roles first
                           for (const currentRole of
                             selectedMember.tenantRoles || []) {
-                            await accessControlApi.removeTenantRole(
+                            await superAdminApi.removeTenantRole(
                               selectedMember.id,
                               currentRole.slug,
                             );
@@ -560,7 +560,7 @@ export function MembersTab({ tenantId, onRefresh: _onRefresh }: MembersTabProps)
 
                           // Refresh the selected member's tenant roles
                           const updatedRoles =
-                            await accessControlApi.getMembershipTenantRoles(
+                            await superAdminApi.getMembershipTenantRoles(
                               selectedMember.id,
                             );
                           setSelectedMember({

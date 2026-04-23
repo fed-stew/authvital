@@ -1,20 +1,11 @@
-import {
-  Controller,
-  Get,
-  Put,
-  Post,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-  HttpCode,
-  HttpStatus,
-} from '@nestjs/common';
+import { Controller, UseGuards } from '@nestjs/common';
+import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
+import { pubsubContract as c } from '@authvital/contracts';
 import { SuperAdminGuard } from '../super-admin/guards/super-admin.guard';
-import { PubSubConfigService, UpdatePubSubConfigDto } from './pubsub-config.service';
+import { PubSubConfigService } from './pubsub-config.service';
 import { PubSubOutboxService } from './pubsub-outbox.service';
 
-@Controller('super-admin/pubsub')
+@Controller()
 @UseGuards(SuperAdminGuard)
 export class PubSubAdminController {
   constructor(
@@ -22,82 +13,62 @@ export class PubSubAdminController {
     private readonly outboxService: PubSubOutboxService,
   ) {}
 
-  // =========================================================================
-  // Configuration
-  // =========================================================================
-
-  /**
-   * GET /api/super-admin/pubsub/config
-   * Get current Pub/Sub configuration
-   */
-  @Get('config')
+  @TsRestHandler(c.getConfig)
   async getConfig() {
-    return this.configService.getConfig();
+    return tsRestHandler(c.getConfig, async () => ({
+      status: 200 as const,
+      body: (await this.configService.getConfig()) as any,
+    }));
   }
 
-  /**
-   * PUT /api/super-admin/pubsub/config
-   * Update Pub/Sub configuration
-   */
-  @Put('config')
-  async updateConfig(@Body() dto: UpdatePubSubConfigDto) {
-    return this.configService.updateConfig(dto);
+  @TsRestHandler(c.updateConfig)
+  async updateConfig() {
+    return tsRestHandler(c.updateConfig, async ({ body }) => ({
+      status: 200 as const,
+      body: (await this.configService.updateConfig(body)) as any,
+    }));
   }
 
-  /**
-   * GET /api/super-admin/pubsub/event-types
-   * Get all available event types for the event picker
-   */
-  @Get('event-types')
-  getEventTypes() {
-    return this.configService.getAvailableEventTypes();
+  @TsRestHandler(c.getEventTypes)
+  async getEventTypes() {
+    return tsRestHandler(c.getEventTypes, async () => ({
+      status: 200 as const,
+      body: this.configService.getAvailableEventTypes() as any,
+    }));
   }
 
-  // =========================================================================
-  // Outbox Dashboard
-  // =========================================================================
-
-  /**
-   * GET /api/super-admin/pubsub/outbox
-   * Get outbox statistics (counts by status)
-   */
-  @Get('outbox')
+  @TsRestHandler(c.getOutboxStats)
   async getOutboxStats() {
-    return this.outboxService.getStats();
+    return tsRestHandler(c.getOutboxStats, async () => ({
+      status: 200 as const,
+      body: (await this.outboxService.getStats()) as any,
+    }));
   }
 
-  /**
-   * GET /api/super-admin/pubsub/outbox/events?status=FAILED&limit=50
-   * Get recent outbox events with optional filtering
-   */
-  @Get('outbox/events')
-  async getOutboxEvents(
-    @Query('status') status?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.outboxService.getRecentEvents(
-      parseInt(limit || '50', 10),
-      status as any,
-    );
+  @TsRestHandler(c.getOutboxEvents)
+  async getOutboxEvents() {
+    return tsRestHandler(c.getOutboxEvents, async ({ query }) => ({
+      status: 200 as const,
+      body: (await this.outboxService.getRecentEvents(
+        query.limit || 50,
+        query.status as any,
+      )) as any,
+    }));
   }
 
-  /**
-   * POST /api/super-admin/pubsub/outbox/:id/retry
-   * Retry a single failed event
-   */
-  @Post('outbox/:id/retry')
-  @HttpCode(HttpStatus.OK)
-  async retryEvent(@Param('id') id: string) {
-    return this.outboxService.retryEvent(id);
+  @TsRestHandler(c.retryEvent)
+  async retryEvent() {
+    return tsRestHandler(c.retryEvent, async ({ params }) => ({
+      status: 200 as const,
+      body: (await this.outboxService.retryEvent(params.id)) as any,
+    }));
   }
 
-  /**
-   * POST /api/super-admin/pubsub/outbox/retry-all
-   * Retry all failed events
-   */
-  @Post('outbox/retry-all')
-  @HttpCode(HttpStatus.OK)
+  @TsRestHandler(c.retryAllFailed)
   async retryAllFailed() {
-    return this.outboxService.retryAllFailed();
+    return tsRestHandler(c.retryAllFailed, async () => ({
+      status: 200 as const,
+      body: (await this.outboxService.retryAllFailed()) as any,
+    }));
   }
 }
