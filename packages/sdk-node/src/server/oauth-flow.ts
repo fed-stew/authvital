@@ -214,11 +214,11 @@ export async function exchangeCodeForTokens(params: TokenExchangeParams): Promis
   });
   
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
+    const error = await response.json().catch(() => ({})) as { message?: string };
     throw new Error(error.message || `Token exchange failed: ${response.status}`);
   }
   
-  return response.json();
+  return response.json() as Promise<TokenResponse>;
 }
 
 // =============================================================================
@@ -253,11 +253,11 @@ export async function refreshAccessToken(params: RefreshTokenParams): Promise<To
   });
   
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
+    const error = await response.json().catch(() => ({})) as { message?: string };
     throw new Error(error.message || `Token refresh failed: ${response.status}`);
   }
   
-  return response.json();
+  return response.json() as Promise<TokenResponse>;
 }
 
 // =============================================================================

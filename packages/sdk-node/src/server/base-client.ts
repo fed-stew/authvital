@@ -291,7 +291,7 @@ export class BaseClient {
       );
     }
 
-    const data: TokenResponse = await response.json();
+    const data = await response.json() as TokenResponse;
     this.accessToken = data.access_token;
     this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
 
@@ -335,7 +335,7 @@ export class BaseClient {
       );
     }
 
-    return response.json();
+    return response.json() as Promise<T>;
   }
 
   /**
@@ -390,6 +390,6 @@ export class BaseClient {
       }
     }
 
-    return response.json();
+    return response.json() as Promise<T>;
   }
 }

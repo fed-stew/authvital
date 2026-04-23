@@ -201,7 +201,7 @@ export class AuthVitalWebhooks {
       throw new Error(`Failed to fetch JWKS: ${response.status}`);
     }
 
-    const jwks: JwksResponse = await response.json();
+    const jwks = await response.json() as JwksResponse;
 
     // Update cache
     this.keysCache.clear();

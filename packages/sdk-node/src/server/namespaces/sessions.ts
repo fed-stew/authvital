@@ -86,7 +86,7 @@ export function createSessionsNamespace(client: BaseClient) {
         throw new Error(error.message || `Request failed: ${response.status}`);
       }
 
-      return response.json();
+      return response.json() as Promise<SessionsListResponse>;
     },
 
     /**
@@ -125,7 +125,7 @@ export function createSessionsNamespace(client: BaseClient) {
         throw new Error(error.message || `Request failed: ${response.status}`);
       }
 
-      return response.json();
+      return response.json() as Promise<SessionRevokeResponse>;
     },
 
     /**
@@ -167,7 +167,7 @@ export function createSessionsNamespace(client: BaseClient) {
         throw new Error(error.message || `Request failed: ${response.status}`);
       }
 
-      return response.json();
+      return response.json() as Promise<LogoutAllResponse>;
     },
 
     /**
@@ -208,7 +208,7 @@ export function createSessionsNamespace(client: BaseClient) {
         throw new Error(error.message || `Request failed: ${response.status}`);
       }
 
-      return response.json();
+      return response.json() as Promise<SessionRevokeResponse>;
     },
   };
 }
