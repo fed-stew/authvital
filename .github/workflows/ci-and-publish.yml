@@ -1,0 +1,397 @@
+# =============================================================================
+# AuthVital CI & Publish - Unified Workflow
+# =============================================================================
+# Builds once, tests, then publishes if on main or tag
+# =============================================================================
+name: CI & Publish
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ===========================================================================
+  # BUILD JOB - Build all packages once, upload artifacts
+  # ===========================================================================
+  build:
+    name: Build All Packages
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      # Build contracts (no dependencies)
+      - name: Build contracts
+        run: npm run build -w @authvital/contracts
+
+      # Build shared (depends on contracts)
+      - name: Build shared
+        run: npm run build -w @authvital/shared
+
+      # Build SDK Core (depends on shared)
+      - name: Build SDK Core
+        run: npm run build -w @authvital/core
+
+      # Build SDK Browser (depends on core)
+      - name: Build SDK Browser
+        run: npm run build -w @authvital/browser
+
+      # Build SDK Server (depends on core)
+      - name: Build SDK Server
+        run: npm run build -w @authvital/server
+
+      # Build backend (needs prisma:generate first)
+      - name: Generate Prisma Client
+        run: npm run prisma:generate -w @authvital/backend
+        env:
+          DATABASE_URL: postgresql://build:build@localhost:5432/build
+
+      - name: Build backend
+        run: npm run build -w @authvital/backend
+        env:
+          DATABASE_URL: postgresql://build:build@localhost:5432/build
+
+      # Build frontend (depends on shared)
+      - name: Build frontend
+        run: npm run build -w @authvital/frontend
+
+      # Upload all dist folders as artifacts
+      - name: Upload contracts artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: contracts-dist
+          path: packages/contracts/dist
+          retention-days: 1
+
+      - name: Upload shared artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shared-dist
+          path: packages/shared/dist
+          retention-days: 1
+
+      - name: Upload SDK Core artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-core-dist
+          path: packages/sdk-core/dist
+          retention-days: 1
+
+      - name: Upload SDK Browser artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-browser-dist
+          path: packages/sdk-browser/dist
+          retention-days: 1
+
+      - name: Upload SDK Server artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-server-dist
+          path: packages/sdk-server/dist
+          retention-days: 1
+
+      - name: Upload backend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-dist
+          path: packages/backend/dist
+          retention-days: 1
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: packages/frontend/dist
+          retention-days: 1
+
+  # ===========================================================================
+  # TEST JOB - Depends on build, runs tests and typechecks
+  # ===========================================================================
+  test:
+    name: Test & Typecheck
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      # Download all artifacts
+      - name: Download contracts artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: contracts-dist
+          path: packages/contracts/dist
+
+      - name: Download shared artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-dist
+          path: packages/shared/dist
+
+      - name: Download SDK Core artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sdk-core-dist
+          path: packages/sdk-core/dist
+
+      - name: Download SDK Browser artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sdk-browser-dist
+          path: packages/sdk-browser/dist
+
+      - name: Download SDK Server artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sdk-server-dist
+          path: packages/sdk-server/dist
+
+      - name: Download backend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-dist
+          path: packages/backend/dist
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: packages/frontend/dist
+
+      # Run backend tests
+      - name: Run backend tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/authvital_test
+          JWT_SECRET: test-secret-for-ci-not-real
+          BASE_URL: http://localhost:8000
+        run: npm test -w @authvital/backend -- --silent
+
+      # Typecheck all packages
+      - name: Typecheck contracts
+        run: npm run typecheck -w @authvital/contracts
+
+      - name: Typecheck shared
+        run: npm run typecheck -w @authvital/shared
+
+      - name: Typecheck SDK Core
+        run: npm run typecheck -w @authvital/core
+
+      - name: Typecheck SDK Browser
+        run: npm run typecheck -w @authvital/browser
+
+      - name: Typecheck SDK Server
+        run: npm run typecheck -w @authvital/server
+
+      - name: Typecheck backend
+        run: npm run typecheck -w @authvital/backend
+
+      - name: Typecheck frontend
+        run: npm run typecheck -w @authvital/frontend
+
+  # ===========================================================================
+  # PUBLISH CORE - Depends on test, only on main/tags
+  # ===========================================================================
+  publish-core:
+    name: Publish Core SDK
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      # Download required artifacts (contracts, shared, core)
+      - name: Download contracts artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: contracts-dist
+          path: packages/contracts/dist
+
+      - name: Download shared artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-dist
+          path: packages/shared/dist
+
+      - name: Download SDK Core artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sdk-core-dist
+          path: packages/sdk-core/dist
+
+      - name: Publish Core SDK
+        working-directory: packages/sdk-core
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+            npm version $VERSION --no-git-tag-version --allow-same-version
+            npm publish --tag latest --access public
+          else
+            SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+            BUILD_NUM=${{ github.run_number }}
+            npm version prerelease --preid="dev.${BUILD_NUM}.${SHORT_SHA}" --no-git-tag-version
+            npm publish --tag dev --access public
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ===========================================================================
+  # PUBLISH BROWSER - Depends on publish-core, only on main/tags
+  # ===========================================================================
+  publish-browser:
+    name: Publish Browser SDK
+    runs-on: ubuntu-latest
+    needs: publish-core
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      # Download all required artifacts
+      - name: Download contracts artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: contracts-dist
+          path: packages/contracts/dist
+
+      - name: Download shared artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-dist
+          path: packages/shared/dist
+
+      - name: Download SDK Core artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sdk-core-dist
+          path: packages/sdk-core/dist
+
+      - name: Download SDK Browser artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sdk-browser-dist
+          path: packages/sdk-browser/dist
+
+      - name: Publish Browser SDK
+        working-directory: packages/sdk-browser
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+            npm version $VERSION --no-git-tag-version --allow-same-version
+            npm publish --tag latest --access public
+          else
+            SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+            BUILD_NUM=${{ github.run_number }}
+            npm version prerelease --preid="dev.${BUILD_NUM}.${SHORT_SHA}" --no-git-tag-version
+            npm publish --tag dev --access public
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ===========================================================================
+  # PUBLISH SERVER - Depends on publish-core, only on main/tags
+  # ===========================================================================
+  publish-server:
+    name: Publish Server SDK
+    runs-on: ubuntu-latest
+    needs: publish-core
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      # Download all required artifacts
+      - name: Download contracts artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: contracts-dist
+          path: packages/contracts/dist
+
+      - name: Download shared artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-dist
+          path: packages/shared/dist
+
+      - name: Download SDK Core artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sdk-core-dist
+          path: packages/sdk-core/dist
+
+      - name: Download SDK Server artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sdk-server-dist
+          path: packages/sdk-server/dist
+
+      - name: Publish Server SDK
+        working-directory: packages/sdk-server
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+            npm version $VERSION --no-git-tag-version --allow-same-version
+            npm publish --tag latest --access public
+          else
+            SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+            BUILD_NUM=${{ github.run_number }}
+            npm version prerelease --preid="dev.${BUILD_NUM}.${SHORT_SHA}" --no-git-tag-version
+            npm publish --tag dev --access public
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
