@@ -205,7 +205,6 @@ export class AdminApplicationsService {
       { name: 'brandingSupportUrl', value: data.brandingSupportUrl },
       { name: 'brandingPrivacyUrl', value: data.brandingPrivacyUrl },
       { name: 'brandingTermsUrl', value: data.brandingTermsUrl },
-      { name: 'initiateLoginUri', value: data.initiateLoginUri },
     ];
 
     for (const { name: _name, value } of brandingUrlFields) {
@@ -214,6 +213,14 @@ export class AdminApplicationsService {
         if (!result.valid) {
           throw new BadRequestException(result.error);
         }
+      }
+    }
+
+    // Validate initiateLoginUri separately (allows {tenant} placeholder)
+    if (data.initiateLoginUri) {
+      const result = validateSafeUrl(data.initiateLoginUri, { allowTenantPlaceholder: true });
+      if (!result.valid) {
+        throw new BadRequestException(result.error);
       }
     }
 
@@ -427,7 +434,6 @@ export class AdminApplicationsService {
       { name: 'brandingSupportUrl', value: data.brandingSupportUrl },
       { name: 'brandingPrivacyUrl', value: data.brandingPrivacyUrl },
       { name: 'brandingTermsUrl', value: data.brandingTermsUrl },
-      { name: 'initiateLoginUri', value: data.initiateLoginUri },
       { name: 'webhookUrl', value: data.webhookUrl },
     ];
 
@@ -437,6 +443,14 @@ export class AdminApplicationsService {
         if (!result.valid) {
           throw new BadRequestException(result.error);
         }
+      }
+    }
+
+    // Validate initiateLoginUri separately (allows {tenant} placeholder)
+    if (data.initiateLoginUri) {
+      const result = validateSafeUrl(data.initiateLoginUri, { allowTenantPlaceholder: true });
+      if (!result.valid) {
+        throw new BadRequestException(result.error);
       }
     }
 

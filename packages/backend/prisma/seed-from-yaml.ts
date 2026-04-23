@@ -67,6 +67,7 @@ export interface SeedApplication {
   redirect_uris?: string[];
   post_logout_redirect_uris?: string[];
   allowed_web_origins?: string[];
+  initiate_login_uri?: string;
   access_token_ttl?: number;
   refresh_token_ttl?: number;
   roles?: SeedRole[];
@@ -80,6 +81,7 @@ export interface SeedApplication {
 }
 
 export interface SeedTenant {
+  id?: string;  // Optional explicit ID
   name: string;
   slug: string;
 }
@@ -337,9 +339,16 @@ export async function seedApplications(
     }
 
     if (appConfig.allowed_web_origins?.length) {
-      const result = validateSafeUrls(appConfig.allowed_web_origins, { allowWildcards: false });
+      const result = validateSafeUrls(appConfig.allowed_web_origins, { allowWildcards: false, allowTenantPlaceholder: true });
       if (!result.valid) {
-        throw new Error(`Seed validation failed for application "${appConfig.slug}" allowed_web_origins: ${result.error}`);
+        throw new Error(`Seed validation failed for application \"${appConfig.slug}\" allowed_web_origins: ${result.error}`);
+      }
+    }
+
+    if (appConfig.initiate_login_uri) {
+      const result = validateSafeUrl(appConfig.initiate_login_uri, { allowTenantPlaceholder: true });
+      if (!result.valid) {
+        throw new Error(`Seed validation failed for application "${appConfig.slug}" initiate_login_uri: ${result.error}`);
       }
     }
 
@@ -385,6 +394,7 @@ export async function seedApplications(
         redirectUris: appConfig.redirect_uris ?? [],
         postLogoutRedirectUris: appConfig.post_logout_redirect_uris ?? [],
         allowedWebOrigins: appConfig.allowed_web_origins ?? [],
+        ...(appConfig.initiate_login_uri !== undefined && { initiateLoginUri: appConfig.initiate_login_uri }),
         ...(appConfig.access_token_ttl !== undefined && { accessTokenTtl: appConfig.access_token_ttl }),
         ...(appConfig.refresh_token_ttl !== undefined && { refreshTokenTtl: appConfig.refresh_token_ttl }),
         ...(isNewSecret && { clientSecret }),
@@ -397,6 +407,7 @@ export async function seedApplications(
         redirectUris: appConfig.redirect_uris ?? [],
         postLogoutRedirectUris: appConfig.post_logout_redirect_uris ?? [],
         allowedWebOrigins: appConfig.allowed_web_origins ?? [],
+        ...(appConfig.initiate_login_uri && { initiateLoginUri: appConfig.initiate_login_uri }),
         ...(appConfig.access_token_ttl !== undefined && { accessTokenTtl: appConfig.access_token_ttl }),
         ...(appConfig.refresh_token_ttl !== undefined && { refreshTokenTtl: appConfig.refresh_token_ttl }),
         ...(clientSecret && { clientSecret }),
@@ -457,7 +468,12 @@ export async function seedApplications(
     // Seed license types and licensing configuration
     let defaultLicenseTypeId: string | undefined;
 
-    if (appConfig.licensing_mode || appConfig.license_types?.length) {
+    // Always ensure license setup for proper app functioning
+    // If no explicit config, default to FREE mode with auto-created license type
+    const licensingMode = appConfig.licensing_mode ?? 'FREE';
+    const needsLicenseSetup = licensingMode === 'FREE' || appConfig.licensing_mode || appConfig.license_types?.length;
+
+    if (needsLicenseSetup) {
       log('📋', `  Licensing Mode: ${appConfig.licensing_mode || 'FREE (default)'}`);
 
       // If license_types provided, create them
@@ -500,10 +516,39 @@ export async function seedApplications(
 
           log('  ', `    → ${ltConfig.name} (${ltConfig.slug})${ltConfig.max_members ? ` [max: ${ltConfig.max_members}]` : ''}`);
         }
+      } else if (licensingMode === 'FREE') {
+        // Auto-create "Free" license type for FREE mode apps
+        log('  ', `  Creating default "Free" license type:`);
+
+        const freeLicenseType = await prisma.licenseType.upsert({
+          where: {
+            applicationId_slug: {
+              applicationId: app.id,
+              slug: 'free',
+            },
+          },
+          update: {
+            name: 'Free',
+            description: 'Free tier - all members have access',
+            status: 'ACTIVE',
+          },
+          create: {
+            name: 'Free',
+            slug: 'free',
+            description: 'Free tier - all members have access',
+            applicationId: app.id,
+            features: {},
+            displayOrder: 0,
+            status: 'ACTIVE',
+            maxMembers: null,
+          },
+        });
+
+        defaultLicenseTypeId = freeLicenseType.id;
+        log('  ', `    → Free (free) [unlimited members]`);
       }
 
       // Update app with licensing configuration
-      const licensingMode = appConfig.licensing_mode ?? 'FREE';
       const updateData: {
         licensingMode: 'FREE' | 'TENANT_WIDE' | 'PER_SEAT';
         defaultLicenseTypeId?: string;
@@ -512,6 +557,11 @@ export async function seedApplications(
         autoGrantToOwner?: boolean;
       } = {
         licensingMode,
+        // For FREE mode, always auto-provision and auto-grant
+        ...(licensingMode === 'FREE' && {
+          autoProvisionOnSignup: true,
+          autoGrantToOwner: true,
+        }),
       };
 
       if (defaultLicenseTypeId) {
@@ -567,13 +617,15 @@ export async function seedTenants(
         name: tenantConfig.name,
       },
       create: {
+        ...(tenantConfig.id && { id: tenantConfig.id }),  // Use explicit ID if provided
         name: tenantConfig.name,
         slug: tenantConfig.slug,
       },
     });
 
     tenantIdMap.set(tenantConfig.slug, tenant.id);
-    log('🏠', `${tenant.name} (${tenant.slug})`);
+    const idDisplay = tenantConfig.id ? ` [id: ${tenant.id}]` : '';
+    log('🏠', `${tenant.name} (${tenant.slug})${idDisplay}`);
   }
 
   return tenantIdMap;
@@ -623,7 +675,7 @@ export async function seedUsers(
       for (const membershipConfig of userConfig.memberships) {
         const tenantId = tenantIdMap.get(membershipConfig.tenant);
         if (!tenantId) {
-          console.warn(`   ⚠️  Skipping membership: tenant "${membershipConfig.tenant}" not found`);
+          console.warn(`   ⚠️  Skipping membership: tenant "${membershipConfig.tenant}" not found. Available: ${Array.from(tenantIdMap.keys()).join(', ')}`);
           continue;
         }
 
@@ -646,6 +698,8 @@ export async function seedUsers(
           },
         });
 
+        log('  ', `  ↳ ${membershipConfig.tenant} (${membershipConfig.tenant_role}) - membership: ${membership.id.substring(0, 8)}...`);
+
         // Assign tenant role
         const tenantRole = await prisma.tenantRole.findUnique({
           where: { slug: membershipConfig.tenant_role },
@@ -666,10 +720,9 @@ export async function seedUsers(
             },
           });
         } else {
-          console.warn(`   ⚠️  Tenant role "${membershipConfig.tenant_role}" not found`);
+          const availableRoles = await prisma.tenantRole.findMany({ select: { slug: true } });
+          console.warn(`   ⚠️  Tenant role "${membershipConfig.tenant_role}" not found. Available: ${availableRoles.map(r => r.slug).join(', ')}`);
         }
-
-        log('  ', `  ↳ ${membershipConfig.tenant} (${membershipConfig.tenant_role})`);
 
         // Assign app roles
         if (membershipConfig.app_roles) {
@@ -700,6 +753,8 @@ export async function seedUsers(
                 status: 'ACTIVE',
               },
             });
+
+            log('  ', `    → AppAccess: ${appSlug} = ACTIVE`);
 
             for (const roleSlug of roleSlugs) {
               const role = await prisma.role.findUnique({
