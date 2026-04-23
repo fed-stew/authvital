@@ -16,9 +16,6 @@ jobs:
   backend-test:
     name: Backend Tests
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     
     steps:
       - name: Checkout
@@ -28,27 +25,25 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm install --legacy-peer-deps
+
+      - name: Build shared
+        run: npm run build -w @authvital/shared
+
+      - name: Build backend
+        run: npm run build -w @authvital/backend
 
       - name: Run tests
-        run: npm test -- --silent
-
-      - name: Build
-        run: npm run build
+        run: npm test -w @authvital/backend -- --silent
 
   # ===========================================================================
-  # SDK: Build & Typecheck
+  # React SDK: Build & Typecheck
   # ===========================================================================
-  sdk-build:
-    name: SDK Build
+  sdk-react-build:
+    name: React SDK Build
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend/sdk
     
     steps:
       - name: Checkout
@@ -58,17 +53,46 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: backend/sdk/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --legacy-peer-deps
 
-      - name: Build
-        run: npm run build
+      - name: Build shared
+        run: npm run build -w @authvital/shared
+
+      - name: Build React SDK
+        run: npm run build -w @authvital/react
 
       - name: Typecheck
-        run: npm run typecheck
+        run: npm run typecheck -w @authvital/react
+
+  # ===========================================================================
+  # Node SDK: Build & Typecheck
+  # ===========================================================================
+  sdk-node-build:
+    name: Node SDK Build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build shared
+        run: npm run build -w @authvital/shared
+
+      - name: Build Node SDK
+        run: npm run build -w @authvital/node
+
+      - name: Typecheck
+        run: npm run typecheck -w @authvital/node
 
   # ===========================================================================
   # Frontend: Build
@@ -76,9 +100,6 @@ jobs:
   frontend-build:
     name: Frontend Build
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
     
     steps:
       - name: Checkout
@@ -88,11 +109,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --legacy-peer-deps
 
-      - name: Build
-        run: npm run build
+      - name: Build shared
+        run: npm run build -w @authvital/shared
+
+      - name: Build frontend
+        run: npm run build -w @authvital/frontend
