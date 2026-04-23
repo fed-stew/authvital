@@ -6,14 +6,23 @@
 
 pre-push:
   jobs:
+    - name: build contracts
+      run: npm run build -w @authvital/contracts
+      
     - name: build shared
       run: npm run build -w @authvital/shared
       
-    - name: build react sdk
-      run: npm run build -w @authvital/react
+    - name: build backend
+      run: npm run prisma:generate -w @authvital/backend && npm run build -w @authvital/backend
+      
+    - name: build frontend
+      run: npm run build -w @authvital/frontend
       
     - name: build node sdk
-      run: npm run build -w @authvital/node
+      run: npm run build -w @authvital/sdk-node
+      
+    - name: build react sdk
+      run: npm run build -w @authvital/sdk-react
 
 pre-commit:
   parallel: true
