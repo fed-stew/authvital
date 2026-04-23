@@ -13,7 +13,7 @@ pre-push:
       run: npm run build -w @authvital/shared
       
     - name: build backend
-      run: npm run prisma:generate -w @authvital/backend && npm run build -w @authvital/backend
+      run: DATABASE_URL=postgresql://build:build@localhost:5432/build npm run prisma:generate -w @authvital/backend && npm run build -w @authvital/backend
       
     - name: build frontend
       run: npm run build -w @authvital/frontend
