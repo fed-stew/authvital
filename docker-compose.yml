@@ -2,19 +2,32 @@
 # AuthVital - Docker Compose
 # =============================================================================
 #
+# ACCESS URLS (when running locally):
+#   - AuthVital App:       http://localhost:8080
+#   - Admin Dashboard:     http://localhost:8080/admin
+#   - API Health:          http://localhost:8080/api/health
+#   - OAuth endpoints:     http://localhost:8080/oauth/authorize
+#                          http://localhost:8080/oauth/token
+#
 # Quick Start:
 #   1. Copy .env.example to .env and configure
 #   2. docker compose up -d
 #   3. Access at http://localhost:8080
 #
-# Commands:
-#   docker compose up -d          # Start all services
-#   docker compose logs -f api    # Follow API logs
-#   docker compose down            # Stop all services
+# Lifecycle:
+#   postgres (healthcheck) → migrate (runs once, exits) → api (starts)
 #
-# Services:
-#   - postgres: PostgreSQL database
-#   - api: NestJS server (API + frontend + OAuth)
+# Commands:
+#   docker compose up -d              # Start all services
+#   docker compose up -d --build      # Rebuild and start
+#   docker compose logs -f api        # Follow API logs
+#   docker compose logs migrate       # Check migration output
+#   docker compose down               # Stop all services
+#
+# Reset data (fresh start with new seed):
+#   docker compose down
+#   rm -rf data/
+#   docker compose up -d
 #
 # =============================================================================
 
@@ -29,10 +42,10 @@ services:
       - "5432:5432"
     environment:
       POSTGRES_USER: ${DB_USERNAME:-authvital}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-authvital}
       POSTGRES_DB: ${DB_DATABASE:-authvital}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./data/postgres:/var/lib/postgresql/data
     networks:
       - authvital
     healthcheck:
@@ -41,6 +54,35 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+
+  # ===========================================================================
+  # Database Migrations (runs once, then exits)
+  # ===========================================================================
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: authvital-migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["./migrate.sh"]
+    environment:
+      DATABASE_URL: postgresql://${DB_USERNAME:-authvital}:${DB_PASSWORD:-authvital}@postgres:5432/${DB_DATABASE:-authvital}
+      DB_HOST: postgres
+      DB_USERNAME: ${DB_USERNAME:-authvital}
+      DB_PASSWORD: ${DB_PASSWORD:-authvital}
+      DB_DATABASE: ${DB_DATABASE:-authvital}
+      SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@localhost}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+      SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-}
+      SENDGRID_FROM_NAME: ${SENDGRID_FROM_NAME:-}
+    volumes:
+      - ./seed.config.yaml:/app/seed.config.yaml:ro
+      - ./seed.config.example.yaml:/app/seed.config.example.yaml:ro
+    networks:
+      - authvital
+    restart: "no"
 
   # ===========================================================================
   # AuthVital API (serves frontend, API, and OAuth)
@@ -53,40 +95,45 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "8080:8000"
     environment:
       # Database
-      DATABASE_URL: postgresql://${DB_USERNAME:-authvital}:${DB_PASSWORD:?DB_PASSWORD is required}@postgres:5432/${DB_DATABASE:-authvital}
+      DATABASE_URL: postgresql://${DB_USERNAME:-authvital}:${DB_PASSWORD:-authvital}@postgres:5432/${DB_DATABASE:-authvital}
       DB_HOST: postgres
       DB_USERNAME: ${DB_USERNAME:-authvital}
-      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_PASSWORD: ${DB_PASSWORD:-authvital}
       DB_DATABASE: ${DB_DATABASE:-authvital}
-      
+
       # Application
       NODE_ENV: ${NODE_ENV:-production}
       PORT: 8000
       BASE_URL: ${BASE_URL:-http://localhost:8080}
-      
-      # Cookie security - set to 'false' for local HTTP dev
-      COOKIE_SECURE: ${COOKIE_SECURE:-true}
-      
-      # Security
-      SIGNING_KEY_SECRET: "${SIGNING_KEY_SECRET:?SIGNING_KEY_SECRET is required - generate with openssl rand -hex 32}"
-      
-      # CORS
-      CORS_ORIGINS: ${CORS_ORIGINS:-}
-      
-      # Email
+
+      # Cookie security - default false for local HTTP development
+      # Set to 'true' when using HTTPS in production
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+
+      # Security - DO NOT USE DEFAULT IN PRODUCTION
+      SIGNING_KEY_SECRET: "${SIGNING_KEY_SECRET:-}"
+
+      # CORS - includes localhost:8080 for local docker-compose dev by default
+      # Add additional origins as comma-separated list
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+
+      # Email (used for password reset emails, etc.)
       SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
       SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-}
       SENDGRID_FROM_NAME: ${SENDGRID_FROM_NAME:-}
-      
-      # Bootstrap
-      SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@localhost}
-      
-      # Run mode
-      RUN_MODE: ${RUN_MODE:-full}
+
+      # GCP Pub/Sub (optional - config managed via admin dashboard)
+      PUBSUB_PROJECT_ID: ${PUBSUB_PROJECT_ID:-}
+      PUBSUB_EMULATOR_HOST: ${PUBSUB_EMULATOR_HOST:-}
+    volumes:
+      - ./seed.config.yaml:/app/seed.config.yaml:ro
+      - ./seed.config.example.yaml:/app/seed.config.example.yaml:ro
     networks:
       - authvital
     healthcheck:
@@ -101,6 +148,3 @@ networks:
   authvital:
     name: authvital
     driver: bridge
-
-volumes:
-  postgres_data:

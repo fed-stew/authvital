@@ -1,73 +1,59 @@
-import {
-  Controller,
-  Post,
-  Get,
-  Put,
-  Delete,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, UseGuards } from '@nestjs/common';
+import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
+import { superAdminContract as c } from '@authvital/contracts';
 import { SuperAdminGuard } from '../guards/super-admin.guard';
 import { AdminUsersService } from '../services/admin-users.service';
 
-@Controller('super-admin/users')
+@Controller()
 @UseGuards(SuperAdminGuard)
 export class SuperAdminUsersController {
   constructor(private readonly usersService: AdminUsersService) {}
 
-  @Get()
-  async getAllUsers(
-    @Query('search') search?: string,
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string,
-  ) {
-    return this.usersService.getUsers({
-      search,
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined,
+  @TsRestHandler(c.getUsers)
+  async getUsers() {
+    return tsRestHandler(c.getUsers, async ({ query }) => {
+      const result = await this.usersService.getUsers(query);
+      return { status: 200 as const, body: result as any };
     });
   }
 
-  @Post()
-  async createUser(
-    @Body() dto: {
-      givenName?: string;
-      familyName?: string;
-      email?: string;
-      phone?: string;
-      password?: string;
-    },
-  ) {
-    return this.usersService.createUser(dto);
+  @TsRestHandler(c.createUser)
+  async createUser() {
+    return tsRestHandler(c.createUser, async ({ body }) => {
+      const user = await this.usersService.createUser(body as any);
+      return { status: 201 as const, body: user as any };
+    });
   }
 
-  @Put(':id')
-  async updateUser(
-    @Param('id') id: string,
-    @Body() dto: {
-      givenName?: string;
-      familyName?: string;
-      email?: string;
-      phone?: string;
-    },
-  ) {
-    return this.usersService.updateUser(id, dto);
+  @TsRestHandler(c.getUser)
+  async getUser() {
+    return tsRestHandler(c.getUser, async ({ params: { id } }) => {
+      const user = await this.usersService.getUser(id);
+      return { status: 200 as const, body: user as any };
+    });
   }
 
-  @Delete(':id')
-  async deleteUser(@Param('id') id: string) {
-    return this.usersService.deleteUser(id);
+  @TsRestHandler(c.updateUser)
+  async updateUser() {
+    return tsRestHandler(c.updateUser, async ({ params: { id }, body }) => {
+      const user = await this.usersService.updateUser(id, body as any);
+      return { status: 200 as const, body: user as any };
+    });
   }
 
-  @Get(':id')
-  async getUserDetail(@Param('id') id: string) {
-    return this.usersService.getUser(id);
+  @TsRestHandler(c.deleteUser)
+  async deleteUser() {
+    return tsRestHandler(c.deleteUser, async ({ params: { id } }) => {
+      await this.usersService.deleteUser(id);
+      return { status: 200 as const, body: { success: true as const } };
+    });
   }
 
-  @Post(':id/send-password-reset')
-  async sendUserPasswordReset(@Param('id') id: string) {
-    return this.usersService.sendUserPasswordReset(id);
+  @TsRestHandler(c.sendUserPasswordReset)
+  async sendUserPasswordReset() {
+    return tsRestHandler(c.sendUserPasswordReset, async ({ params: { id } }) => {
+      await this.usersService.sendUserPasswordReset(id);
+      return { status: 200 as const, body: { success: true as const } };
+    });
   }
 }

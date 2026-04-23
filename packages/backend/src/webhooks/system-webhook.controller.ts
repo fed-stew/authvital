@@ -1,89 +1,83 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Body,
-  Param,
-  UseGuards,
-  HttpCode,
-  HttpStatus,
-} from '@nestjs/common';
+import { Controller, UseGuards } from '@nestjs/common';
+import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
+import { webhooksContract as c } from '@authvital/contracts';
 import { SuperAdminGuard } from '../super-admin/guards/super-admin.guard';
 import { SystemWebhookService, SYSTEM_WEBHOOK_EVENTS } from './system-webhook.service';
 
-@Controller('super-admin/webhooks')
+@Controller()
 @UseGuards(SuperAdminGuard)
 export class SystemWebhookController {
   constructor(private readonly webhookService: SystemWebhookService) {}
 
-  @Get('events')
-  getAvailableEvents() {
-    // Backwards compatible - flat array
-    return { events: SYSTEM_WEBHOOK_EVENTS };
+  @TsRestHandler(c.getAvailableEvents)
+  async getAvailableEvents() {
+    return tsRestHandler(c.getAvailableEvents, async () => ({
+      status: 200 as const,
+      body: { events: [...SYSTEM_WEBHOOK_EVENTS] },
+    }));
   }
 
-  @Get('event-types')
-  getEventTypes() {
-    // New categorized format for the picker UI
-    return this.webhookService.getSystemEventTypes();
+  @TsRestHandler(c.getEventTypes)
+  async getEventTypes() {
+    return tsRestHandler(c.getEventTypes, async () => ({
+      status: 200 as const,
+      body: this.webhookService.getSystemEventTypes() as any,
+    }));
   }
 
-  @Get()
+  @TsRestHandler(c.getWebhooks)
   async getWebhooks() {
-    return this.webhookService.getWebhooks();
+    return tsRestHandler(c.getWebhooks, async () => ({
+      status: 200 as const,
+      body: (await this.webhookService.getWebhooks()) as any,
+    }));
   }
 
-  @Get(':id')
-  async getWebhook(@Param('id') id: string) {
-    return this.webhookService.getWebhook(id);
+  @TsRestHandler(c.getWebhook)
+  async getWebhook() {
+    return tsRestHandler(c.getWebhook, async ({ params }) => ({
+      status: 200 as const,
+      body: (await this.webhookService.getWebhook(params.id)) as any,
+    }));
   }
 
-  @Get(':id/deliveries')
-  async getDeliveries(@Param('id') id: string) {
-    return this.webhookService.getDeliveries(id);
+  @TsRestHandler(c.getDeliveries)
+  async getDeliveries() {
+    return tsRestHandler(c.getDeliveries, async ({ params }) => ({
+      status: 200 as const,
+      body: (await this.webhookService.getDeliveries(params.id)) as any,
+    }));
   }
 
-  @Post()
-  async createWebhook(
-    @Body()
-    body: {
-      name: string;
-      url: string;
-      events: string[];
-      description?: string;
-      headers?: Record<string, string>;
-    },
-  ) {
-    return this.webhookService.createWebhook(body);
+  @TsRestHandler(c.createWebhook)
+  async createWebhook() {
+    return tsRestHandler(c.createWebhook, async ({ body }) => ({
+      status: 201 as const,
+      body: (await this.webhookService.createWebhook(body)) as any,
+    }));
   }
 
-  @Put(':id')
-  async updateWebhook(
-    @Param('id') id: string,
-    @Body()
-    body: {
-      name?: string;
-      url?: string;
-      events?: string[];
-      isActive?: boolean;
-      description?: string;
-      headers?: Record<string, string>;
-    },
-  ) {
-    return this.webhookService.updateWebhook(id, body);
+  @TsRestHandler(c.updateWebhook)
+  async updateWebhook() {
+    return tsRestHandler(c.updateWebhook, async ({ params, body }) => ({
+      status: 200 as const,
+      body: (await this.webhookService.updateWebhook(params.id, body)) as any,
+    }));
   }
 
-  @Delete(':id')
-  @HttpCode(HttpStatus.OK)
-  async deleteWebhook(@Param('id') id: string) {
-    return this.webhookService.deleteWebhook(id);
+  @TsRestHandler(c.deleteWebhook)
+  async deleteWebhook() {
+    return tsRestHandler(c.deleteWebhook, async ({ params }) => ({
+      status: 200 as const,
+      body: (await this.webhookService.deleteWebhook(params.id)) as any,
+    }));
   }
 
-  @Post(':id/test')
-  @HttpCode(HttpStatus.OK)
-  async testWebhook(@Param('id') id: string) {
-    return this.webhookService.testWebhook(id);
+  @TsRestHandler(c.testWebhook)
+  async testWebhook() {
+    return tsRestHandler(c.testWebhook, async ({ params }) => ({
+      status: 200 as const,
+      body: (await this.webhookService.testWebhook(params.id)) as any,
+    }));
   }
 }

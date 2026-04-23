@@ -88,19 +88,17 @@ When `SUPER_ADMIN_EMAIL` is set and no super admin exists:
 1. Creates a super admin account
 2. Sends password reset email (or logs to console if email not configured)
 
-### Run Mode (Docker)
+### Docker Architecture
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `RUN_MODE` | No | `full` | Startup behavior in Docker |
+Migrations and the API run as **separate services** in Docker Compose:
 
-**Run modes:**
+```
+postgres (healthcheck) → migrate (runs once, exits) → api (starts)
+```
 
-| Mode | Behavior |
-|------|----------|
-| `full` | Run migrations + bootstrap, then start API |
-| `production` | Start API only (migrations run separately) |
-| `migration` | Run migrations + bootstrap, then exit |
+The `migrate` service runs Prisma migrations and bootstrap checks (super admin creation, system roles), then exits. The `api` service only starts after migrations complete successfully. No `RUN_MODE` variable is needed.
+
+For CI/CD (e.g., Cloud Run), run the migration image as a one-shot Job before deploying the API service.
 
 ## Application Settings (Instance)
 

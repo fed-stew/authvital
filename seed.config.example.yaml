@@ -1,0 +1,355 @@
+# =============================================================================
+# AuthVital - Local Development Seed Configuration
+# =============================================================================
+#
+# This file defines everything needed to bootstrap a local AuthVital instance
+# with realistic test data: admin credentials, OAuth apps, tenants, users,
+# roles, and memberships.
+#
+# Usage:
+#   1. Copy this file to root:  cp seed.config.example.yaml seed.config.yaml
+#   2. Customize the values below for your project
+#   3. Run the seed:           npm run prisma:seed
+#   4. Re-run anytime — all operations are idempotent (upsert)
+#
+# The seed script looks for files in this order (from project root):
+#   1. seed.config.yaml     (your local copy — gitignored)
+#   2. seed.config.example.yaml  (this file — committed to repo)
+#
+# ⚠️  LOCAL DEVELOPMENT ONLY — never use these credentials in production!
+# =============================================================================
+
+# =============================================================================
+# URL VALIDATION RULES
+# =============================================================================
+#
+# All URLs in this config are validated for security:
+#
+# Redirect URIs (OAuth callbacks, post-logout):
+#   - Must start with http:// or https://
+#   - No dangerous schemes: javascript:, data:, file:, vbscript:, about:, blob:
+#   - Wildcards (*) only allowed at subdomain start: https://*.example.com/callback
+#   - Tenant placeholder {tenant} only at subdomain start: https://{tenant}.example.com/callback
+#   - No fragments (#), no backslashes, no null bytes
+#
+# Branding URLs (logo, support, privacy, terms):
+#   - Must be valid http:// or https:// URLs
+#   - No wildcards, no placeholders
+#   - In production: https:// strongly recommended
+#
+# CORS Origins (allowed_web_origins):
+#   - Must be exact match (no wildcards allowed in CORS)
+#   - Example: https://app.example.com (valid)
+#   - Invalid: https://*.example.com (CORS doesn't support wildcards)
+#
+# =============================================================================
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Instance Settings
+# ─────────────────────────────────────────────────────────────────────────────
+# Global configuration for this AuthVital instance.
+# These map to the InstanceMeta singleton in the database.
+#
+instance:
+  name: "AuthVital Local Dev"
+
+  # Allow public sign-up (users can register without an invitation)
+  allow_sign_up: true
+
+  # Automatically create a new tenant when a user signs up
+  auto_create_tenant: true
+
+  # Allow sign-ups from generic email domains (gmail.com, outlook.com, etc.)
+  allow_generic_domains: true
+
+  # Allow anonymous (no email verification) sign-ups
+  allow_anonymous_sign_up: false
+
+  # Branding (optional — shown on login/signup pages)
+  branding:
+    name: "My Company"
+    logo_url: "https://cdn.example.com/logo.png"      # Must be https:// (no javascript:, data:, etc.)
+    icon_url: "https://cdn.example.com/favicon.ico"   # Recommended: favicon/app icon
+    primary_color: "#6366f1"
+    background_color: "#f8fafc"
+    accent_color: "#8b5cf6"
+    support_url: "https://help.example.com"           # Support/help page
+    privacy_url: "https://example.com/privacy"        # Privacy policy (required in many jurisdictions)
+    terms_url: "https://example.com/terms"             # Terms of service
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Super Admin
+# ─────────────────────────────────────────────────────────────────────────────
+# Credentials for the /admin dashboard. This is the system-level administrator,
+# separate from tenant users.
+#
+super_admin:
+  email: admin@localhost.com
+  password: admin123
+  display_name: "Local Admin"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OAuth Applications
+# ─────────────────────────────────────────────────────────────────────────────
+# Each application is an OAuth 2.0 client. Your frontend/backend apps connect
+# to AuthVital through these.
+#
+# Vite's default dev server runs on http://localhost:5173
+#
+applications:
+  # ── Single Page Application (SPA) with various redirect patterns ─────────
+  - name: "My Local App"
+    slug: my-local-app
+    type: SPA                                  # SPA | MACHINE
+
+    # Fixed client_id for local development (SPA apps don't need client_secret)
+    client_id: local-spa-client-id
+
+    # OAuth redirect URIs — where AuthVital sends users after login
+    # Valid patterns:
+    #   - Exact match: https://app.example.com/callback
+    #   - Wildcard subdomain: https://*.example.com/callback (only at start!)
+    #   - Tenant placeholder: https://{tenant}.example.com/callback (validates tenant exists)
+    #   - Localhost (dev only): http://localhost:5173/callback
+    # Invalid patterns:
+    #   - https://example.com/*.callback (wildcards only allowed in subdomains)
+    #   - javascript:alert(1) (XSS - blocked)
+    #   - https://evil.com (must match registered pattern)
+    redirect_uris:
+      - http://localhost:5173/auth/callback          # Development only
+      # - https://app.example.com/auth/callback    # Production exact match
+      # - https://*.example.com/auth/callback       # Any subdomain
+      # - https://{tenant}.example.com/callback     # Per-tenant subdomain
+
+    # Where to redirect after logout
+    post_logout_redirect_uris:
+      - http://localhost:5173
+      # - https://app.example.com
+
+    # CORS — origins allowed to call AuthVital's OAuth endpoints
+    # Must be exact match (no wildcards in CORS origins!)
+    allowed_web_origins:
+      - http://localhost:5173
+      # - https://app.example.com
+      # - https://admin.example.com
+
+    # Application branding (overrides instance branding for this app)
+    # branding_name: "My App"
+    # branding_logo_url: "https://cdn.example.com/app-logo.png"
+    # branding_support_url: "https://help.example.com/app-support"
+
+    # Token lifetimes (optional, in seconds)
+    # access_token_ttl: 3600                   # 1 hour (default)
+    # refresh_token_ttl: 604800                # 7 days (default)
+
+    # Application-level roles
+    # These are YOUR app's roles (e.g., "editor", "viewer"), not AuthVital's
+    # tenant roles (owner/admin/member). They appear in the JWT's app_roles claim.
+    roles:
+      - name: Admin
+        slug: admin
+        description: "Full application access"
+      - name: Editor
+        slug: editor
+        description: "Can create and edit content"
+        is_default: true                       # Auto-assigned to new members
+      - name: Viewer
+        slug: viewer
+        description: "Read-only access"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # LICENSING EXAMPLES - Uncomment to test different licensing modes
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Each application demonstrates a different licensing mode:
+  #   - FREE: All users get access automatically
+  #   - TENANT_WIDE: All tenant members share a license
+  #   - PER_SEAT: Individual seat assignment per user
+  #
+  # APP 1: FREE MODE - All users get access automatically
+  # Best for: Open-access tools, basic features, freemium tiers
+  # Stripe: No subscription needed, or use metered billing for usage
+  #
+  # - name: "Public Wiki"
+  #   slug: public-wiki
+  #   type: SPA
+  #   client_id: public-wiki-client
+  #   licensing_mode: FREE
+  #   # No license_types needed - FREE mode auto-creates one
+  #   redirect_uris:
+  #     - http://localhost:5173/auth/callback
+  #   post_logout_redirect_uris:
+  #     - http://localhost:5173
+  #   allowed_web_origins:
+  #     - http://localhost:5173
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # APP 2: TENANT-WIDE MODE - All members get the same license
+  # Best for: Team tools, company-wide licenses, shared resources
+  # Stripe: Single subscription per tenant (flat rate)
+  # Example: Figma, Notion (team plans), GitHub Team
+  #
+  # - name: "Team Documents"
+  #   slug: team-docs
+  #   type: SPA
+  #   client_id: team-docs-client
+  #   licensing_mode: TENANT_WIDE
+  #   auto_provision: true
+  #   # No auto_grant_to_owner needed - all members get access
+  #   license_types:
+  #     - name: "Standard"
+  #       slug: standard
+  #       description: "Up to 25 team members"
+  #       max_members: 25
+  #       features:
+  #         sso: true
+  #         api_access: true
+  #         webhooks: false
+  #       status: ACTIVE
+  #       display_order: 1
+  #     - name: "Unlimited"
+  #       slug: unlimited
+  #       description: "Unlimited team members"
+  #       max_members: null  # null = unlimited
+  #       features:
+  #         sso: true
+  #         api_access: true
+  #         webhooks: true
+  #         advanced_analytics: true
+  #       status: ACTIVE
+  #       display_order: 2
+  #   redirect_uris:
+  #     - http://localhost:5174/auth/callback
+  #   post_logout_redirect_uris:
+  #     - http://localhost:5174
+  #   allowed_web_origins:
+  #     - http://localhost:5174
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # APP 3: PER-SEAT MODE - Individual seat assignment
+  # Best for: SaaS per-user pricing, enterprise tools
+  # Stripe: Quantity-based subscription (per seat)
+  # Example: Microsoft 365, Slack, Salesforce
+  #
+  # - name: "Pro CRM"
+  #   slug: pro-crm
+  #   type: SPA
+  #   client_id: pro-crm-client
+  #   licensing_mode: PER_SEAT
+  #   default_seat_count: 5
+  #   auto_provision: true
+  #   auto_grant_to_owner: true
+  #   license_types:
+  #     - name: "Pro Seat"
+  #       slug: pro-seat
+  #       description: "Individual user license with CRM access"
+  #       max_members: null  # Per-seat doesn't limit total members
+  #       features:
+  #         sso: true
+  #         api_access: true
+  #         webhooks: true
+  #         advanced_analytics: false
+  #       status: ACTIVE
+  #       display_order: 1
+  #     - name: "Enterprise Seat"
+  #       slug: enterprise-seat
+  #       description: "Premium individual license with all features"
+  #       max_members: null
+  #       features:
+  #         sso: true
+  #         api_access: true
+  #         webhooks: true
+  #         advanced_analytics: true
+  #         priority_support: true
+  #         custom_integrations: true
+  #       status: ACTIVE
+  #       display_order: 2
+  #   redirect_uris:
+  #     - http://localhost:5175/auth/callback
+  #   post_logout_redirect_uris:
+  #     - http://localhost:5175
+  #   allowed_web_origins:
+  #     - http://localhost:5175
+
+  # ── Example: machine-to-machine client (backend service) ─────────────────
+  - name: "Backend API Worker"
+    slug: backend-api
+    type: MACHINE
+    # Fixed credentials for local development
+    client_id: local-machine-client-id
+    client_secret: local-machine-secret-key
+    # MACHINE apps don't use redirect URIs but an empty array is required
+    redirect_uris: []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tenants (Organizations)
+# ─────────────────────────────────────────────────────────────────────────────
+# Tenants represent organizations/companies in a multi-tenant setup.
+# Users become members of tenants via memberships (defined in the users section).
+#
+tenants:
+  - name: Acme Corp
+    slug: acme
+
+  - name: Globex Inc
+    slug: globex
+
+  # - name: Initech
+  #   slug: initech
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Users
+# ─────────────────────────────────────────────────────────────────────────────
+# Test users with passwords (bcrypt-hashed at seed time).
+#
+# Each user can have memberships in one or more tenants, with:
+#   - tenant_role: System-level role (owner | admin | member)
+#   - app_roles:   App-specific roles (keyed by application slug)
+#
+users:
+  # ── Alice: Owner of Acme, viewer at Globex ───────────────────────────────
+  - email: alice@acme.com
+    password: password123
+    given_name: Alice
+    family_name: Smith
+    memberships:
+      - tenant: acme                           # ← matches tenant slug above
+        tenant_role: owner                     # owner | admin | member
+        app_roles:
+          my-local-app: [admin]                # ← app slug: [role slugs]
+      - tenant: globex
+        tenant_role: member
+        app_roles:
+          my-local-app: [viewer]
+
+  # ── Bob: Admin at Acme ───────────────────────────────────────────────────
+  - email: bob@acme.com
+    password: password123
+    given_name: Bob
+    family_name: Jones
+    memberships:
+      - tenant: acme
+        tenant_role: admin
+        app_roles:
+          my-local-app: [editor]
+
+  # ── Charlie: Owner of Globex ─────────────────────────────────────────────
+  - email: charlie@globex.com
+    password: password123
+    given_name: Charlie
+    family_name: Brown
+    memberships:
+      - tenant: globex
+        tenant_role: owner
+        app_roles:
+          my-local-app: [admin, editor]
+
+  # ── Minimal user (no memberships yet) ────────────────────────────────────
+  # - email: dana@example.com
+  #   password: password123
+  #   given_name: Dana
+  #   family_name: Lee

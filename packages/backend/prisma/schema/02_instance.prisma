@@ -43,7 +43,9 @@ model SuperAdmin {
   passwordHash       String   @map("password_hash")
   isActive           Boolean   @default(true) @map("is_active")
   mustChangePassword Boolean   @default(false) @map("must_change_password")
-  lastLoginAt        DateTime? @map("last_login_at")
+  lastLoginAt           DateTime? @map("last_login_at")
+  passwordResetToken   String?   @map("password_reset_token")
+  passwordResetExpires DateTime? @map("password_reset_expires")
 
   // ═══════════════════════════════════════════════════════════════════════════
   // MFA

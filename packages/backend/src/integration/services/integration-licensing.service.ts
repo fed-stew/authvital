@@ -73,13 +73,13 @@ export class IntegrationLicensingService {
       throw new NotFoundException('License type not found');
     }
 
-    // Check for active subscription with available seats
+    // Check for active/trial subscription with available seats
     const subscription = await this.prisma.appSubscription.findFirst({
       where: {
         tenantId: dto.tenantId,
         applicationId: dto.applicationId,
         licenseTypeId: dto.licenseTypeId,
-        status: 'ACTIVE',
+        status: { in: ['ACTIVE', 'TRIALING'] },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -87,12 +87,6 @@ export class IntegrationLicensingService {
     if (!subscription) {
       throw new BadRequestException(
         `No active subscription found for license type "${licenseType.name}". Please purchase a subscription first.`,
-      );
-    }
-
-    if (subscription.quantityAssigned >= subscription.quantityPurchased) {
-      throw new BadRequestException(
-        `No available seats for license type "${licenseType.name}". All ${subscription.quantityPurchased} seats are assigned. Please purchase more seats.`,
       );
     }
 
@@ -110,26 +104,41 @@ export class IntegrationLicensingService {
       );
     }
 
-    // Create license assignment
-    const assignment = await this.prisma.licenseAssignment.create({
-      data: {
-        userId: dto.userId,
-        tenantId: dto.tenantId,
-        applicationId: dto.applicationId,
-        licenseTypeId: dto.licenseTypeId,
-        licenseTypeName: licenseType.name,
-        subscriptionId: subscription.id,
-        assignedAt: new Date(),
-      },
+    // Transaction with optimistic locking to prevent race conditions
+    const assignment = await this.prisma.$transaction(async (tx) => {
+      const currentAssigned = subscription.quantityAssigned;
+
+      // Optimistic locking: ensure seats are still available
+      const updateResult = await tx.appSubscription.updateMany({
+        where: {
+          id: subscription.id,
+          quantityAssigned: currentAssigned,
+          quantityPurchased: { gt: currentAssigned },
+        },
+        data: { quantityAssigned: { increment: 1 } },
+      });
+
+      if (updateResult.count === 0) {
+        throw new BadRequestException(
+          `No available seats for license type "${licenseType.name}". All seats may have been assigned. Please purchase more seats.`,
+        );
+      }
+
+      // Create license assignment within the same transaction
+      return tx.licenseAssignment.create({
+        data: {
+          userId: dto.userId,
+          tenantId: dto.tenantId,
+          applicationId: dto.applicationId,
+          licenseTypeId: dto.licenseTypeId,
+          licenseTypeName: licenseType.name,
+          subscriptionId: subscription.id,
+          assignedAt: new Date(),
+        },
+      });
     });
 
-    // Update subscription assigned count
-    await this.prisma.appSubscription.update({
-      where: { id: subscription.id },
-      data: { quantityAssigned: { increment: 1 } },
-    });
-
-    // Create audit log entry
+    // Create audit log entry (outside transaction - don't fail on audit log errors)
     await this.createAuditLog({
       action: 'GRANTED',
       tenantId: dto.tenantId,
@@ -233,13 +242,13 @@ export class IntegrationLicensingService {
       throw new NotFoundException('New license type not found');
     }
 
-    // Check for active subscription with available seats
+    // Check for active/trial subscription with available seats
     const newSubscription = await this.prisma.appSubscription.findFirst({
       where: {
         tenantId: dto.tenantId,
         applicationId: dto.applicationId,
         licenseTypeId: dto.newLicenseTypeId,
-        status: 'ACTIVE',
+        status: { in: ['ACTIVE', 'TRIALING'] },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -251,38 +260,48 @@ export class IntegrationLicensingService {
     }
 
     const isDifferentSubscription = newSubscription.id !== existing.subscriptionId;
-    if (newSubscription.quantityAssigned >= newSubscription.quantityPurchased && isDifferentSubscription) {
-      throw new BadRequestException(
-        `No available seats for license type "${newLicenseType.name}"`,
-      );
-    }
 
-    // Update the assignment
-    await this.prisma.licenseAssignment.update({
-      where: { id: existing.id },
-      data: {
-        licenseTypeId: dto.newLicenseTypeId,
-        licenseTypeName: newLicenseType.name,
-        subscriptionId: newSubscription.id,
-      },
+    // Transaction with optimistic locking for both decrement and increment
+    await this.prisma.$transaction(async (tx) => {
+      // Decrement old subscription count
+      if (existing.subscriptionId) {
+        await tx.appSubscription.updateMany({
+          where: { id: existing.subscriptionId, quantityAssigned: { gt: 0 } },
+          data: { quantityAssigned: { decrement: 1 } },
+        });
+      }
+
+      // If different subscription, increment with optimistic locking
+      if (isDifferentSubscription) {
+        const currentNewAssigned = newSubscription.quantityAssigned;
+        const updateResult = await tx.appSubscription.updateMany({
+          where: {
+            id: newSubscription.id,
+            quantityAssigned: currentNewAssigned,
+            quantityPurchased: { gt: currentNewAssigned },
+          },
+          data: { quantityAssigned: { increment: 1 } },
+        });
+
+        if (updateResult.count === 0) {
+          throw new BadRequestException(
+            `No available seats for license type "${newLicenseType.name}". All seats may have been assigned.`,
+          );
+        }
+      }
+
+      // Update the assignment within the same transaction
+      await tx.licenseAssignment.update({
+        where: { id: existing.id },
+        data: {
+          licenseTypeId: dto.newLicenseTypeId,
+          licenseTypeName: newLicenseType.name,
+          subscriptionId: newSubscription.id,
+        },
+      });
     });
 
-    // Update subscription counts
-    if (existing.subscriptionId) {
-      await this.prisma.appSubscription.update({
-        where: { id: existing.subscriptionId },
-        data: { quantityAssigned: { decrement: 1 } },
-      });
-    }
-
-    if (isDifferentSubscription) {
-      await this.prisma.appSubscription.update({
-        where: { id: newSubscription.id },
-        data: { quantityAssigned: { increment: 1 } },
-      });
-    }
-
-    // Create audit log entry
+    // Create audit log entry (outside transaction - don't fail on audit log errors)
     const user = await this.prisma.user.findUnique({ where: { id: dto.userId } });
     const application = await this.prisma.application.findUnique({ where: { id: dto.applicationId } });
 

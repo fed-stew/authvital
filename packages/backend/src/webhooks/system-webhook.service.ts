@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { KeyService } from '../oauth/key.service';
+import { PubSubOutboxService } from '../pubsub/pubsub-outbox.service';
 import * as crypto from 'crypto';
 
 export const SYSTEM_WEBHOOK_EVENTS = [
@@ -13,6 +14,14 @@ export const SYSTEM_WEBHOOK_EVENTS = [
   // Tenant app access
   'tenant.app.granted',
   'tenant.app.revoked',
+  // Application lifecycle
+  'application.created',
+  'application.updated',
+  'application.deleted',
+  // SSO provider lifecycle
+  'sso.provider_added',
+  'sso.provider_updated',
+  'sso.provider_removed',
 ] as const;
 
 export type SystemWebhookEvent = (typeof SYSTEM_WEBHOOK_EVENTS)[number];
@@ -30,6 +39,7 @@ export class SystemWebhookService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly keyService: KeyService,
+    private readonly pubSubOutboxService: PubSubOutboxService,
   ) {}
 
   /**
@@ -197,6 +207,25 @@ export class SystemWebhookService {
    * Dispatch an event to all subscribed webhooks
    */
   async dispatch(event: SystemWebhookEvent, data: Record<string, unknown>) {
+    const payload: WebhookPayload = {
+      event,
+      timestamp: new Date().toISOString(),
+      data,
+    };
+
+    // Enqueue for Pub/Sub outbox (always, regardless of webhook subscribers)
+    this.pubSubOutboxService.enqueue({
+      eventType: event,
+      eventSource: 'system_webhook',
+      aggregateId: (data.tenant_id as string) ?? (data.user_id as string) ?? 'unknown',
+      tenantId: data.tenant_id as string | undefined,
+      payload: payload as unknown as Record<string, unknown>,
+      orderingKey: data.tenant_id as string | undefined,
+    }).catch((err) => {
+      this.logger.error(`Failed to enqueue Pub/Sub outbox event: ${err.message}`);
+    });
+
+    // Dispatch to webhook subscribers
     const webhooks = await this.prisma.systemWebhook.findMany({
       where: {
         isActive: true,
@@ -207,12 +236,6 @@ export class SystemWebhookService {
     if (webhooks.length === 0) {
       return;
     }
-
-    const payload: WebhookPayload = {
-      event,
-      timestamp: new Date().toISOString(),
-      data,
-    };
 
     // Dispatch to all webhooks in parallel (fire and forget)
     const promises = webhooks.map((webhook) =>
@@ -381,6 +404,26 @@ export class SystemWebhookService {
           events: [
             { type: 'tenant.app.granted', description: 'When a user is granted access to an application in a tenant' },
             { type: 'tenant.app.revoked', description: 'When application access is revoked from a user' },
+          ],
+        },
+        {
+          slug: 'application',
+          name: 'Application Lifecycle',
+          description: 'Events related to OAuth application management',
+          events: [
+            { type: 'application.created', description: 'When a new application is registered' },
+            { type: 'application.updated', description: 'When application settings are updated' },
+            { type: 'application.deleted', description: 'When an application is deleted' },
+          ],
+        },
+        {
+          slug: 'sso',
+          name: 'SSO Providers',
+          description: 'Events related to Single Sign-On configuration',
+          events: [
+            { type: 'sso.provider_added', description: 'When an SSO provider is configured' },
+            { type: 'sso.provider_updated', description: 'When SSO provider settings are updated' },
+            { type: 'sso.provider_removed', description: 'When an SSO provider is removed' },
           ],
         },
       ],

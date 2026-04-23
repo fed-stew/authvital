@@ -1,6 +1,8 @@
 // Admin pages
 export { AdminAccountsPage } from './AdminAccountsPage';
+export { AdminForgotPassword } from './AdminForgotPassword';
 export { AdminLogin } from './AdminLogin';
+export { AdminResetPassword } from './AdminResetPassword';
 export { ChangePassword } from './ChangePassword';
 export { Dashboard } from './Dashboard';
 export { default as MfaSetup } from './MfaSetup';
@@ -10,3 +12,4 @@ export { TenantsPage, TenantDetailPage } from './tenants';
 export { ApplicationsPage, AppDetailPage } from './applications';
 export { SettingsPage } from './settings';
 export { WebhooksPage } from './WebhooksPage';
+export { PubSubPage } from './PubSubPage';

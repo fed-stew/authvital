@@ -27,12 +27,13 @@ cp backend/.env.example backend/.env
 docker-compose up -d
 ```
 
-This starts:
-- **PostgreSQL** on port 5432
-- **AuthVital Backend** on port 8000
-- **AuthVital Frontend** on port 5173 (dev mode)
+This starts three services in order:
 
-Access the admin panel at: `http://localhost:8000/admin`
+1. **PostgreSQL** on port 5432
+2. **Migrations** — runs schema migrations and bootstrap, then exits
+3. **AuthVital API** on port 8080 (serves API + frontend)
+
+Access the admin panel at: `http://localhost:8080/admin`
 
 ### Option 2: Manual Setup
 
@@ -120,6 +121,40 @@ npm install
 cd backend
 npx prisma migrate dev
 ```
+
+#### 4b. Seed Test Data (Optional)
+
+AuthVital includes a YAML-based seed configuration for quickly bootstrapping a local environment with test users, tenants, applications, and roles.
+
+```bash
+# Navigate to the backend package
+cd packages/backend
+
+# Copy the example seed config and customize it
+cp prisma/seed.config.example.yaml prisma/seed.config.yaml
+
+# Run the seed
+npm run prisma:seed
+```
+
+The seed config file (`prisma/seed.config.yaml`) lets you define:
+
+| Section | What it configures |
+|---|---|
+| `instance` | Instance name, sign-up rules, branding |
+| `super_admin` | Admin panel login credentials |
+| `applications` | OAuth clients with redirect URIs (default: `http://localhost:5173`) |
+| `applications[].roles` | Application-level roles (e.g., Admin, Editor, Viewer) |
+| `tenants` | Organizations / tenants |
+| `users` | Test users with passwords, tenant memberships, and role assignments |
+
+See `prisma/seed.config.example.yaml` for a fully-commented template with examples.
+
+!!! tip "Re-running the seed"
+    The seed is idempotent — all operations use `upsert`, so you can re-run it safely. To reset the database and re-seed from scratch:
+    ```bash
+    npm run seed:fresh
+    ```
 
 #### 5. Start Development Server
 

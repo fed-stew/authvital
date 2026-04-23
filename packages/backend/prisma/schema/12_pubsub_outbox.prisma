@@ -1,0 +1,64 @@
+// =============================================================================
+// Pub/Sub Outbox (Transactional Outbox Pattern for GCP Pub/Sub)
+// =============================================================================
+
+/// PubSubOutboxEvent: Stores events destined for GCP Pub/Sub
+/// Events are written here first, then a background worker publishes them.
+/// This guarantees zero data loss even if Pub/Sub is temporarily unavailable.
+model PubSubOutboxEvent {
+  id            String   @id @default(cuid())
+  eventType     String   @map("event_type")      // "tenant.created", "member.joined", etc.
+  eventSource   String   @map("event_source")     // "system_webhook" | "sync_event"
+  aggregateId   String   @map("aggregate_id")     // Primary entity ID (tenant_id, user_id, etc.)
+  tenantId      String?  @map("tenant_id")        // For ordering key
+  applicationId String?  @map("application_id")   // Nullable (system webhooks don't have this)
+  payload       Json                               // Full event payload
+  topic         String                             // Target Pub/Sub topic name
+  orderingKey   String?  @map("ordering_key")     // For Pub/Sub message ordering
+
+  // Publishing status
+  status        PubSubOutboxStatus @default(PENDING)
+  attempts      Int       @default(0)
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  publishedAt   DateTime? @map("published_at")
+  lastError     String?   @map("last_error")
+  messageId     String?   @map("message_id")      // GCP Pub/Sub message ID after publish
+
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([status, createdAt])
+  @@index([eventType])
+  @@index([tenantId])
+  @@index([createdAt])
+  @@map("pub_sub_outbox_events")
+}
+
+enum PubSubOutboxStatus {
+  PENDING    // Not yet attempted
+  PUBLISHED  // Successfully published to Pub/Sub
+  FAILED     // All retries exhausted
+  SKIPPED    // Pub/Sub disabled or event filtered
+}
+
+// =============================================================================
+// Pub/Sub Configuration (Singleton — managed via Super Admin dashboard)
+// =============================================================================
+
+/// PubSubConfig: Instance-level Pub/Sub publishing configuration.
+/// Singleton record (id="pubsub_config") managed via the admin API.
+/// Controls which events are published and to which topic.
+model PubSubConfig {
+  id              String   @id @default("pubsub_config") // Singleton enforcement
+  enabled         Boolean  @default(false)
+  topic           String   @default("authvital-events")
+  orderingEnabled Boolean  @default(true) @map("ordering_enabled")
+
+  // Publisher-side event filtering
+  // [] = nothing published | ["*"] = all events | ["tenant.*"] = category | ["tenant.created"] = exact
+  events          String[] @default([])
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("pub_sub_config")
+}

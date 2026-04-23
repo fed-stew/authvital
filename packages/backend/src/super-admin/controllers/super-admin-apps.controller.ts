@@ -1,18 +1,11 @@
-import {
-  Controller,
-  Post,
-  Get,
-  Put,
-  Delete,
-  Body,
-  Param,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, UseGuards } from '@nestjs/common';
+import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
+import { superAdminContract as c } from '@authvital/contracts';
 import { SuperAdminGuard } from '../guards/super-admin.guard';
 import { AdminApplicationsService } from '../services/admin-applications.service';
 import { AdminInstanceService } from '../services/admin-instance.service';
 
-@Controller('super-admin')
+@Controller()
 @UseGuards(SuperAdminGuard)
 export class SuperAdminAppsController {
   constructor(
@@ -20,125 +13,131 @@ export class SuperAdminAppsController {
     private readonly instanceService: AdminInstanceService,
   ) {}
 
-  @Get('stats')
+  // =========================================================================
+  // SYSTEM STATS
+  // =========================================================================
+
+  @TsRestHandler(c.getSystemStats)
   async getSystemStats() {
-    return this.instanceService.getSystemStats();
+    return tsRestHandler(c.getSystemStats, async () => {
+      const stats = await this.instanceService.getSystemStats();
+      return { status: 200 as const, body: stats as any };
+    });
   }
 
-  @Get('applications')
-  async getAllApplications() {
-    return this.applicationsService.getApplications();
+  // =========================================================================
+  // APPLICATIONS
+  // =========================================================================
+
+  @TsRestHandler(c.getApplications)
+  async getApplications() {
+    return tsRestHandler(c.getApplications, async () => {
+      const apps = await this.applicationsService.getApplications();
+      return { status: 200 as const, body: apps as any };
+    });
   }
 
-  @Post('applications')
-  async createApplication(
-    @Body() dto: {
-      name: string;
-      clientId?: string;
-      description?: string;
-      redirectUris?: string[];
-      postLogoutRedirectUri?: string;
-      initiateLoginUri?: string;
-      availableFeatures?: Array<{ key: string; name: string; description?: string }>;
-      allowMixedLicensing?: boolean;
-      licensingMode?: 'FREE' | 'PER_SEAT' | 'TENANT_WIDE';
-      accessMode?: 'AUTOMATIC' | 'MANUAL_AUTO_GRANT' | 'MANUAL_NO_DEFAULT' | 'DISABLED';
-      defaultLicenseTypeId?: string;
-      defaultSeatCount?: number;
-      autoProvisionOnSignup?: boolean;
-      autoGrantToOwner?: boolean;
-      brandingName?: string;
-      brandingLogoUrl?: string;
-      brandingIconUrl?: string;
-      brandingPrimaryColor?: string;
-      brandingBackgroundColor?: string;
-      brandingAccentColor?: string;
-      brandingSupportUrl?: string;
-      brandingPrivacyUrl?: string;
-      brandingTermsUrl?: string;
-    },
-  ) {
-    return this.applicationsService.createApplication(dto);
+  @TsRestHandler(c.createApplication)
+  async createApplication() {
+    return tsRestHandler(c.createApplication, async ({ body }) => {
+      const app = await this.applicationsService.createApplication(body as any);
+      return { status: 201 as const, body: app as any };
+    });
   }
 
-  @Put('applications/:id')
-  async updateApplication(
-    @Param('id') id: string,
-    @Body() dto: {
-      name?: string;
-      description?: string;
-      redirectUris?: string[];
-      postLogoutRedirectUri?: string;
-      initiateLoginUri?: string;
-      accessTokenTtl?: number;
-      refreshTokenTtl?: number;
-      isActive?: boolean;
-      availableFeatures?: Array<{ key: string; name: string; description?: string }>;
-      allowMixedLicensing?: boolean;
-      licensingMode?: 'FREE' | 'PER_SEAT' | 'TENANT_WIDE';
-      accessMode?: 'AUTOMATIC' | 'MANUAL_AUTO_GRANT' | 'MANUAL_NO_DEFAULT' | 'DISABLED';
-      defaultLicenseTypeId?: string;
-      defaultSeatCount?: number;
-      autoProvisionOnSignup?: boolean;
-      autoGrantToOwner?: boolean;
-      brandingName?: string;
-      brandingLogoUrl?: string;
-      brandingIconUrl?: string;
-      brandingPrimaryColor?: string;
-      brandingBackgroundColor?: string;
-      brandingAccentColor?: string;
-      brandingSupportUrl?: string;
-      brandingPrivacyUrl?: string;
-      brandingTermsUrl?: string;
-      webhookUrl?: string | null;
-      webhookEnabled?: boolean;
-      webhookEvents?: string[];
-    },
-  ) {
-    return this.applicationsService.updateApplication(id, dto);
+  @TsRestHandler(c.updateApplication)
+  async updateApplication() {
+    return tsRestHandler(c.updateApplication, async ({ params: { id }, body }) => {
+      const app = await this.applicationsService.updateApplication(id, body as any);
+      return { status: 200 as const, body: app as any };
+    });
   }
 
-  @Post('applications/:id/regenerate-secret')
-  async regenerateClientSecret(@Param('id') id: string) {
-    const secret = await this.applicationsService.regenerateClientSecret(id);
-    return { clientSecret: secret, warning: 'Store this secret securely. It will not be shown again.' };
+  @TsRestHandler(c.deleteApplication)
+  async deleteApplication() {
+    return tsRestHandler(c.deleteApplication, async ({ params: { id } }) => {
+      await this.applicationsService.deleteApplication(id);
+      return { status: 200 as const, body: { success: true as const } };
+    });
   }
 
-  @Delete('applications/:id/revoke-secret')
-  async revokeClientSecret(@Param('id') id: string) {
-    await this.applicationsService.revokeClientSecret(id);
-    return { success: true, message: 'Client secret revoked. M2M authentication is now disabled for this application.' };
+  @TsRestHandler(c.disableApplication)
+  async disableApplication() {
+    return tsRestHandler(c.disableApplication, async ({ params: { id } }) => {
+      const app = await this.applicationsService.disableApplication(id);
+      return { status: 200 as const, body: app as any };
+    });
   }
 
-  @Delete('applications/:id')
-  async deleteApplication(@Param('id') id: string) {
-    return this.applicationsService.deleteApplication(id);
+  @TsRestHandler(c.enableApplication)
+  async enableApplication() {
+    return tsRestHandler(c.enableApplication, async ({ params: { id } }) => {
+      const app = await this.applicationsService.enableApplication(id);
+      return { status: 200 as const, body: app as any };
+    });
   }
 
-  // Role Management
-  @Post('applications/:appId/roles')
-  async createRole(
-    @Param('appId') appId: string,
-    @Body() dto: { name: string; slug: string; description?: string; isDefault?: boolean },
-  ) {
-    return this.applicationsService.createRole(appId, dto.name, dto.slug, dto.description, dto.isDefault);
+  @TsRestHandler(c.regenerateClientSecret)
+  async regenerateClientSecret() {
+    return tsRestHandler(c.regenerateClientSecret, async ({ params: { id } }) => {
+      const secret = await this.applicationsService.regenerateClientSecret(id);
+      return {
+        status: 200 as const,
+        body: {
+          clientSecret: secret,
+          warning: 'Store this secret securely. It will not be shown again.',
+        },
+      };
+    });
   }
 
-  @Put('roles/:id')
-  async updateRole(
-    @Param('id') id: string,
-    @Body() dto: { name?: string; slug?: string; description?: string; isDefault?: boolean },
-  ) {
-    return this.applicationsService.updateRole(id, dto);
+  @TsRestHandler(c.revokeClientSecret)
+  async revokeClientSecret() {
+    return tsRestHandler(c.revokeClientSecret, async ({ params: { id } }) => {
+      await this.applicationsService.revokeClientSecret(id);
+      return { status: 200 as const, body: { success: true as const } };
+    });
   }
 
-  @Delete('roles/:id')
-  async deleteRole(@Param('id') id: string) {
-    return this.applicationsService.deleteRole(id);
+  // =========================================================================
+  // ROLES
+  // =========================================================================
+
+  @TsRestHandler(c.createRole)
+  async createRole() {
+    return tsRestHandler(c.createRole, async ({ params: { appId }, body }) => {
+      const role = await this.applicationsService.createRole(
+        appId,
+        body.name,
+        body.slug,
+        body.description,
+        body.isDefault,
+      );
+      return { status: 201 as const, body: role as any };
+    });
   }
 
-  @Post('roles/:id/set-default')
-  async setDefaultRole(@Param('id') id: string) {
-    return this.applicationsService.setDefaultRole(id);
+  @TsRestHandler(c.updateRole)
+  async updateRole() {
+    return tsRestHandler(c.updateRole, async ({ params: { id }, body }) => {
+      const role = await this.applicationsService.updateRole(id, body as any);
+      return { status: 200 as const, body: role as any };
+    });
+  }
+
+  @TsRestHandler(c.deleteRole)
+  async deleteRole() {
+    return tsRestHandler(c.deleteRole, async ({ params: { id } }) => {
+      await this.applicationsService.deleteRole(id);
+      return { status: 200 as const, body: { success: true as const } };
+    });
+  }
+
+  @TsRestHandler(c.setDefaultRole)
+  async setDefaultRole() {
+    return tsRestHandler(c.setDefaultRole, async ({ params: { id } }) => {
+      const role = await this.applicationsService.setDefaultRole(id);
+      return { status: 200 as const, body: role as any };
+    });
   }
 }

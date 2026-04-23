@@ -161,6 +161,12 @@ export class OAuthTokenService {
       throw new UnauthorizedException('Authorization code already used');
     }
 
+    // Check if application is still active
+    if (!authCode.application.isActive) {
+      await this.prisma.authorizationCode.delete({ where: { id: authCode.id } });
+      throw new UnauthorizedException('Application is disabled');
+    }
+
     // Verify client_id matches
     if (authCode.application.clientId !== params.clientId) {
       throw new UnauthorizedException('Client ID mismatch');
@@ -303,6 +309,13 @@ export class OAuthTokenService {
 
     if (refreshToken.expiresAt < new Date()) {
       throw new UnauthorizedException('Session expired');
+    }
+
+    if (!refreshToken.application.isActive) {
+      this.logger.warn(
+        `[Token Ghosting] Refresh rejected — application ${refreshToken.application.clientId} is disabled`,
+      );
+      throw new UnauthorizedException('Application is disabled');
     }
 
     // Step 4: Rotate refresh token (revoke old, generate new)

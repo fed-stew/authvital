@@ -72,6 +72,53 @@ The admin dashboard shows:
 | **Access** | Control who can access the app |
 | **Webhooks** | Per-app webhook configuration |
 
+### Disabling an Application
+
+Disabling an application prevents all new logins and revokes active sessions, but preserves all configuration and data.
+
+1. Go to **Applications** → select the application
+2. Scroll to the **Danger Zone** at the bottom
+3. Click **Disable Application**
+4. Confirm in the modal
+
+**What happens when you disable:**
+
+| Effect | Details |
+|--------|--------|
+| Active sessions revoked | All refresh tokens are immediately revoked |
+| New logins blocked | OAuth authorization requests are rejected |
+| Data preserved | Roles, license types, subscriptions, and configuration remain intact |
+| Webhooks paused | Per-app webhook delivery stops |
+
+To re-enable, click **Enable Application** in the same Danger Zone section.
+
+### Deleting an Application
+
+⚠️ **This action is irreversible.** Deleting an application permanently removes it and all associated data.
+
+**Prerequisites:**
+- The application must be **disabled** first (the Delete button is locked while active)
+
+**Steps:**
+1. **Disable** the application first (see above)
+2. In the **Danger Zone**, click **Delete Application**
+3. Type the application name to confirm
+4. Click **Delete Application**
+
+**What gets deleted:**
+
+| Data | Cascade behavior |
+|------|------------------|
+| Application record | Permanently removed |
+| OAuth credentials | Client ID and secret destroyed |
+| Roles & permissions | All application roles deleted |
+| License types | All license type definitions deleted |
+| Subscriptions | All tenant subscriptions removed |
+| Access grants | All user app-access records removed |
+| Auth codes & tokens | All authorization codes and refresh tokens deleted |
+
+A `application.deleted` webhook event is dispatched to all configured system webhooks before final deletion.
+
 ### Licensing Modes
 
 | Mode | Use Case |

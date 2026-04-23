@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SsoProviderService, CreateSsoProviderDto, UpdateSsoProviderDto } from '../../sso/sso-provider.service';
+import { SystemWebhookService } from '../../webhooks/system-webhook.service';
 import { SsoProviderType } from '@prisma/client';
 
 /**
@@ -9,7 +10,10 @@ import { SsoProviderType } from '@prisma/client';
 export class AdminSsoService {
   private readonly logger = new Logger(AdminSsoService.name);
 
-  constructor(private readonly ssoProviderService: SsoProviderService) {}
+  constructor(
+    private readonly ssoProviderService: SsoProviderService,
+    private readonly systemWebhookService: SystemWebhookService,
+  ) {}
 
   /**
    * Get all SSO providers
@@ -29,21 +33,49 @@ export class AdminSsoService {
    * Create or update an SSO provider
    */
   async upsertProvider(dto: CreateSsoProviderDto) {
-    return this.ssoProviderService.upsertProvider(dto);
+    const result = await this.ssoProviderService.upsertProvider(dto);
+
+    // Dispatch sso.provider_added event (upsert - treat as add)
+    this.systemWebhookService.dispatch('sso.provider_added' as any, {
+      provider_id: dto.provider,
+      tenant_id: null,
+      provider_type: dto.provider,
+      display_name: dto.provider,
+      is_enabled: dto.enabled ?? true,
+    }).catch((err) => this.logger.warn(`Failed to dispatch sso.provider_added event: ${err.message}`));
+
+    return result;
   }
 
   /**
    * Update an existing provider
    */
   async updateProvider(provider: SsoProviderType, dto: UpdateSsoProviderDto) {
-    return this.ssoProviderService.updateProvider(provider, dto);
+    const result = await this.ssoProviderService.updateProvider(provider, dto);
+
+    this.systemWebhookService.dispatch('sso.provider_updated' as any, {
+      provider_id: provider,
+      tenant_id: null,
+      provider_type: provider,
+      changed_fields: Object.keys(dto).filter(k => dto[k as keyof typeof dto] !== undefined),
+    }).catch((err) => this.logger.warn(`Failed to dispatch sso.provider_updated event: ${err.message}`));
+
+    return result;
   }
 
   /**
    * Delete a provider
    */
   async deleteProvider(provider: SsoProviderType) {
-    return this.ssoProviderService.deleteProvider(provider);
+    const result = await this.ssoProviderService.deleteProvider(provider);
+
+    this.systemWebhookService.dispatch('sso.provider_removed' as any, {
+      provider_id: provider,
+      tenant_id: null,
+      provider_type: provider,
+    }).catch((err) => this.logger.warn(`Failed to dispatch sso.provider_removed event: ${err.message}`));
+
+    return result;
   }
 
   /**

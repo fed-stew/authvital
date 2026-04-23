@@ -425,6 +425,146 @@ If you didn't expect this invitation, please contact your administrator.
     return admins;
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PASSWORD RESET FLOW (public, no auth required)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Request a password reset - generates a reset token and sends email
+   * SECURITY: Always returns success to prevent email enumeration
+   */
+  async requestPasswordReset(email: string): Promise<{ success: boolean }> {
+    const normalizedEmail = email.toLowerCase();
+
+    const admin = await this.prisma.superAdmin.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!admin) {
+      this.logger.debug(`Password reset requested for non-existent admin email: ${normalizedEmail}`);
+      return { success: true };
+    }
+
+    // Generate secure reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = await bcrypt.hash(resetToken, this.SALT_ROUNDS);
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 24);
+
+    // Store the token hash in admin record
+    await this.prisma.superAdmin.update({
+      where: { id: admin.id },
+      data: {
+        passwordResetToken: tokenHash,
+        passwordResetExpires: expiresAt,
+      },
+    });
+
+    // Build reset URL
+    const baseUrl = this.configService.getOrThrow<string>('BASE_URL');
+    const resetUrl = `${baseUrl}/admin/reset-password?token=${resetToken}`;
+
+    // Send the password reset email
+    const greeting = admin.displayName ? ` ${admin.displayName}` : '';
+    const subject = 'Reset your AuthVital admin password';
+    const text = `Hi${greeting},
+
+We received a request to reset your AuthVital admin password.
+
+Click the link below to reset your password:
+${resetUrl}
+
+This link expires in 24 hours.
+
+If you didn't request this, you can safely ignore this email.`;
+
+    const html = `<p>Hi${greeting},</p>
+<p>We received a request to reset your AuthVital admin password.</p>
+<p><a href="${resetUrl}">Click here to reset your password</a></p>
+<p>Or copy this link: <code>${resetUrl}</code></p>
+<p>This link expires in 24 hours.</p>
+<p style="color: #666; font-size: 12px;">If you didn't request this, you can safely ignore this email.</p>`;
+
+    await this.emailService.send({ to: admin.email, subject, text, html });
+
+    if (process.env.NODE_ENV !== 'production') {
+      this.logger.debug(`[DEV] Admin password reset link for ${admin.email}: ${resetUrl}`);
+    }
+
+    return { success: true };
+  }
+
+  /**
+   * Verify a reset token is valid (without consuming it)
+   */
+  async verifyResetToken(token: string): Promise<{ valid: boolean; email?: string }> {
+    const admins = await this.prisma.superAdmin.findMany({
+      where: {
+        passwordResetToken: { not: null },
+        passwordResetExpires: { gt: new Date() },
+      },
+    });
+
+    for (const admin of admins) {
+      if (!admin.passwordResetToken) continue;
+
+      const isValid = await bcrypt.compare(token, admin.passwordResetToken);
+      if (isValid) {
+        return { valid: true, email: this.maskEmail(admin.email) };
+      }
+    }
+
+    return { valid: false };
+  }
+
+  /**
+   * Reset password using the token
+   */
+  async resetPassword(token: string, newPassword: string): Promise<{ success: boolean }> {
+    if (!newPassword || newPassword.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters');
+    }
+
+    const admins = await this.prisma.superAdmin.findMany({
+      where: {
+        passwordResetToken: { not: null },
+        passwordResetExpires: { gt: new Date() },
+      },
+    });
+
+    for (const admin of admins) {
+      if (!admin.passwordResetToken) continue;
+
+      const isValid = await bcrypt.compare(token, admin.passwordResetToken);
+      if (isValid) {
+        const passwordHash = await bcrypt.hash(newPassword, this.SALT_ROUNDS);
+
+        await this.prisma.superAdmin.update({
+          where: { id: admin.id },
+          data: {
+            passwordHash,
+            passwordResetToken: null,
+            passwordResetExpires: null,
+            mustChangePassword: false,
+          },
+        });
+
+        return { success: true };
+      }
+    }
+
+    throw new BadRequestException('Invalid or expired reset token');
+  }
+
+  /**
+   * Mask email for privacy (john@example.com -> j***@e***.com)
+   */
+  private maskEmail(email: string): string {
+    const [local, domain] = email.split('@');
+    const [domainName, tld] = domain.split('.');
+    return `${local[0]}***@${domainName[0]}***.${tld}`;
+  }
+
   /**
    * Delete a super admin (cannot delete yourself)
    */

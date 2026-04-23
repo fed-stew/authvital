@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Power, Trash2 } from 'lucide-react';
 import { superAdminApi } from '@/lib/api';
 import { AdminLayout, type BreadcrumbItem } from '@/components/admin/AdminLayout';
 import { Button } from '@/components/ui/Button';
@@ -77,6 +77,10 @@ export function AppDetailPage() {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState('settings');
+  const [isDisabling, setIsDisabling] = React.useState(false);
+  const [isEnabling, setIsEnabling] = React.useState(false);
+  const [showDisableModal, setShowDisableModal] = React.useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = React.useState('');
   
   // Breadcrumbs
   const breadcrumbs: BreadcrumbItem[] = [
@@ -149,8 +153,54 @@ export function AppDetailPage() {
         message: errorMessage,
       });
       setIsDeleteModalOpen(false);
+      setDeleteConfirmName('');
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleDisableApp = async () => {
+    if (!id) return;
+    try {
+      setIsDisabling(true);
+      const result = await superAdminApi.disableApplication(id);
+      toast({
+        variant: 'success',
+        title: 'Application Disabled',
+        message: result.message || 'Application has been disabled.',
+      });
+      setShowDisableModal(false);
+      loadApp(); // Refresh
+    } catch (err: any) {
+      toast({
+        variant: 'error',
+        title: 'Error',
+        message: err?.response?.data?.message || err?.message || 'Failed to disable application',
+      });
+    } finally {
+      setIsDisabling(false);
+    }
+  };
+
+  const handleEnableApp = async () => {
+    if (!id) return;
+    try {
+      setIsEnabling(true);
+      await superAdminApi.enableApplication(id);
+      toast({
+        variant: 'success',
+        title: 'Application Enabled',
+        message: 'Application has been re-enabled.',
+      });
+      loadApp(); // Refresh
+    } catch (err: any) {
+      toast({
+        variant: 'error',
+        title: 'Error',
+        message: err?.response?.data?.message || err?.message || 'Failed to enable application',
+      });
+    } finally {
+      setIsEnabling(false);
     }
   };
 
@@ -223,19 +273,86 @@ export function AppDetailPage() {
             <BrandingTab app={app} appId={id!} onRefresh={loadApp} />
           </TabsContent>
         </Tabs>
+
+        {/* Danger Zone */}
+        <div className="mt-8 rounded-lg border border-red-500/30 bg-red-500/5">
+          <div className="border-b border-red-500/20 px-6 py-4">
+            <h3 className="flex items-center gap-2 text-lg font-semibold text-red-400">
+              <AlertTriangle className="h-5 w-5" />
+              Danger Zone
+            </h3>
+          </div>
+          
+          <div className="divide-y divide-red-500/10">
+            {/* Disable/Enable */}
+            <div className="flex items-center justify-between px-6 py-4">
+              <div>
+                <p className="font-medium text-foreground">
+                  {app.isActive ? 'Disable this application' : 'Enable this application'}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {app.isActive
+                    ? 'Disabling will revoke all active sessions and prevent new logins. Existing data is preserved.'
+                    : 'Re-enable this application to allow logins again.'}
+                </p>
+              </div>
+              {app.isActive ? (
+                <Button
+                  variant="outline"
+                  onClick={() => setShowDisableModal(true)}
+                  disabled={isDisabling}
+                  className="border-orange-500/50 text-orange-400 hover:bg-orange-500/10"
+                >
+                  <Power className="mr-2 h-4 w-4" />
+                  {isDisabling ? 'Disabling...' : 'Disable Application'}
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  onClick={handleEnableApp}
+                  disabled={isEnabling}
+                  className="border-green-500/50 text-green-400 hover:bg-green-500/10"
+                >
+                  <Power className="mr-2 h-4 w-4" />
+                  {isEnabling ? 'Enabling...' : 'Enable Application'}
+                </Button>
+              )}
+            </div>
+
+            {/* Delete */}
+            <div className="flex items-center justify-between px-6 py-4">
+              <div>
+                <p className="font-medium text-foreground">Delete this application</p>
+                <p className="text-sm text-muted-foreground">
+                  {app.isActive
+                    ? 'You must disable the application before it can be deleted.'
+                    : 'Permanently delete this application and all associated data. This cannot be undone.'}
+                </p>
+              </div>
+              <Button
+                variant="destructive"
+                onClick={() => setIsDeleteModalOpen(true)}
+                disabled={app.isActive}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete Application
+              </Button>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Delete Confirmation Modal */}
       <Modal
         isOpen={isDeleteModalOpen}
-        onClose={() => setIsDeleteModalOpen(false)}
+        onClose={() => { setIsDeleteModalOpen(false); setDeleteConfirmName(''); }}
         title="Delete Application"
         size="sm"
         footer={
           <div className="flex gap-2 justify-end">
             <Button
               variant="outline"
-              onClick={() => setIsDeleteModalOpen(false)}
+              onClick={() => { setIsDeleteModalOpen(false); setDeleteConfirmName(''); }}
               disabled={isDeleting}
             >
               Cancel
@@ -243,7 +360,7 @@ export function AppDetailPage() {
             <Button
               variant="destructive"
               onClick={handleDeleteApp}
-              disabled={isDeleting}
+              disabled={isDeleting || deleteConfirmName !== app.name}
             >
               {isDeleting ? 'Deleting...' : 'Delete Application'}
             </Button>
@@ -252,11 +369,62 @@ export function AppDetailPage() {
       >
         <div className="space-y-4">
           <p className="text-muted-foreground">
-            Are you sure you want to delete this application? This action cannot be undone and will revoke all access for this application.
+            This action <strong className="text-foreground">cannot be undone</strong>. This will permanently delete the
+            application <strong className="text-foreground">{app.name}</strong>, including all roles, license types,
+            subscriptions, and access grants.
           </p>
-          <div className="rounded-md border border-white/10 bg-white/5 p-4">
-            <p className="font-medium text-foreground">{app.name}</p>
-            <p className="text-sm text-muted-foreground">{app.slug}</p>
+          <div className="space-y-2">
+            <label className="text-sm text-muted-foreground">
+              Type <strong className="text-foreground">{app.name}</strong> to confirm:
+            </label>
+            <input
+              type="text"
+              value={deleteConfirmName}
+              onChange={(e) => setDeleteConfirmName(e.target.value)}
+              className="w-full rounded-md border border-white/10 bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-red-500/50 focus:outline-none focus:ring-1 focus:ring-red-500/50"
+              placeholder={app.name}
+              autoFocus
+            />
+          </div>
+        </div>
+      </Modal>
+
+      {/* Disable Confirmation Modal */}
+      <Modal
+        isOpen={showDisableModal}
+        onClose={() => setShowDisableModal(false)}
+        title="Disable Application"
+        size="sm"
+        footer={
+          <div className="flex gap-2 justify-end">
+            <Button
+              variant="outline"
+              onClick={() => setShowDisableModal(false)}
+              disabled={isDisabling}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDisableApp}
+              disabled={isDisabling}
+            >
+              {isDisabling ? 'Disabling...' : 'Disable Application'}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-muted-foreground">
+            Are you sure you want to disable <strong className="text-foreground">{app.name}</strong>?
+          </p>
+          <div className="rounded-md border border-orange-500/20 bg-orange-500/10 p-4 text-sm text-orange-300">
+            <p className="font-medium">This will:</p>
+            <ul className="mt-2 list-disc pl-5 space-y-1">
+              <li>Revoke all active user sessions for this application</li>
+              <li>Prevent any new logins or token exchanges</li>
+              <li>Preserve all application data, roles, and configuration</li>
+            </ul>
           </div>
         </div>
       </Modal>
