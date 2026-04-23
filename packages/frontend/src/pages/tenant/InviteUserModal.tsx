@@ -10,17 +10,13 @@ import {
   SelectItem,
 } from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
-import { tenantApi, api } from '@/lib/api';
+import { tenantApi } from '@/lib/api';
 
 interface TenantRole {
   id: string;
   name: string;
   slug: string;
   description?: string;
-}
-
-interface InstanceConfig {
-  requiredUserFields?: string[];
 }
 
 interface InviteUserModalProps {
@@ -47,8 +43,6 @@ export function InviteUserModal({
   const [tenantRoles, setTenantRoles] = useState<TenantRole[]>([]);
   const [isLoadingRoles, setIsLoadingRoles] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [instanceConfig, setInstanceConfig] = useState<InstanceConfig | null>(null);
-
   const loadTenantRoles = useCallback(async () => {
     try {
       setIsLoadingRoles(true);
@@ -75,27 +69,12 @@ export function InviteUserModal({
     }
   }, [toast]);
 
-  const loadInstanceConfig = useCallback(async () => {
-    try {
-      const config = await api.getInstanceConfig();
-      setInstanceConfig(config);
-    } catch {
-      // Non-critical error
-    }
-  }, []);
-
-  // Load tenant roles and instance config when modal opens
+  // Load tenant roles when modal opens
   useEffect(() => {
     if (isOpen) {
       loadTenantRoles();
-      loadInstanceConfig();
     }
-  }, [isOpen, loadTenantRoles, loadInstanceConfig]);
-
-  // Check if a field is required based on instance config
-  const isFieldRequired = (field: string): boolean => {
-    return instanceConfig?.requiredUserFields?.includes(field) || false;
-  };
+  }, [isOpen, loadTenantRoles]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,25 +84,6 @@ export function InviteUserModal({
         variant: 'error',
         title: 'Error',
         message: 'Email is required',
-      });
-      return;
-    }
-
-    // Validate required fields
-    if (isFieldRequired('givenName') && !givenName.trim()) {
-      toast({
-        variant: 'error',
-        title: 'Error',
-        message: 'First name is required',
-      });
-      return;
-    }
-
-    if (isFieldRequired('familyName') && !familyName.trim()) {
-      toast({
-        variant: 'error',
-        title: 'Error',
-        message: 'Last name is required',
       });
       return;
     }
@@ -240,7 +200,7 @@ export function InviteUserModal({
             htmlFor="givenName"
             className="text-sm font-medium text-foreground"
           >
-            First Name {isFieldRequired('givenName') && <span className="text-destructive">*</span>}
+            First Name
           </label>
           <Input
             id="givenName"
@@ -259,7 +219,7 @@ export function InviteUserModal({
             htmlFor="familyName"
             className="text-sm font-medium text-foreground"
           >
-            Last Name {isFieldRequired('familyName') && <span className="text-destructive">*</span>}
+            Last Name
           </label>
           <Input
             id="familyName"

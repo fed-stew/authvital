@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -33,7 +33,7 @@ export function AppUsersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [togglingUsers, setTogglingUsers] = useState<Set<string>>(new Set());
 
-  const loadData = React.useCallback(async () => {
+  const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
       const result = await tenantApi.getAppUsers(tenantId!, appId!);

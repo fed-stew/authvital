@@ -75,6 +75,20 @@ export function CreateAppModal({
 
 
 
+  // Load license types
+  const loadLicenseTypes = React.useCallback(async () => {
+    setIsLoadingLicenseTypes(true);
+    try {
+      const types = await superAdminApi.getAllLicenseTypes();
+      setLicenseTypes(types || []);
+    } catch (err) {
+      console.error('Failed to load license types:', err);
+      setLicenseTypes([]);
+    } finally {
+      setIsLoadingLicenseTypes(false);
+    }
+  }, []);
+
   // Reset form when modal opens
   React.useEffect(() => {
     if (isOpen) {
@@ -94,20 +108,6 @@ export function CreateAppModal({
       loadLicenseTypes();
     }
   }, [isOpen, loadLicenseTypes]);
-  
-  // Load license types
-  const loadLicenseTypes = React.useCallback(async () => {
-    setIsLoadingLicenseTypes(true);
-    try {
-      const types = await superAdminApi.getAllLicenseTypes();
-      setLicenseTypes(types || []);
-    } catch (err) {
-      console.error('Failed to load license types:', err);
-      setLicenseTypes([]);
-    } finally {
-      setIsLoadingLicenseTypes(false);
-    }
-  }, []);
 
   const handleChange = (field: keyof FormData) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData((prev) => ({ ...prev, [field]: e.target.value }));
