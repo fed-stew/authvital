@@ -41,6 +41,10 @@ jobs:
         run: npm run build:backend
 
       - name: Run tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/authvital_test
+          JWT_SECRET: test-secret-for-ci-not-real
+          BASE_URL: http://localhost:8000
         run: npm test -w @authvital/backend -- --silent
 
   # ===========================================================================

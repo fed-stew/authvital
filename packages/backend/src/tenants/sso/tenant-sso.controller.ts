@@ -11,7 +11,7 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { TenantAccessGuard } from '../guards/tenant-access.guard';
 import { PermissionGuard } from '../../authorization/guards/permission.guard';
 import { RequirePermission } from '../../authorization/decorators/require-permission.decorator';
-import { TenantSsoConfigService, TenantSsoConfigDto } from '../../sso/tenant-sso-config.service';
+import { TenantSsoConfigService } from '../../sso/tenant-sso-config.service';
 import { SsoProviderType } from '@prisma/client';
 
 @Controller('tenants/:tenantId/sso')

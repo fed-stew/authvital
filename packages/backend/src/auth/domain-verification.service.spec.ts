@@ -32,14 +32,12 @@ describe("DomainVerificationService", () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    mockPrisma.membership.findFirst.mockResolvedValue({ id: "m1" });
     service = new DomainVerificationService(mockPrisma as any);
   });
 
   describe("initiateDomainVerification", () => {
     it("throws when tenant does not exist", async () => {
-      jest
-        .spyOn(service as any, "validateTenantOwnership")
-        .mockResolvedValue(undefined);
       mockPrisma.tenant.findUnique.mockResolvedValue(null);
 
       await expect(
@@ -48,9 +46,6 @@ describe("DomainVerificationService", () => {
     });
 
     it("throws conflict when domain is verified by another tenant", async () => {
-      jest
-        .spyOn(service as any, "validateTenantOwnership")
-        .mockResolvedValue(undefined);
       mockPrisma.tenant.findUnique.mockResolvedValue({
         id: "t1",
         name: "Tenant A",
@@ -70,9 +65,6 @@ describe("DomainVerificationService", () => {
     });
 
     it("returns existing domain without creating new record", async () => {
-      jest
-        .spyOn(service as any, "validateTenantOwnership")
-        .mockResolvedValue(undefined);
       mockPrisma.tenant.findUnique.mockResolvedValue({
         id: "t1",
         name: "Tenant A",
@@ -105,9 +97,6 @@ describe("DomainVerificationService", () => {
     });
 
     it("creates domain when missing and returns dns instructions", async () => {
-      jest
-        .spyOn(service as any, "validateTenantOwnership")
-        .mockResolvedValue(undefined);
       jest
         .spyOn(service as any, "generateVerificationToken")
         .mockReturnValue("idp-verify-new");
@@ -155,9 +144,6 @@ describe("DomainVerificationService", () => {
     });
 
     it("returns already verified response when domain is already verified", async () => {
-      jest
-        .spyOn(service as any, "validateTenantOwnership")
-        .mockResolvedValue(undefined);
       mockPrisma.domain.findUnique.mockResolvedValue({
         id: "d1",
         domainName: "example.com",
@@ -176,9 +162,6 @@ describe("DomainVerificationService", () => {
     });
 
     it("returns failure when dns txt record does not match token", async () => {
-      jest
-        .spyOn(service as any, "validateTenantOwnership")
-        .mockResolvedValue(undefined);
       jest.spyOn(service as any, "checkDnsTxtRecord").mockResolvedValue(false);
 
       mockPrisma.domain.findUnique.mockResolvedValue({
@@ -199,9 +182,6 @@ describe("DomainVerificationService", () => {
     });
 
     it("marks domain verified when dns txt check succeeds", async () => {
-      jest
-        .spyOn(service as any, "validateTenantOwnership")
-        .mockResolvedValue(undefined);
       jest.spyOn(service as any, "checkDnsTxtRecord").mockResolvedValue(true);
 
       mockPrisma.domain.findUnique.mockResolvedValue({
@@ -260,9 +240,6 @@ describe("DomainVerificationService", () => {
     });
 
     it("returns mapped migratable users and count", async () => {
-      jest
-        .spyOn(service as any, "validateTenantOwnership")
-        .mockResolvedValue(undefined);
       mockPrisma.domain.findUnique.mockResolvedValue({
         id: "d1",
         domainName: "example.com",
@@ -328,9 +305,6 @@ describe("DomainVerificationService", () => {
     });
 
     it("migrates eligible users, skips existing members, and records previousTenantId", async () => {
-      jest
-        .spyOn(service as any, "validateTenantOwnership")
-        .mockResolvedValue(undefined);
       mockPrisma.domain.findUnique.mockResolvedValue(verifiedDomain);
       mockPrisma.user.findMany.mockResolvedValue([
         {
@@ -385,9 +359,6 @@ describe("DomainVerificationService", () => {
     });
 
     it("removes old memberships when removeFromOldTenants is true", async () => {
-      jest
-        .spyOn(service as any, "validateTenantOwnership")
-        .mockResolvedValue(undefined);
       mockPrisma.domain.findUnique.mockResolvedValue(verifiedDomain);
       mockPrisma.user.findMany.mockResolvedValue([
         {

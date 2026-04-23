@@ -36,7 +36,7 @@ export class SsoAuthController {
     @Query('tenant_slug') tenantSlug?: string,
   ) {
     // If tenant_slug provided, look up tenant_id
-    let resolvedTenantId = tenantId;
+    const resolvedTenantId = tenantId;
     if (!resolvedTenantId && tenantSlug) {
       // TODO: Look up tenant by slug
     }

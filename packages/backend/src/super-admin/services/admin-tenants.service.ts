@@ -141,7 +141,7 @@ export class AdminTenantsService {
     return tenant;
   }
 
-  private async autoProvisionFreeApps(tenantId: string, ownerId: string): Promise<void> {
+  private async autoProvisionFreeApps(tenantId: string, _ownerId: string): Promise<void> {
     const freeApps = await this.prisma.application.findMany({
       where: {
         isActive: true,

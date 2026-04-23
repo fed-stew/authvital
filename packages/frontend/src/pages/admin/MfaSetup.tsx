@@ -31,7 +31,6 @@ export default function MfaSetup() {
   // Start MFA setup on mount
   useEffect(() => {
     startSetup();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function startSetup() {

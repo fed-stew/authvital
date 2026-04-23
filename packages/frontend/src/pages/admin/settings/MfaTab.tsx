@@ -37,11 +37,7 @@ export function MfaTab() {
   const [showDisableConfirm, setShowDisableConfirm] = React.useState(false);
 
   // Load MFA status and policy
-  React.useEffect(() => {
-    loadMfaData();
-  }, []);
-
-  async function loadMfaData() {
+  const loadMfaData = React.useCallback(async () => {
     try {
       setIsLoading(true);
       const [status, policy] = await Promise.all([
@@ -60,7 +56,11 @@ export function MfaTab() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [toast]);
+
+  React.useEffect(() => {
+    loadMfaData();
+  }, [loadMfaData]);
 
   async function handlePolicyChange(required: boolean) {
     // Prevent enabling if current admin doesn't have MFA

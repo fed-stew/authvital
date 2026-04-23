@@ -12,7 +12,6 @@
 import {
   ADMIN_PERMISSIONS,
   MEMBER_PERMISSIONS,
-  type TenantPermission,
 } from './permissions.js';
 
 // =============================================================================

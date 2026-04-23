@@ -4,7 +4,12 @@ const mockTopicInstance = {
   enableMessageOrdering: false,
 };
 const mockGet = jest.fn().mockResolvedValue([mockTopicInstance]);
-const mockTopic = jest.fn().mockReturnValue({ get: mockGet });
+
+// Create a mock topic function that returns an object with get method
+const createMockTopic = () => ({
+  get: mockGet,
+});
+const mockTopic = jest.fn().mockImplementation(createMockTopic);
 const mockClose = jest.fn().mockResolvedValue(undefined);
 
 jest.mock('@google-cloud/pubsub', () => {
@@ -129,7 +134,7 @@ describe('PubSubPublisherService', () => {
     it('should initialize topic on module init', async () => {
       await service.onModuleInit();
 
-      expect(mockTopic).toHaveBeenCalledWith('test-topic');
+      expect(mockTopic).toHaveBeenCalledWith('test-topic', { messageOrdering: true });
       expect(mockGet).toHaveBeenCalledWith({ autoCreate: true });
     });
 
@@ -155,7 +160,7 @@ describe('PubSubPublisherService', () => {
 
       await ordered.onModuleInit();
 
-      expect(mockTopicInstance.enableMessageOrdering).toBe(true);
+      expect(mockTopic).toHaveBeenCalledWith('test-topic', { messageOrdering: true });
     });
 
     it('should not enable message ordering when not configured', async () => {
@@ -166,7 +171,7 @@ describe('PubSubPublisherService', () => {
 
       await unordered.onModuleInit();
 
-      expect(mockTopicInstance.enableMessageOrdering).toBe(false);
+      expect(mockTopic).toHaveBeenCalledWith('test-topic', {});
     });
   });
 
@@ -177,6 +182,13 @@ describe('PubSubPublisherService', () => {
   describe('publish', () => {
     it('should publish message and return message ID', async () => {
       await service.onModuleInit();
+
+      // The topic returned from pubsub.topic() has a get() method that returns the topic instance
+      // We need to mock the publishMessage on the topic object itself, not just the instance from get()
+      const topicObj = mockTopic.mock.results[0]?.value;
+      if (topicObj) {
+        topicObj.publishMessage = mockPublishMessage;
+      }
 
       const data = { event: 'tenant.created', tenantId: 't-1' };
       const attributes = { event_type: 'tenant.created', source: 'authvital' };

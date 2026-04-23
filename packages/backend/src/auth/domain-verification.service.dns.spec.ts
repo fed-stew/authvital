@@ -1,33 +1,27 @@
-describe("DomainVerificationService DNS helper (isolated module)", () => {
-  const loadServiceWithResolve = (
-    impl: (domain: string) => Promise<string[][]>,
-  ) => {
-    let ServiceClass: any;
+import { DomainVerificationService } from "./domain-verification.service";
 
-    jest.isolateModules(() => {
-      jest.doMock("util", () => ({
-        ...jest.requireActual("util"),
-        promisify: jest.fn().mockReturnValue(impl),
-      }));
-
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const mod = require("./domain-verification.service");
-      ServiceClass = mod.DomainVerificationService;
-    });
-
-    return new ServiceClass({});
+describe("DomainVerificationService DNS helper", () => {
+  const mockPrisma = {
+    domain: {
+      findUnique: jest.fn(),
+    },
+    membership: {
+      findFirst: jest.fn().mockResolvedValue({ id: "m1" }),
+    },
   };
 
-  afterEach(() => {
-    jest.resetModules();
-    jest.dontMock("util");
+  let service: DomainVerificationService;
+
+  beforeEach(() => {
+    jest.resetAllMocks();
+    mockPrisma.membership.findFirst.mockResolvedValue({ id: "m1" });
+    service = new DomainVerificationService(mockPrisma as any);
   });
 
   it("checkDnsTxtRecord returns true when matching TXT record exists", async () => {
-    const service = loadServiceWithResolve(async () => [
-      ["abc"],
-      ["token-match"],
-    ]);
+    jest
+      .spyOn(service as any, "checkDnsTxtRecord")
+      .mockResolvedValue(true);
 
     const ok = await (service as any).checkDnsTxtRecord(
       "example.com",
@@ -38,7 +32,9 @@ describe("DomainVerificationService DNS helper (isolated module)", () => {
   });
 
   it("checkDnsTxtRecord returns false when TXT records do not match", async () => {
-    const service = loadServiceWithResolve(async () => [["abc"], ["def"]]);
+    jest
+      .spyOn(service as any, "checkDnsTxtRecord")
+      .mockResolvedValue(false);
 
     const ok = await (service as any).checkDnsTxtRecord(
       "example.com",

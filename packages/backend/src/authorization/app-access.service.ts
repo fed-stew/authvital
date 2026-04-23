@@ -102,7 +102,7 @@ export class AppAccessService {
         this.dispatchAccessGrantedEvent({ tenantId, userId, applicationId, accessType, grantedById })
           .catch((err) => this.logger.warn(`Failed to dispatch event: ${err.message}`)),
       ),
-    ).catch(() => {});
+    ).catch(() => { /* Intentionally swallow errors - event dispatch failure shouldn't break the flow */ });
 
     return result.count;
   }
@@ -149,7 +149,7 @@ export class AppAccessService {
         this.dispatchAccessRevokedEvent({ tenantId, userId, applicationId, revokedById })
           .catch((err) => this.logger.warn(`Failed to dispatch event: ${err.message}`)),
       ),
-    ).catch(() => {});
+    ).catch(() => { /* Intentionally swallow errors - event dispatch failure shouldn't break the flow */ });
 
     return result.count;
   }

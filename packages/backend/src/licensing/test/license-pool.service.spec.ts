@@ -2,6 +2,27 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { LicensePoolService } from "../services/license-pool.service";
 import { PrismaService } from "../../prisma/prisma.service";
 
+// Mock the services before importing them
+jest.mock("../../webhooks/system-webhook.service", () => ({
+  SystemWebhookService: jest.fn().mockImplementation(() => ({
+    dispatch: jest.fn().mockResolvedValue(undefined),
+  })),
+}));
+
+jest.mock("../services/license-capacity.service", () => ({
+  LicenseCapacityService: jest.fn().mockImplementation(() => ({
+    checkMemberAccess: jest.fn(),
+    hasAvailableSeats: jest.fn(),
+    getAvailableCapacity: jest.fn(),
+    incrementAssignedCount: jest.fn(),
+    decrementAssignedCount: jest.fn(),
+    reconcileAssignedCount: jest.fn(),
+  })),
+}));
+
+import { SystemWebhookService } from "../../webhooks/system-webhook.service";
+import { LicenseCapacityService } from "../services/license-capacity.service";
+
 // Mock PrismaService
 const mockPrismaService = {
   application: {
@@ -21,6 +42,7 @@ const mockPrismaService = {
 
 describe("LicensePoolService - checkMemberAccess", () => {
   let service: LicensePoolService;
+  let capacityService: LicenseCapacityService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -30,10 +52,28 @@ describe("LicensePoolService - checkMemberAccess", () => {
           provide: PrismaService,
           useValue: mockPrismaService,
         },
+        {
+          provide: SystemWebhookService,
+          useValue: {
+            dispatch: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: LicenseCapacityService,
+          useValue: {
+            checkMemberAccess: jest.fn(),
+            hasAvailableSeats: jest.fn(),
+            getAvailableCapacity: jest.fn(),
+            incrementAssignedCount: jest.fn(),
+            decrementAssignedCount: jest.fn(),
+            reconcileAssignedCount: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
     service = module.get<LicensePoolService>(LicensePoolService);
+    capacityService = module.get<LicenseCapacityService>(LicenseCapacityService);
 
     // Clear all mocks before each test
     jest.clearAllMocks();
@@ -49,14 +89,15 @@ describe("LicensePoolService - checkMemberAccess", () => {
 
   describe("FREE Mode", () => {
     it("should allow access when auto-provisioned subscription exists (unlimited)", async () => {
-      mockPrismaService.application.findUnique.mockResolvedValue({
-        id: "app-1",
-        name: "Test App",
-        licensingMode: "FREE",
-      });
-      mockPrismaService.appSubscription.findFirst.mockResolvedValue({
-        id: "sub-free",
-        licenseType: { id: "lt-free", maxMembers: null, name: "Free" },
+      jest.spyOn(capacityService, "checkMemberAccess").mockResolvedValue({
+        allowed: true,
+        mode: "FREE",
+        message: "Unlimited members allowed",
+        memberLimit: {
+          maxMembers: null,
+          currentMembers: 0,
+          available: null,
+        },
       });
 
       const result = await service.checkMemberAccess("tenant-1", "app-1");
@@ -71,15 +112,18 @@ describe("LicensePoolService - checkMemberAccess", () => {
           available: null,
         },
       });
+      expect(capacityService.checkMemberAccess).toHaveBeenCalledWith(
+        "tenant-1",
+        "app-1",
+      );
     });
 
     it("should deny access when FREE mode subscription is missing", async () => {
-      mockPrismaService.application.findUnique.mockResolvedValue({
-        id: "app-1",
-        name: "Test App",
-        licensingMode: "FREE",
+      jest.spyOn(capacityService, "checkMemberAccess").mockResolvedValue({
+        allowed: false,
+        mode: "FREE",
+        reason: "No active subscription for this application",
       });
-      mockPrismaService.appSubscription.findFirst.mockResolvedValue(null);
 
       const result = await service.checkMemberAccess("tenant-1", "app-1");
 
@@ -97,28 +141,19 @@ describe("LicensePoolService - checkMemberAccess", () => {
 
   describe("TENANT_WIDE Mode", () => {
     it("should allow access with available member slots", async () => {
-      // Arrange
-      mockPrismaService.application.findUnique.mockResolvedValue({
-        id: "app-1",
-        name: "Test App",
-        licensingMode: "TENANT_WIDE",
-      });
-
-      mockPrismaService.appSubscription.findFirst.mockResolvedValue({
-        id: "sub-1",
-        licenseType: {
-          id: "lt-1",
+      jest.spyOn(capacityService, "checkMemberAccess").mockResolvedValue({
+        allowed: true,
+        mode: "TENANT_WIDE",
+        message: "3 member slots remaining",
+        memberLimit: {
           maxMembers: 10,
-          name: "Pro",
+          currentMembers: 7,
+          available: 3,
         },
       });
 
-      mockPrismaService.membership.count.mockResolvedValue(7);
-
-      // Act
       const result = await service.checkMemberAccess("tenant-1", "app-1");
 
-      // Assert
       expect(result).toEqual({
         allowed: true,
         mode: "TENANT_WIDE",
@@ -132,26 +167,19 @@ describe("LicensePoolService - checkMemberAccess", () => {
     });
 
     it("should allow unlimited access when maxMembers is null", async () => {
-      // Arrange
-      mockPrismaService.application.findUnique.mockResolvedValue({
-        id: "app-1",
-        name: "Test App",
-        licensingMode: "TENANT_WIDE",
-      });
-
-      mockPrismaService.appSubscription.findFirst.mockResolvedValue({
-        id: "sub-1",
-        licenseType: {
-          id: "lt-1",
+      jest.spyOn(capacityService, "checkMemberAccess").mockResolvedValue({
+        allowed: true,
+        mode: "TENANT_WIDE",
+        message: "Unlimited members allowed",
+        memberLimit: {
           maxMembers: null,
-          name: "Pro",
+          currentMembers: 0,
+          available: null,
         },
       });
 
-      // Act
       const result = await service.checkMemberAccess("tenant-1", "app-1");
 
-      // Assert
       expect(result).toEqual({
         allowed: true,
         mode: "TENANT_WIDE",
@@ -162,32 +190,22 @@ describe("LicensePoolService - checkMemberAccess", () => {
           available: null,
         },
       });
-      expect(mockPrismaService.membership.count).not.toHaveBeenCalled();
     });
 
     it("should deny access when member limit is reached", async () => {
-      // Arrange
-      mockPrismaService.application.findUnique.mockResolvedValue({
-        id: "app-1",
-        name: "Test App",
-        licensingMode: "TENANT_WIDE",
-      });
-
-      mockPrismaService.appSubscription.findFirst.mockResolvedValue({
-        id: "sub-1",
-        licenseType: {
-          id: "lt-1",
+      jest.spyOn(capacityService, "checkMemberAccess").mockResolvedValue({
+        allowed: false,
+        mode: "TENANT_WIDE",
+        reason: "Member limit reached (10 members max)",
+        memberLimit: {
           maxMembers: 10,
-          name: "Pro",
+          currentMembers: 10,
+          available: 0,
         },
       });
 
-      mockPrismaService.membership.count.mockResolvedValue(10);
-
-      // Act
       const result = await service.checkMemberAccess("tenant-1", "app-1");
 
-      // Assert
       expect(result).toEqual({
         allowed: false,
         mode: "TENANT_WIDE",
@@ -201,19 +219,14 @@ describe("LicensePoolService - checkMemberAccess", () => {
     });
 
     it("should deny access when no active subscription", async () => {
-      // Arrange
-      mockPrismaService.application.findUnique.mockResolvedValue({
-        id: "app-1",
-        name: "Test App",
-        licensingMode: "TENANT_WIDE",
+      jest.spyOn(capacityService, "checkMemberAccess").mockResolvedValue({
+        allowed: false,
+        mode: "TENANT_WIDE",
+        reason: "No active subscription for this application",
       });
 
-      mockPrismaService.appSubscription.findFirst.mockResolvedValue(null);
-
-      // Act
       const result = await service.checkMemberAccess("tenant-1", "app-1");
 
-      // Assert
       expect(result).toEqual({
         allowed: false,
         mode: "TENANT_WIDE",
@@ -221,42 +234,24 @@ describe("LicensePoolService - checkMemberAccess", () => {
       });
     });
 
-    it("should order subscriptions by displayOrder desc (best tier first)", async () => {
-      // Arrange
-      mockPrismaService.application.findUnique.mockResolvedValue({
-        id: "app-1",
-        name: "Test App",
-        licensingMode: "TENANT_WIDE",
-      });
-
-      mockPrismaService.appSubscription.findFirst.mockResolvedValue({
-        id: "sub-pro",
-        licenseType: {
-          id: "lt-pro",
-          maxMembers: 100,
-          name: "Pro",
+    it("should delegate to capacityService", async () => {
+      jest.spyOn(capacityService, "checkMemberAccess").mockResolvedValue({
+        allowed: true,
+        mode: "TENANT_WIDE",
+        message: "3 member slots remaining",
+        memberLimit: {
+          maxMembers: 10,
+          currentMembers: 7,
+          available: 3,
         },
       });
 
-      mockPrismaService.membership.count.mockResolvedValue(50);
-
-      // Act
       await service.checkMemberAccess("tenant-1", "app-1");
 
-      // Assert
-      expect(mockPrismaService.appSubscription.findFirst).toHaveBeenCalledWith({
-        where: {
-          tenantId: "tenant-1",
-          applicationId: "app-1",
-          status: { in: ["ACTIVE", "TRIALING"] },
-        },
-        include: {
-          licenseType: {
-            select: { id: true, maxMembers: true, name: true },
-          },
-        },
-        orderBy: { licenseType: { displayOrder: "desc" } },
-      });
+      expect(capacityService.checkMemberAccess).toHaveBeenCalledWith(
+        "tenant-1",
+        "app-1",
+      );
     });
   });
 
@@ -266,38 +261,19 @@ describe("LicensePoolService - checkMemberAccess", () => {
 
   describe("PER_SEAT Mode", () => {
     it("should allow access with available seats", async () => {
-      // Arrange
-      mockPrismaService.application.findUnique.mockResolvedValue({
-        id: "app-1",
-        name: "Test App",
-        licensingMode: "PER_SEAT",
+      jest.spyOn(capacityService, "checkMemberAccess").mockResolvedValue({
+        allowed: true,
+        mode: "PER_SEAT",
+        message: "5 seats available",
+        capacity: {
+          available: 5,
+          purchased: 15,
+          assigned: 10,
+        },
       });
 
-      mockPrismaService.appSubscription.findMany.mockResolvedValue([
-        {
-          quantityPurchased: 10,
-          quantityAssigned: 7,
-          licenseType: {
-            id: "lt-1",
-            name: "Standard",
-            slug: "standard",
-          },
-        },
-        {
-          quantityPurchased: 5,
-          quantityAssigned: 3,
-          licenseType: {
-            id: "lt-2",
-            name: "Pro",
-            slug: "pro",
-          },
-        },
-      ]);
-
-      // Act
       const result = await service.checkMemberAccess("tenant-1", "app-1");
 
-      // Assert
       expect(result).toEqual({
         allowed: true,
         mode: "PER_SEAT",
@@ -311,29 +287,19 @@ describe("LicensePoolService - checkMemberAccess", () => {
     });
 
     it("should deny access when no seats available", async () => {
-      // Arrange
-      mockPrismaService.application.findUnique.mockResolvedValue({
-        id: "app-1",
-        name: "Test App",
-        licensingMode: "PER_SEAT",
+      jest.spyOn(capacityService, "checkMemberAccess").mockResolvedValue({
+        allowed: false,
+        mode: "PER_SEAT",
+        reason: "No seats available",
+        capacity: {
+          available: 0,
+          purchased: 10,
+          assigned: 10,
+        },
       });
 
-      mockPrismaService.appSubscription.findMany.mockResolvedValue([
-        {
-          quantityPurchased: 10,
-          quantityAssigned: 10,
-          licenseType: {
-            id: "lt-1",
-            name: "Standard",
-            slug: "standard",
-          },
-        },
-      ]);
-
-      // Act
       const result = await service.checkMemberAccess("tenant-1", "app-1");
 
-      // Assert
       expect(result).toEqual({
         allowed: false,
         mode: "PER_SEAT",
@@ -347,19 +313,14 @@ describe("LicensePoolService - checkMemberAccess", () => {
     });
 
     it("should deny access when no active subscriptions", async () => {
-      // Arrange
-      mockPrismaService.application.findUnique.mockResolvedValue({
-        id: "app-1",
-        name: "Test App",
-        licensingMode: "PER_SEAT",
+      jest.spyOn(capacityService, "checkMemberAccess").mockResolvedValue({
+        allowed: false,
+        mode: "PER_SEAT",
+        reason: "No active subscriptions for this application",
       });
 
-      mockPrismaService.appSubscription.findMany.mockResolvedValue([]);
-
-      // Act
       const result = await service.checkMemberAccess("tenant-1", "app-1");
 
-      // Assert
       expect(result).toEqual({
         allowed: false,
         mode: "PER_SEAT",
@@ -368,35 +329,19 @@ describe("LicensePoolService - checkMemberAccess", () => {
     });
 
     it("should sum capacity across all license types", async () => {
-      // Arrange
-      mockPrismaService.application.findUnique.mockResolvedValue({
-        id: "app-1",
-        name: "Test App",
-        licensingMode: "PER_SEAT",
+      jest.spyOn(capacityService, "checkMemberAccess").mockResolvedValue({
+        allowed: true,
+        mode: "PER_SEAT",
+        message: "15 seats available",
+        capacity: {
+          available: 15,
+          purchased: 170,
+          assigned: 155,
+        },
       });
 
-      mockPrismaService.appSubscription.findMany.mockResolvedValue([
-        {
-          quantityPurchased: 100,
-          quantityAssigned: 95,
-          licenseType: { id: "lt-1", name: "Enterprise", slug: "enterprise" },
-        },
-        {
-          quantityPurchased: 50,
-          quantityAssigned: 45,
-          licenseType: { id: "lt-2", name: "Pro", slug: "pro" },
-        },
-        {
-          quantityPurchased: 20,
-          quantityAssigned: 15,
-          licenseType: { id: "lt-3", name: "Standard", slug: "standard" },
-        },
-      ]);
-
-      // Act
       const result = await service.checkMemberAccess("tenant-1", "app-1");
 
-      // Assert
       expect(result).toEqual({
         allowed: true,
         mode: "PER_SEAT",
@@ -410,25 +355,19 @@ describe("LicensePoolService - checkMemberAccess", () => {
     });
 
     it("should use correct message for singular seat", async () => {
-      // Arrange
-      mockPrismaService.application.findUnique.mockResolvedValue({
-        id: "app-1",
-        name: "Test App",
-        licensingMode: "PER_SEAT",
+      jest.spyOn(capacityService, "checkMemberAccess").mockResolvedValue({
+        allowed: true,
+        mode: "PER_SEAT",
+        message: "1 seat available",
+        capacity: {
+          available: 1,
+          purchased: 10,
+          assigned: 9,
+        },
       });
 
-      mockPrismaService.appSubscription.findMany.mockResolvedValue([
-        {
-          quantityPurchased: 10,
-          quantityAssigned: 9,
-          licenseType: { id: "lt-1", name: "Standard", slug: "standard" },
-        },
-      ]);
-
-      // Act
       const result = await service.checkMemberAccess("tenant-1", "app-1");
 
-      // Assert
       expect(result.message).toBe("1 seat available");
     });
   });
@@ -439,17 +378,14 @@ describe("LicensePoolService - checkMemberAccess", () => {
 
   describe("Error Cases", () => {
     it("should handle unknown licensing mode", async () => {
-      // Arrange
-      mockPrismaService.application.findUnique.mockResolvedValue({
-        id: "app-1",
-        name: "Test App",
-        licensingMode: "UNKNOWN_MODE",
+      jest.spyOn(capacityService, "checkMemberAccess").mockResolvedValue({
+        allowed: false,
+        mode: "FREE",
+        reason: "Unknown licensing mode: UNKNOWN_MODE",
       });
 
-      // Act
       const result = await service.checkMemberAccess("tenant-1", "app-1");
 
-      // Assert
       expect(result).toEqual({
         allowed: false,
         mode: "FREE",
@@ -457,4 +393,4 @@ describe("LicensePoolService - checkMemberAccess", () => {
       });
     });
   });
-});
+})

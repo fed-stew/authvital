@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Mail,
@@ -63,12 +63,7 @@ export function MembersPage() {
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
 
-  // Load members
-  useEffect(() => {
-    loadMembers();
-  }, [tenantId]);
-
-  const loadMembers = async () => {
+  const loadMembers = useCallback(async () => {
     try {
       setIsLoading(true);
       const data = await tenantApi.getMembers(tenantId!);
@@ -82,7 +77,12 @@ export function MembersPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [tenantId, toast]);
+
+  // Load members
+  useEffect(() => {
+    loadMembers();
+  }, [loadMembers]);
 
   // Filter members by search query
   const filteredMembers = useMemo(() => {

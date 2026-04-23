@@ -41,6 +41,39 @@ export function InviteUserModal({
   const [applications, setApplications] = React.useState<Application[]>(availableApplications || []);
   const [licenseTypes, setLicenseTypes] = React.useState<LicenseType[]>([]);
 
+  // Load applications
+  const loadApplications = React.useCallback(async () => {
+    // TODO: Implement application loading
+    console.warn('Application loading not yet implemented');
+    setApplications(availableApplications || []);
+  }, [availableApplications]);
+
+  const loadLicenseTypes = React.useCallback(async (applicationId: string) => {
+    try {
+      const types = await superAdminApi.getApplicationLicenseTypes(applicationId);
+      setLicenseTypes(types);
+    } catch (err) {
+      console.error('Failed to load license types:', err);
+    }
+  }, []);
+
+  const checkMemberAccess = React.useCallback(async (applicationId: string) => {
+    setIsCheckingAccess(true);
+    try {
+      const result = await superAdminApi.checkMemberAccess(tenantId, applicationId);
+      setMemberAccess(result);
+    } catch (err: any) {
+      console.error('Failed to check member access:', err);
+      setMemberAccess({
+        allowed: false,
+        mode: 'FREE',
+        reason: 'Failed to check access. Please try again.',
+      });
+    } finally {
+      setIsCheckingAccess(false);
+    }
+  }, [tenantId]);
+
   // Reset form when modal opens
   React.useEffect(() => {
     if (isOpen) {
@@ -57,14 +90,7 @@ export function InviteUserModal({
         loadApplications();
       }
     }
-  }, [isOpen]);
-
-  // Load applications
-  const loadApplications = async () => {
-    // TODO: Implement application loading
-    console.warn('Application loading not yet implemented');
-    setApplications(availableApplications || []);
-  };
+  }, [isOpen, availableApplications, loadApplications]);
 
   // Load license types when app is selected
   React.useEffect(() => {
@@ -75,33 +101,7 @@ export function InviteUserModal({
       setLicenseTypes([]);
       setMemberAccess(null);
     }
-  }, [selectedAppId]);
-
-  const loadLicenseTypes = async (applicationId: string) => {
-    try {
-      const types = await superAdminApi.getApplicationLicenseTypes(applicationId);
-      setLicenseTypes(types);
-    } catch (err) {
-      console.error('Failed to load license types:', err);
-    }
-  };
-
-  const checkMemberAccess = async (applicationId: string) => {
-    setIsCheckingAccess(true);
-    try {
-      const result = await superAdminApi.checkMemberAccess(tenantId, applicationId);
-      setMemberAccess(result);
-    } catch (err: any) {
-      console.error('Failed to check member access:', err);
-      setMemberAccess({
-        allowed: false,
-        mode: 'FREE',
-        reason: 'Failed to check access. Please try again.',
-      });
-    } finally {
-      setIsCheckingAccess(false);
-    }
-  };
+  }, [selectedAppId, loadLicenseTypes, checkMemberAccess]);
 
 
 

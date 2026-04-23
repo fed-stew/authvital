@@ -300,7 +300,7 @@ export function OAuthLogin() {
                 autoFocus
                 className="w-full px-4 py-3 rounded-lg bg-secondary border border-white/10 text-white placeholder-muted-foreground focus:outline-none focus:ring-2 focus:border-transparent transition-shadow"
                 style={{ 
-                  // @ts-ignore - CSS custom property
+                  // @ts-expect-error - CSS custom property
                   '--tw-ring-color': primaryColor,
                 }}
               />
@@ -318,7 +318,7 @@ export function OAuthLogin() {
                 required
                 className="w-full px-4 py-3 rounded-lg bg-secondary border border-white/10 text-white placeholder-muted-foreground focus:outline-none focus:ring-2 focus:border-transparent transition-shadow"
                 style={{ 
-                  // @ts-ignore - CSS custom property
+                  // @ts-expect-error - CSS custom property
                   '--tw-ring-color': primaryColor,
                 }}
               />

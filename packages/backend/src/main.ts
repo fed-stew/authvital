@@ -22,7 +22,7 @@ validateSigningKeySecret();
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, RequestMethod } from '@nestjs/common';
 import * as cookieParser from 'cookie-parser';
-import { join } from 'path';
+
 import { existsSync, readFileSync } from 'fs';
 import { Request, Response, NextFunction } from 'express';
 import { AppModule } from './app.module';

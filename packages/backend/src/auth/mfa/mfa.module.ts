@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { MfaService } from './mfa.service';
 import { MfaComplianceGuard } from './guards/mfa-compliance.guard';

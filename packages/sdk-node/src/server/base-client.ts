@@ -116,7 +116,7 @@ export class BaseClient {
   readonly config: AuthVitalConfig;
   readonly jwtValidator: JwtValidator;
   private accessToken: string | null = null;
-  private tokenExpiresAt: number = 0;
+  private tokenExpiresAt = 0;
 
   constructor(config: AuthVitalConfig) {
     // Validate required config

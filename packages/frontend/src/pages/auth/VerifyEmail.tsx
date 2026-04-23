@@ -75,7 +75,7 @@ export function VerifyEmail() {
     };
 
     verifyToken();
-  }, []); // Empty deps - run once on mount
+  }, [token]); // Run when token changes
 
   const handleContinueSignup = () => {
     // Only pass the token - all other data (email, name) will be loaded from the token on the backend

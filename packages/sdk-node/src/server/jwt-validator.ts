@@ -78,7 +78,7 @@ export interface ValidateTokenResult {
 export class JwtValidator {
   private config: Required<Omit<JwtValidatorConfig, 'audience'>> & { audience?: string };
   private jwksCache: Jwks | null = null;
-  private jwksCacheTime: number = 0;
+  private jwksCacheTime = 0;
   private fetchPromise: Promise<Jwks> | null = null;
 
   constructor(config: JwtValidatorConfig) {

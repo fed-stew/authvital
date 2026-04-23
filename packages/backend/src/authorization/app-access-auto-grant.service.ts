@@ -196,7 +196,7 @@ export class AppAccessAutoGrantService {
           this.logger.warn(`Failed to dispatch app_access.granted event: ${err.message}`);
         }),
       ),
-    ).catch(() => {});
+    ).catch(() => { /* Intentionally swallow errors - event dispatch failure shouldn't break the flow */ });
   }
 
   /**

@@ -438,7 +438,7 @@ export function ResetPassword() {
                   minLength={8}
                   className="w-full pl-10 pr-10 py-3 rounded-lg bg-secondary border border-white/10 text-white placeholder-muted-foreground focus:outline-none focus:ring-2 focus:border-transparent transition-shadow"
                   style={{
-                    // @ts-ignore - CSS custom property
+                    // @ts-expect-error - CSS custom property
                     '--tw-ring-color': primaryColor,
                   }}
                 />
@@ -469,7 +469,7 @@ export function ResetPassword() {
                   minLength={8}
                   className="w-full pl-10 pr-10 py-3 rounded-lg bg-secondary border border-white/10 text-white placeholder-muted-foreground focus:outline-none focus:ring-2 focus:border-transparent transition-shadow"
                   style={{
-                    // @ts-ignore - CSS custom property
+                    // @ts-expect-error - CSS custom property
                     '--tw-ring-color': primaryColor,
                   }}
                 />

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Users, AppWindow, Mail, ArrowRight } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
@@ -21,11 +21,7 @@ export function OverviewPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    loadStats();
-  }, [tenantId]);
-
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     try {
       setIsLoading(true);
       const data = await tenantApi.getOverview(tenantId!);
@@ -39,7 +35,13 @@ export function OverviewPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [tenantId, toast]);
+
+  useEffect(() => {
+    loadStats();
+  }, [loadStats]);
+
+
 
   if (isLoading) {
     return (

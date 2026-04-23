@@ -27,7 +27,7 @@
  * ```
  */
 
-import React, { createContext, useContext, useState, useCallback, useMemo, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback } from 'react';
 import type {
   AuthVitalProviderProps,
   AuthVitalUser,
@@ -59,7 +59,7 @@ export function AuthVitalProvider({
   initialTenants = [],
   children,
 }: AuthVitalProviderProps) {
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, _setIsLoading] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isSigningUp, setIsSigningUp] = useState(false);
   const [user, setUser] = useState<AuthVitalUser | null>(initialUser);

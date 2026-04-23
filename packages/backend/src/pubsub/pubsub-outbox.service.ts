@@ -287,7 +287,7 @@ export class PubSubOutboxService {
    * Get recent outbox events with optional status filter.
    * Used by the admin dashboard.
    */
-  async getRecentEvents(limit: number = 50, status?: string) {
+  async getRecentEvents(limit = 50, status?: string) {
     const where: any = {};
     if (status && ['PENDING', 'PUBLISHED', 'FAILED', 'SKIPPED'].includes(status)) {
       where.status = status;

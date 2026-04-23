@@ -208,7 +208,7 @@ export class AdminApplicationsService {
       { name: 'initiateLoginUri', value: data.initiateLoginUri },
     ];
 
-    for (const { name, value } of brandingUrlFields) {
+    for (const { name: _name, value } of brandingUrlFields) {
       if (value) {
         const result = validateSafeUrl(value);
         if (!result.valid) {
@@ -431,7 +431,7 @@ export class AdminApplicationsService {
       { name: 'webhookUrl', value: data.webhookUrl },
     ];
 
-    for (const { name, value } of brandingUrlFields) {
+    for (const { name: _name, value } of brandingUrlFields) {
       if (value) {
         const result = validateSafeUrl(value);
         if (!result.valid) {

@@ -93,7 +93,7 @@ export function CreateAppModal({
       setCreatedApp(null);
       loadLicenseTypes();
     }
-  }, [isOpen]);
+  }, [isOpen, loadLicenseTypes]);
   
   // Load license types
   const loadLicenseTypes = React.useCallback(async () => {

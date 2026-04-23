@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -49,15 +49,7 @@ export function InviteUserModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [instanceConfig, setInstanceConfig] = useState<InstanceConfig | null>(null);
 
-  // Load tenant roles and instance config when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      loadTenantRoles();
-      loadInstanceConfig();
-    }
-  }, [isOpen]);
-
-  const loadTenantRoles = async () => {
+  const loadTenantRoles = useCallback(async () => {
     try {
       setIsLoadingRoles(true);
       const roles = await tenantApi.getTenantRoles();
@@ -81,17 +73,24 @@ export function InviteUserModal({
     } finally {
       setIsLoadingRoles(false);
     }
-  };
+  }, [toast]);
 
-  const loadInstanceConfig = async () => {
+  const loadInstanceConfig = useCallback(async () => {
     try {
-      const { data } = await api.get('/signup/config');
-      setInstanceConfig(data);
-    } catch (err) {
-      // Silently fail - fields will just be optional
-      console.warn('Failed to load instance config:', err);
+      const config = await api.getInstanceConfig();
+      setInstanceConfig(config);
+    } catch {
+      // Non-critical error
     }
-  };
+  }, []);
+
+  // Load tenant roles and instance config when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      loadTenantRoles();
+      loadInstanceConfig();
+    }
+  }, [isOpen, loadTenantRoles, loadInstanceConfig]);
 
   // Check if a field is required based on instance config
   const isFieldRequired = (field: string): boolean => {

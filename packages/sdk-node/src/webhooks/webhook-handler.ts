@@ -70,7 +70,7 @@ export class AuthVitalWebhooks {
   private readonly maxTimestampAge: number;
   private readonly keysCacheTtl: number;
   private keysCache: Map<string, crypto.KeyObject> = new Map();
-  private keysCacheExpiry: number = 0;
+  private keysCacheExpiry = 0;
 
   constructor(options: WebhookHandlerOptions) {
     this.jwksUrl = options.jwksUrl;

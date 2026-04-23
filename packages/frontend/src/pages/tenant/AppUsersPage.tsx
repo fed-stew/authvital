@@ -33,12 +33,7 @@ export function AppUsersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [togglingUsers, setTogglingUsers] = useState<Set<string>>(new Set());
 
-  // Load data
-  useEffect(() => {
-    loadData();
-  }, [tenantId, appId]);
-
-  const loadData = async () => {
+  const loadData = React.useCallback(async () => {
     try {
       setIsLoading(true);
       const result = await tenantApi.getAppUsers(tenantId!, appId!);
@@ -52,7 +47,14 @@ export function AppUsersPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [tenantId, appId, toast]);
+
+  // Load data
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+
 
   // Handle toggle access
   const handleToggleAccess = async (

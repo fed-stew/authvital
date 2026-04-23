@@ -42,7 +42,7 @@ export class PubSubConfigService implements OnModuleInit {
   private cachedConfig: CachedPubSubConfig | null = null;
 
   /** Epoch-ms timestamp of the last successful cache load. */
-  private cacheLoadedAt: number = 0;
+  private cacheLoadedAt = 0;
 
   /** Cache time-to-live in milliseconds (60 seconds). */
   private readonly CACHE_TTL_MS = 60_000;

@@ -60,6 +60,13 @@ function ToastItem({ toast, onDismiss }: ToastItemProps) {
   const [isVisible, setIsVisible] = React.useState(false);
   const [isLeaving, setIsLeaving] = React.useState(false);
 
+  const handleDismiss = React.useCallback(() => {
+    setIsLeaving(true);
+    setTimeout(() => {
+      onDismiss(toast.id);
+    }, TOAST_REMOVE_DELAY);
+  }, [onDismiss, toast.id]);
+
   React.useEffect(() => {
     // Animate in
     setIsVisible(true);
@@ -71,14 +78,7 @@ function ToastItem({ toast, onDismiss }: ToastItemProps) {
     }, duration);
 
     return () => clearTimeout(timer);
-  }, [toast.duration]);
-
-  const handleDismiss = () => {
-    setIsLeaving(true);
-    setTimeout(() => {
-      onDismiss(toast.id);
-    }, TOAST_REMOVE_DELAY);
-  };
+  }, [toast.duration, handleDismiss]);
 
   return (
     <div

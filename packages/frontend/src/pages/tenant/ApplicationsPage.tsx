@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { AppWindow, Users, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -29,12 +29,7 @@ export function ApplicationsPage() {
   const [subscriptions, setSubscriptions] = useState<AppSubscription[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load subscriptions
-  useEffect(() => {
-    loadSubscriptions();
-  }, [tenantId]);
-
-  const loadSubscriptions = async () => {
+  const loadSubscriptions = useCallback(async () => {
     try {
       setIsLoading(true);
       const data = await tenantApi.getApplications(tenantId!);
@@ -48,7 +43,14 @@ export function ApplicationsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [tenantId, toast]);
+
+  // Load subscriptions
+  useEffect(() => {
+    loadSubscriptions();
+  }, [loadSubscriptions]);
+
+
 
   // Get usage display based on licensing mode
   const getUsageDisplay = (sub: AppSubscription) => {
