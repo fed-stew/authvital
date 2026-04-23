@@ -6,7 +6,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build:contracts && npm run build:shared && npm run build:backend && npm run build -w @authvital/frontend && npm run build -w @authvital/sdk-node && npm run build -w @authvital/sdk-react",
+    "build": "npm run build:contracts && npm run build:shared && npm run build:backend && npm run build -w @authvital/frontend && npm run build -w @authvital/node && npm run build -w @authvital/react",
     "build:contracts": "npm run build -w @authvital/contracts",
     "build:shared": "npm run build -w @authvital/shared",
     "build:backend": "npm run prisma:generate -w @authvital/backend && npm run build -w @authvital/backend",
