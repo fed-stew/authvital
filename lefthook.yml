@@ -8,7 +8,7 @@ pre-push:
   jobs:
     - name: build contracts
       run: npm run build -w @authvital/contracts
-      
+
     - name: build shared
       run: npm run build -w @authvital/shared
 
@@ -20,12 +20,33 @@ pre-push:
 
     - name: build sdk-server
       run: npm run build -w @authvital/server
-      
+
     - name: build backend
       run: DATABASE_URL=postgresql://build:build@localhost:5432/build npm run prisma:generate -w @authvital/backend && npm run build -w @authvital/backend
-      
+
     - name: build frontend
       run: npm run build -w @authvital/frontend
+
+    - name: typecheck contracts
+      run: npm run typecheck -w @authvital/contracts
+
+    - name: typecheck shared
+      run: npm run typecheck -w @authvital/shared
+
+    - name: typecheck sdk-core
+      run: npm run typecheck -w @authvital/core
+
+    - name: typecheck sdk-browser
+      run: npm run typecheck -w @authvital/browser
+
+    - name: typecheck sdk-server
+      run: npm run typecheck -w @authvital/server
+
+    - name: typecheck backend
+      run: npm run typecheck -w @authvital/backend
+
+    - name: typecheck frontend
+      run: npm run typecheck -w @authvital/frontend
 
 pre-commit:
   parallel: true
@@ -33,3 +54,13 @@ pre-commit:
     - name: lint
       run: npm run lint
       glob: "*.{js,ts,jsx,tsx}"
+
+    - name: typecheck
+      run: |
+        npm run typecheck -w @authvital/contracts &&
+        npm run typecheck -w @authvital/shared &&
+        npm run typecheck -w @authvital/core &&
+        npm run typecheck -w @authvital/browser &&
+        npm run typecheck -w @authvital/server &&
+        npm run typecheck -w @authvital/frontend
+      glob: "*.{ts,tsx}"

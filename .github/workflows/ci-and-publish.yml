@@ -183,6 +183,12 @@ jobs:
           name: frontend-dist
           path: packages/frontend/dist
 
+      # Generate Prisma client for type checking
+      - name: Generate Prisma Client
+        run: npm run prisma:generate -w @authvital/backend
+        env:
+          DATABASE_URL: postgresql://build:build@localhost:5432/build
+
       # Run backend tests
       - name: Run backend tests
         env:
