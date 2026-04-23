@@ -1,0 +1,209 @@
+# =============================================================================
+# AuthVital - Local Development Seed Configuration
+# =============================================================================
+#
+# This file defines everything needed to bootstrap a local AuthVital instance
+# with realistic test data: admin credentials, OAuth apps, tenants, users,
+# roles, and memberships.
+#
+# Usage:
+#   1. Copy this file to root:  cp seed.config.example.yaml seed.config.yaml
+#   2. Customize the values below for your project
+#   3. Run the seed:           npm run prisma:seed
+#   4. Re-run anytime — all operations are idempotent (upsert)
+#
+# The seed script looks for files in this order (from project root):
+#   1. seed.config.yaml     (your local copy — gitignored)
+#   2. seed.config.example.yaml  (this file — committed to repo)
+#
+# ⚠️  LOCAL DEVELOPMENT ONLY — never use these credentials in production!
+# =============================================================================
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Instance Settings
+# ─────────────────────────────────────────────────────────────────────────────
+# Global configuration for this AuthVital instance.
+# These map to the InstanceMeta singleton in the database.
+#
+instance:
+  name: "AuthVital Local Dev"
+
+  # Allow public sign-up (users can register without an invitation)
+  allow_sign_up: true
+
+  # Automatically create a new tenant when a user signs up
+  auto_create_tenant: true
+
+  # Allow sign-ups from generic email domains (gmail.com, outlook.com, etc.)
+  allow_generic_domains: true
+
+  # Allow anonymous (no email verification) sign-ups
+  allow_anonymous_sign_up: false
+
+  # Branding (optional — shown on login/signup pages)
+  # branding:
+  #   name: "My Company"
+  #   logo_url: "https://example.com/logo.png"
+  #   primary_color: "#6366f1"
+  #   background_color: "#f8fafc"
+  #   support_url: "https://example.com/support"
+  #   privacy_url: "https://example.com/privacy"
+  #   terms_url: "https://example.com/terms"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Super Admin
+# ─────────────────────────────────────────────────────────────────────────────
+# Credentials for the /admin dashboard. This is the system-level administrator,
+# separate from tenant users.
+#
+super_admin:
+  email: admin@localhost.com
+  password: admin123
+  display_name: "Local Admin"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OAuth Applications
+# ─────────────────────────────────────────────────────────────────────────────
+# Each application is an OAuth 2.0 client. Your frontend/backend apps connect
+# to AuthVital through these.
+#
+# Vite's default dev server runs on http://localhost:5173
+#
+applications:
+  - name: "My Local App"
+    slug: my-local-app
+    type: SPA                                  # SPA | MACHINE
+
+    # Fixed client_id for local development (SPA apps don't need client_secret)
+    client_id: local-spa-client-id
+
+    # OAuth redirect URIs — where AuthVital sends users after login
+    redirect_uris:
+      - http://localhost:5173/auth/callback
+
+    # Where to redirect after logout
+    post_logout_redirect_uris:
+      - http://localhost:5173
+
+    # CORS — origins allowed to call AuthVital's OAuth endpoints
+    allowed_web_origins:
+      - http://localhost:5173
+
+    # Token lifetimes (optional, in seconds)
+    # access_token_ttl: 3600                   # 1 hour (default)
+    # refresh_token_ttl: 604800                # 7 days (default)
+
+    # Application-level roles
+    # These are YOUR app's roles (e.g., "editor", "viewer"), not AuthVital's
+    # tenant roles (owner/admin/member). They appear in the JWT's app_roles claim.
+    roles:
+      - name: Admin
+        slug: admin
+        description: "Full application access"
+      - name: Editor
+        slug: editor
+        description: "Can create and edit content"
+        is_default: true                       # Auto-assigned to new members
+      - name: Viewer
+        slug: viewer
+        description: "Read-only access"
+
+  # ── Example: second app on a different port ──────────────────────────────
+  # - name: "Marketing Site"
+  #   slug: marketing-site
+  #   type: SPA
+  #   redirect_uris:
+  #     - http://localhost:3000/callback
+  #   post_logout_redirect_uris:
+  #     - http://localhost:3000
+  #   allowed_web_origins:
+  #     - http://localhost:3000
+  #   roles:
+  #     - name: Publisher
+  #       slug: publisher
+  #       description: "Can publish content"
+  #       is_default: true
+
+  # ── Example: machine-to-machine client (backend service) ─────────────────
+  - name: "Backend API Worker"
+    slug: backend-api
+    type: MACHINE
+    # Fixed credentials for local development
+    client_id: local-machine-client-id
+    client_secret: local-machine-secret-key
+    # MACHINE apps don't use redirect URIs but an empty array is required
+    redirect_uris: []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tenants (Organizations)
+# ─────────────────────────────────────────────────────────────────────────────
+# Tenants represent organizations/companies in a multi-tenant setup.
+# Users become members of tenants via memberships (defined in the users section).
+#
+tenants:
+  - name: Acme Corp
+    slug: acme
+
+  - name: Globex Inc
+    slug: globex
+
+  # - name: Initech
+  #   slug: initech
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Users
+# ─────────────────────────────────────────────────────────────────────────────
+# Test users with passwords (bcrypt-hashed at seed time).
+#
+# Each user can have memberships in one or more tenants, with:
+#   - tenant_role: System-level role (owner | admin | member)
+#   - app_roles:   App-specific roles (keyed by application slug)
+#
+users:
+  # ── Alice: Owner of Acme, viewer at Globex ───────────────────────────────
+  - email: alice@acme.com
+    password: password123
+    given_name: Alice
+    family_name: Smith
+    memberships:
+      - tenant: acme                           # ← matches tenant slug above
+        tenant_role: owner                     # owner | admin | member
+        app_roles:
+          my-local-app: [admin]                # ← app slug: [role slugs]
+      - tenant: globex
+        tenant_role: member
+        app_roles:
+          my-local-app: [viewer]
+
+  # ── Bob: Admin at Acme ───────────────────────────────────────────────────
+  - email: bob@acme.com
+    password: password123
+    given_name: Bob
+    family_name: Jones
+    memberships:
+      - tenant: acme
+        tenant_role: admin
+        app_roles:
+          my-local-app: [editor]
+
+  # ── Charlie: Owner of Globex ─────────────────────────────────────────────
+  - email: charlie@globex.com
+    password: password123
+    given_name: Charlie
+    family_name: Brown
+    memberships:
+      - tenant: globex
+        tenant_role: owner
+        app_roles:
+          my-local-app: [admin, editor]
+
+  # ── Minimal user (no memberships yet) ────────────────────────────────────
+  # - email: dana@example.com
+  #   password: password123
+  #   given_name: Dana
+  #   family_name: Lee
