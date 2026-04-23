@@ -51,7 +51,7 @@
   },
   "dependencies": {
     "@authvital/core": "^1.0.0",
-    "@authvital/shared": "^1.0.0"
+    "@authvital/shared": "*"
   },
   "devDependencies": {
     "@types/cookie": "^0.6.0",

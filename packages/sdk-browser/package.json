@@ -36,7 +36,7 @@
   },
   "dependencies": {
     "@authvital/core": "^1.0.0",
-    "@authvital/shared": "^1.0.0",
+    "@authvital/shared": "*",
     "axios": "^1.6.0"
   },
   "devDependencies": {
