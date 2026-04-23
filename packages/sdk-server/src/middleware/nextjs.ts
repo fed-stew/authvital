@@ -139,9 +139,17 @@ export function createAuthMiddleware(config: EdgeMiddlewareConfig) {
       return NextResponse.redirect(loginUrl);
     }
 
+    // TypeScript type narrowing - sessionCookie is defined after early returns
+    if (!sessionCookie) {
+      return NextResponse.next();
+    }
+
+    // Narrow the type - sessionCookie is guaranteed to be defined here
+    const cookie = sessionCookie;
+
     // Validate session
     try {
-      const tokens = parseSessionCookie(sessionCookie.value, config.secret);
+      const tokens = parseSessionCookie(cookie.value, config.secret);
       const now = Math.floor(Date.now() / 1000);
       const needsRefresh = tokens.expiresAt <= now + 300; // 5 min buffer
 
@@ -163,7 +171,7 @@ export function createAuthMiddleware(config: EdgeMiddlewareConfig) {
 
           // Update cookie
           const newCookieValue = rotateSessionCookie(
-            sessionCookie.value,
+            cookie.value,
             refreshResult,
             config.secret
           );
