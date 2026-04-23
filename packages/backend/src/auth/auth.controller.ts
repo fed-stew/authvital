@@ -5,13 +5,16 @@ import {
   Body,
   Query,
   UseGuards,
-  Request,
+  Req,
   Res,
   HttpCode,
   HttpStatus,
   BadRequestException,
+  UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { ConfigService } from '@nestjs/config';
+import { Response, Request as ExpressRequest } from 'express';
 import { AuthService } from './auth.service';
 import { MfaService } from './mfa/mfa.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -20,12 +23,14 @@ import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { OptionalAuthGuard } from './guards/optional-auth.guard';
 import { AuthenticatedRequest } from './interfaces/auth.interface';
-import { getBaseCookieOptions, getSessionCookieOptions } from '../common/utils/cookie.utils';
+import { getBaseCookieOptions, getRefreshTokenCookieOptions } from '../common/utils/cookie.utils';
+import { OAuthSessionService } from '../oauth/oauth-session.service';
+import { KeyService } from '../oauth/key.service';
 import * as crypto from 'crypto';
 import { redirectTokens } from './redirect-tokens';
 
-const getIdpCookieOptions = getSessionCookieOptions;
 const getClearCookieOptions = getBaseCookieOptions;
+const getRefreshCookieOptions = getRefreshTokenCookieOptions;
 
 /**
  * Auth Controller
@@ -34,11 +39,239 @@ const getClearCookieOptions = getBaseCookieOptions;
  */
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+  private readonly issuer: string;
+
   constructor(
     private readonly authService: AuthService,
     private readonly prisma: PrismaService,
     private readonly mfaService: MfaService,
-  ) {}
+    private readonly oauthSessionService: OAuthSessionService,
+    private readonly keyService: KeyService,
+    private readonly configService: ConfigService,
+  ) {
+    this.issuer = this.configService.getOrThrow<string>('BASE_URL');
+  }
+
+  /**
+   * Refresh Token Endpoint
+   *
+   * Implements Token Ghosting refresh flow:
+   * 1. Read refresh_token from httpOnly cookie
+   * 2. Validate JWT signature using OAuthSessionService
+   * 3. Verify session exists and is not revoked/expired
+   * 4. Revoke old session (Token Ghosting rotation)
+   * 5. Generate new access token and refresh token
+   * 6. Set new refresh_token cookie (httpOnly, secure, sameSite)
+   * 7. Return { access_token, expires_in } in JSON body
+   */
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refreshToken(
+    @Req() req: ExpressRequest,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ access_token: string; expires_in: number; token_type: string }> {
+    // 1. Read refresh_token from httpOnly cookie
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const refreshToken = (req as any).cookies?.['refresh_token'];
+
+    if (!refreshToken) {
+      this.logger.debug('[Refresh] No refresh_token cookie found');
+      throw new UnauthorizedException('No refresh token provided');
+    }
+
+    let jwtPayload: {
+      sid: string;
+      sub: string;
+      aud: string;
+      scope: string;
+      tenantId?: string;
+      tenantSubdomain?: string;
+    };
+
+    // 2. Validate JWT using OAuthSessionService (verifyRefreshTokenJwt)
+    try {
+      jwtPayload = await this.oauthSessionService.verifyRefreshTokenJwt(refreshToken);
+      this.logger.debug(`[Refresh] Verified refresh JWT, session ID: ${jwtPayload.sid}`);
+    } catch (error) {
+      this.logger.debug(`[Refresh] JWT verification failed: ${error}`);
+      // Clear the invalid refresh_token cookie
+      res.clearCookie('refresh_token', getClearCookieOptions());
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    // 3. Lookup session in database and verify validity
+    const session = await this.prisma.refreshToken.findUnique({
+      where: { id: jwtPayload.sid },
+      include: {
+        user: {
+          include: {
+            memberships: {
+              where: { status: 'ACTIVE' },
+              include: { tenant: true },
+            },
+          },
+        },
+        application: true,
+      },
+    });
+
+    if (!session) {
+      this.logger.debug(`[Refresh] Session ${jwtPayload.sid} not found in database`);
+      res.clearCookie('refresh_token', getClearCookieOptions());
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    // Check if session is revoked or expired (Token Ghosting "ghost check")
+    if (session.revoked || session.revokedAt) {
+      this.logger.warn(`[Token Ghosting] Session ${session.id} has been revoked`);
+      res.clearCookie('refresh_token', getClearCookieOptions());
+      throw new UnauthorizedException('Session has been revoked');
+    }
+
+    if (session.expiresAt < new Date()) {
+      this.logger.debug(`[Refresh] Session ${session.id} has expired`);
+      res.clearCookie('refresh_token', getClearCookieOptions());
+      throw new UnauthorizedException('Session expired');
+    }
+
+    if (!session.application.isActive) {
+      this.logger.warn(`[Refresh] Application ${session.application.clientId} is disabled`);
+      res.clearCookie('refresh_token', getClearCookieOptions());
+      throw new UnauthorizedException('Application is disabled');
+    }
+
+    // 4. Revoke old refresh token (Token Ghosting rotation)
+    await this.prisma.refreshToken.update({
+      where: { id: session.id },
+      data: {
+        revoked: true,
+        revokedAt: new Date(),
+      },
+    });
+    this.logger.debug(`[Token Ghosting] Revoked old session ${session.id}`);
+
+    // 5. Create new refresh token session
+    const newSession = await this.prisma.refreshToken.create({
+      data: {
+        scope: session.scope,
+        expiresAt: new Date(Date.now() + session.application.refreshTokenTtl * 1000),
+        userId: session.userId,
+        applicationId: session.applicationId,
+        revoked: false,
+        tenantId: session.tenantId,
+        tenantSubdomain: session.tenantSubdomain,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        userAgent: (req as any).headers?.['user-agent'] || null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ipAddress: (req as any).ip || null,
+      },
+    });
+
+    // Generate new refresh token JWT with new session ID
+    const newRefreshToken = await this.oauthSessionService.generateRefreshTokenJwt({
+      sid: newSession.id,
+      sub: session.user.id,
+      aud: session.application.clientId,
+      scope: session.scope || 'openid profile email',
+      tenantId: session.tenantId || undefined,
+      tenantSubdomain: session.tenantSubdomain || undefined,
+      expiresIn: session.application.refreshTokenTtl,
+    });
+
+    // 6. Generate new access token using KeyService
+    const scopes = (session.scope || 'openid profile email').split(' ');
+
+    // Build access token payload
+    const accessTokenPayload: Record<string, unknown> = {
+      scope: session.scope || 'openid profile email',
+    };
+
+    // Include tenant scope if present
+    if (session.tenantId) {
+      accessTokenPayload.tenant_id = session.tenantId;
+    }
+    if (session.tenantSubdomain) {
+      accessTokenPayload.tenant_subdomain = session.tenantSubdomain;
+    }
+
+    // Add user claims based on scopes
+    if (scopes.includes('email')) {
+      accessTokenPayload.email = session.user.email;
+    }
+    if (scopes.includes('profile')) {
+      accessTokenPayload.given_name = session.user.givenName;
+      accessTokenPayload.family_name = session.user.familyName;
+    }
+
+    // Add roles/permissions if tenant-scoped
+    if (session.tenantId) {
+      const membership = session.user.memberships.find(
+        (m) => m.tenant.id === session.tenantId,
+      );
+      if (membership) {
+        // Fetch roles for this membership
+        const membershipWithRoles = await this.prisma.membership.findFirst({
+          where: {
+            userId: session.userId,
+            tenantId: session.tenantId,
+            status: 'ACTIVE',
+          },
+          include: {
+            membershipTenantRoles: {
+              include: {
+                tenantRole: {
+                  select: { slug: true, permissions: true },
+                },
+              },
+            },
+            membershipRoles: {
+              where: { role: { applicationId: session.applicationId } },
+              include: { role: { select: { slug: true } } },
+            },
+          },
+        });
+
+        if (membershipWithRoles) {
+          const tenantRoles = membershipWithRoles.membershipTenantRoles.map(
+            (mtr) => mtr.tenantRole.slug,
+          );
+          const tenantPermissions = membershipWithRoles.membershipTenantRoles.flatMap(
+            (mtr) => mtr.tenantRole.permissions,
+          );
+          const appRoles = membershipWithRoles.membershipRoles.map((mr) => mr.role.slug);
+
+          if (tenantRoles.length > 0) {
+            accessTokenPayload.tenant_roles = tenantRoles;
+            accessTokenPayload.tenant_permissions = [...new Set(tenantPermissions)];
+          }
+          if (appRoles.length > 0) {
+            accessTokenPayload.app_roles = appRoles;
+          }
+        }
+      }
+    }
+
+    // Sign the access token
+    const accessToken = await this.keyService.signJwt(accessTokenPayload, {
+      subject: session.user.id,
+      audience: session.application.clientId,
+      issuer: this.issuer,
+      expiresIn: session.application.accessTokenTtl,
+    });
+
+    // 7. Set new refresh_token cookie (httpOnly, secure, sameSite)
+    res.cookie('refresh_token', newRefreshToken, getRefreshCookieOptions());
+
+    this.logger.debug(`[Refresh] Token rotation complete for user ${session.user.id}, session ${newSession.id}`);
+
+    // 8. Return access token in JSON body (NO access token cookie!)
+    return {
+      access_token: accessToken,
+      expires_in: session.application.accessTokenTtl,
+      token_type: 'Bearer',
+    };
+  }
 
   @Post('register')
   async register(@Body() dto: RegisterDto) {
@@ -66,11 +299,16 @@ export class AuthController {
       throw new BadRequestException('Login failed - no access token generated');
     }
 
-    res.cookie('auth_token', result.accessToken, getIdpCookieOptions());
-    res.cookie('idp_session', result.accessToken, getIdpCookieOptions());
+    // Set refresh token as httpOnly cookie if available
+    // Note: refreshToken will be returned by auth service in split-token architecture
+    const loginResult = result as typeof result & { refreshToken?: string };
+    if (loginResult.refreshToken) {
+      res.cookie('refresh_token', loginResult.refreshToken, getRefreshTokenCookieOptions());
+    }
 
     console.log(`[Login] Success for ${dto.email}`);
 
+    // Handle redirect flows - no access token cookies, just redirect
     if (dto.redirectUri) {
       if (!dto.redirectUri.startsWith('/') || dto.redirectUri.startsWith('//')) {
         throw new BadRequestException('Invalid redirect URI');
@@ -134,11 +372,18 @@ export class AuthController {
   ) {
     const result = await this.authService.verifyMfaAndCompleteLogin(body.challengeToken, body.code);
 
-    res.cookie('auth_token', result.accessToken, getIdpCookieOptions());
-    res.cookie('idp_session', result.accessToken, getIdpCookieOptions());
+    // Set refresh token as httpOnly cookie if available
+    // Note: refreshToken will be returned by auth service in split-token architecture
+    const mfaResult = result as typeof result & { refreshToken?: string };
+    if (mfaResult.refreshToken) {
+      res.cookie('refresh_token', mfaResult.refreshToken, getRefreshTokenCookieOptions());
+    }
 
-    let redirectUrl = '/auth/app-picker';
+    // Calculate expires_in (7 days in seconds - matches JWT expiry)
+    const expiresIn = 7 * 24 * 60 * 60;
 
+    // Handle redirect flow
+    let redirectUrl: string | null = null;
     if (body.redirectUri && body.redirectUri.startsWith('/') && !body.redirectUri.startsWith('//')) {
       redirectUrl = body.redirectUri;
     } else if (body.clientId) {
@@ -154,12 +399,24 @@ export class AuthController {
       }
     }
 
-    return { success: true, redirectUrl, user: result.user };
+    // If redirect URL is set, redirect without returning JSON
+    if (redirectUrl) {
+      return res.redirect(302, redirectUrl);
+    }
+
+    // Return JSON response with access token in body
+    return {
+      success: true,
+      access_token: result.accessToken,
+      expires_in: expiresIn,
+      user: result.user,
+      memberships: result.memberships,
+    };
   }
 
   @Get('me')
   @UseGuards(OptionalAuthGuard)
-  async getMe(@Request() req: AuthenticatedRequest) {
+  async getMe(@Req() req: AuthenticatedRequest) {
     if (!req.user) return { authenticated: false };
 
     const user = await this.prisma.user.findUnique({
@@ -190,7 +447,7 @@ export class AuthController {
 
   @Get('apps')
   @UseGuards(OptionalAuthGuard)
-  async getApps(@Request() req: AuthenticatedRequest) {
+  async getApps(@Req() req: AuthenticatedRequest) {
     if (!req.user) return { authenticated: false, applications: [] };
 
     const applications = await this.prisma.application.findMany({
@@ -216,7 +473,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(OptionalAuthGuard)
   async logout(
-    @Request() req: AuthenticatedRequest,
+    @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
     @Body('redirect_uri') redirectUri?: string,
   ) {
@@ -228,6 +485,7 @@ export class AuthController {
     const clearOpts = getClearCookieOptions();
     res.clearCookie('idp_session', clearOpts);
     res.clearCookie('auth_token', clearOpts);
+    res.clearCookie('refresh_token', clearOpts);
 
     return {
       success: true,
@@ -241,6 +499,7 @@ export class AuthController {
     const clearOpts = getClearCookieOptions();
     res.clearCookie('idp_session', clearOpts);
     res.clearCookie('auth_token', clearOpts);
+    res.clearCookie('refresh_token', clearOpts);
 
     if (postLogoutRedirectUri) {
       try {
@@ -276,7 +535,7 @@ export class AuthController {
   @Post('redirect-token')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
-  async generateRedirectToken(@Request() req: AuthenticatedRequest) {
+  async generateRedirectToken(@Req() req: AuthenticatedRequest) {
     const token = crypto.randomBytes(32).toString('hex');
     const user = await this.prisma.user.findUnique({
       where: { id: req.user.id },
@@ -319,21 +578,41 @@ export class AuthController {
 
     if (!user) return { success: false, error: 'User not found' };
 
-    const jwt = await this.authService.generateJwt(user.id, user.email || '');
-    const isSecure = process.env.NODE_ENV === 'production';
-    res.cookie('auth_token', jwt, {
-      httpOnly: true,
-      secure: isSecure,
-      sameSite: 'lax',
-      maxAge: 24 * 60 * 60 * 1000,
-      path: '/',
+    // Generate access token
+    const accessToken = await this.authService.generateJwt(user.id, user.email || '');
+
+    // Create refresh token session (Token Ghosting)
+    const refreshTokenRecord = await this.prisma.refreshToken.create({
+      data: {
+        scope: 'openid profile email',
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+        userId: user.id,
+        applicationId: 'internal', // internal app for auth flows
+        revoked: false,
+      },
     });
+
+    // Generate signed refresh JWT with session ID
+    const refreshToken = await this.oauthSessionService.generateRefreshTokenJwt({
+      sid: refreshTokenRecord.id,
+      sub: user.id,
+      aud: 'internal',
+      scope: 'openid profile email',
+      expiresIn: 30 * 24 * 60 * 60, // 30 days
+    });
+
+    // Set refresh token as httpOnly cookie
+    res.cookie('refresh_token', refreshToken, getRefreshTokenCookieOptions());
 
     console.log(`[Auth] Session established for user ${user.email} via exchange-token`);
 
+    // Calculate expires_in (7 days in seconds - matches JWT expiry)
+    const expiresIn = 7 * 24 * 60 * 60;
+
     return {
       success: true,
-      accessToken: jwt,
+      access_token: accessToken,
+      expires_in: expiresIn,
       user: {
         id: user.id,
         email: user.email,
@@ -347,7 +626,7 @@ export class AuthController {
 
   @Get('profile')
   @UseGuards(JwtAuthGuard)
-  async getProfile(@Request() req: AuthenticatedRequest) {
+  async getProfile(@Req() req: AuthenticatedRequest) {
     return this.authService.getProfile(req.user.id);
   }
 }

@@ -1,7 +1,7 @@
 import {
   Controller,
   UseGuards,
-  Request,
+  Req,
   Res,
   Logger,
   BadRequestException,
@@ -128,7 +128,7 @@ export class SuperAdminAuthController {
 
   @TsRestHandler(c.getProfile)
   @UseGuards(SuperAdminGuard)
-  async getProfile(@Request() req: any) {
+  async getProfile(@Req() req: any) {
     return tsRestHandler(c.getProfile, async () => {
       const profile = await this.authService.getProfile(req.user.id);
       return { status: 200 as const, body: profile as any };
@@ -138,7 +138,7 @@ export class SuperAdminAuthController {
   @TsRestHandler(c.changePassword)
   @UseGuards(SuperAdminGuard)
   async changePassword(
-    @Request() req: any,
+    @Req() req: any,
     @Res({ passthrough: true }) res: Response,
   ) {
     return tsRestHandler(c.changePassword, async ({ body }) => {
@@ -176,7 +176,7 @@ export class SuperAdminAuthController {
 
   @TsRestHandler(c.deleteAdmin)
   @UseGuards(SuperAdminGuard)
-  async deleteAdmin(@Request() req: any) {
+  async deleteAdmin(@Req() req: any) {
     return tsRestHandler(c.deleteAdmin, async ({ params: { id } }) => {
       await this.authService.deleteSuperAdmin(id, req.user.id);
       return { status: 200 as const, body: { success: true as const } };
@@ -189,7 +189,7 @@ export class SuperAdminAuthController {
 
   @TsRestHandler(c.mfaSetup)
   @UseGuards(SuperAdminGuard)
-  async mfaSetup(@Request() req: any) {
+  async mfaSetup(@Req() req: any) {
     return tsRestHandler(c.mfaSetup, async () => {
       const admin = await this.authService.getProfile(req.user.id);
       const setup = await this.mfaService.generateSetup(admin.email);
@@ -199,7 +199,7 @@ export class SuperAdminAuthController {
 
   @TsRestHandler(c.mfaEnable)
   @UseGuards(SuperAdminGuard)
-  async mfaEnable(@Request() req: any) {
+  async mfaEnable(@Req() req: any) {
     return tsRestHandler(c.mfaEnable, async ({ body }) => {
       await this.mfaService.enableMfaForSuperAdmin(
         req.user.id,
@@ -213,7 +213,7 @@ export class SuperAdminAuthController {
 
   @TsRestHandler(c.mfaDisable)
   @UseGuards(SuperAdminGuard)
-  async mfaDisable(@Request() req: any) {
+  async mfaDisable(@Req() req: any) {
     return tsRestHandler(c.mfaDisable, async ({ body }) => {
       await this.mfaService.disableMfaForSuperAdmin(req.user.id, body.code);
       return { status: 200 as const, body: { success: true as const } };
@@ -222,7 +222,7 @@ export class SuperAdminAuthController {
 
   @TsRestHandler(c.mfaStatus)
   @UseGuards(SuperAdminGuard)
-  async mfaStatus(@Request() req: any) {
+  async mfaStatus(@Req() req: any) {
     return tsRestHandler(c.mfaStatus, async () => {
       const status = await this.mfaService.getSuperAdminMfaStatus(req.user.id);
       return { status: 200 as const, body: status as any };
@@ -240,7 +240,7 @@ export class SuperAdminAuthController {
 
   @TsRestHandler(c.updateMfaPolicy)
   @UseGuards(SuperAdminGuard)
-  async updateMfaPolicy(@Request() req: any) {
+  async updateMfaPolicy(@Req() req: any) {
     return tsRestHandler(c.updateMfaPolicy, async ({ body }) => {
       if (body.required) {
         const adminMfaStatus = await this.mfaService.getSuperAdminMfaStatus(req.user.id);

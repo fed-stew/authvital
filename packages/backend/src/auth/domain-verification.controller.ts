@@ -5,7 +5,7 @@ import {
   Body,
   Param,
   UseGuards,
-  Request,
+  Req,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -27,7 +27,7 @@ export class DomainVerificationController {
   @Post('verify/initiate')
   @HttpCode(HttpStatus.OK)
   async initiateDomainVerification(
-    @Request() req: AuthenticatedRequest,
+    @Req() req: AuthenticatedRequest,
     @Body() dto: { tenantId: string; domainName: string },
   ) {
     return this.domainVerificationService.initiateDomainVerification(
@@ -43,7 +43,7 @@ export class DomainVerificationController {
   @Post(':domainId/verify')
   @HttpCode(HttpStatus.OK)
   async verifyDomain(
-    @Request() req: AuthenticatedRequest,
+    @Req() req: AuthenticatedRequest,
     @Param('domainId') domainId: string,
   ) {
     return this.domainVerificationService.verifyDomain(domainId, req.user.id);
@@ -54,7 +54,7 @@ export class DomainVerificationController {
    */
   @Get(':domainId/migratable-users')
   async findMigratableUsers(
-    @Request() req: AuthenticatedRequest,
+    @Req() req: AuthenticatedRequest,
     @Param('domainId') domainId: string,
   ) {
     return this.domainVerificationService.findMigratableUsers(
@@ -69,7 +69,7 @@ export class DomainVerificationController {
   @Post(':domainId/migrate-users')
   @HttpCode(HttpStatus.OK)
   async migrateUsers(
-    @Request() req: AuthenticatedRequest,
+    @Req() req: AuthenticatedRequest,
     @Param('domainId') domainId: string,
     @Body()
     dto: {

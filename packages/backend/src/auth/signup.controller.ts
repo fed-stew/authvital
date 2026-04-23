@@ -5,7 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   UseGuards,
-  Request,
+  Req,
 } from "@nestjs/common";
 import {
   SignUpService,
@@ -79,7 +79,7 @@ export class SignUpController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async upgradeAccount(
-    @Request() req: AuthenticatedRequest,
+    @Req() req: AuthenticatedRequest,
     @Body() dto: Omit<UpgradeAccountDto, "userId">,
   ) {
     const result = await this.signUpService.upgradeAnonymousAccount({

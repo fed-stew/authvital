@@ -114,8 +114,9 @@ async function bootstrap() {
       { path: '/.well-known/openid-configuration', method: RequestMethod.GET },
       { path: '/.well-known/jwks.json', method: RequestMethod.GET },
       // OAuth endpoints at /oauth/* (not /api/oauth/*)
-      { path: '/oauth/(.*)', method: RequestMethod.GET },
-      { path: '/oauth/(.*)', method: RequestMethod.POST },
+      // Using path-to-regexp v8+ syntax (named wildcards)
+      { path: '/oauth/{*path}', method: RequestMethod.GET },
+      { path: '/oauth/{*path}', method: RequestMethod.POST },
     ],
   });
 

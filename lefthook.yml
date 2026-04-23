@@ -11,18 +11,21 @@ pre-push:
       
     - name: build shared
       run: npm run build -w @authvital/shared
+
+    - name: build sdk-core
+      run: npm run build -w @authvital/core
+
+    - name: build sdk-browser
+      run: npm run build -w @authvital/browser
+
+    - name: build sdk-server
+      run: npm run build -w @authvital/server
       
     - name: build backend
       run: DATABASE_URL=postgresql://build:build@localhost:5432/build npm run prisma:generate -w @authvital/backend && npm run build -w @authvital/backend
       
     - name: build frontend
       run: npm run build -w @authvital/frontend
-      
-    - name: build sdk-node
-      run: npm run build -w @authvital/node
-      
-    - name: build sdk-react
-      run: npm run build -w @authvital/react
 
 pre-commit:
   parallel: true

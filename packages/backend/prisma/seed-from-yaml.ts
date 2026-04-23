@@ -97,6 +97,7 @@ export interface SeedMembership {
 }
 
 export interface SeedUser {
+  id?: string;  // Optional explicit ID (sub/UUID)
   email: string;
   password: string;
   given_name?: string;
@@ -654,6 +655,7 @@ export async function seedUsers(
         emailVerified: true,
       },
       create: {
+        ...(userConfig.id && { id: userConfig.id }),  // Use explicit ID if provided
         email,
         passwordHash,
         givenName: userConfig.given_name,
@@ -668,7 +670,8 @@ export async function seedUsers(
       .filter(Boolean)
       .join(' ') || email;
 
-    log('👤', `${displayName} <${email}> — password: ${userConfig.password}`);
+    const idDisplay = userConfig.id ? ` [id: ${user.id.substring(0, 8)}...]` : '';
+    log('👤', `${displayName} <${email}>${idDisplay} — password: ${userConfig.password}`);
 
     // Process memberships
     if (userConfig.memberships?.length) {

@@ -7,7 +7,7 @@ import {
   Body,
   Param,
   UseGuards,
-  Request,
+  Req,
 } from '@nestjs/common';
 import { ApiKeyService } from './api-key.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -30,7 +30,7 @@ export class ApiKeyController {
    */
   @Post()
   async createApiKey(
-    @Request() req: AuthenticatedRequest,
+    @Req() req: AuthenticatedRequest,
     @Body()
     body: {
       name: string;
@@ -60,7 +60,7 @@ export class ApiKeyController {
    * List all API keys for the authenticated user
    */
   @Get()
-  async listApiKeys(@Request() req: AuthenticatedRequest) {
+  async listApiKeys(@Req() req: AuthenticatedRequest) {
     return this.apiKeyService.listUserApiKeys(req.user.sub);
   }
 
@@ -69,7 +69,7 @@ export class ApiKeyController {
    */
   @Put(':keyId')
   async updateApiKey(
-    @Request() req: AuthenticatedRequest,
+    @Req() req: AuthenticatedRequest,
     @Param('keyId') keyId: string,
     @Body()
     body: {
@@ -86,7 +86,7 @@ export class ApiKeyController {
    */
   @Delete(':keyId')
   async revokeApiKey(
-    @Request() req: AuthenticatedRequest,
+    @Req() req: AuthenticatedRequest,
     @Param('keyId') keyId: string,
   ) {
     await this.apiKeyService.revokeApiKey(keyId, req.user.sub);

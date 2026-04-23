@@ -5,7 +5,7 @@ import {
   Delete,
   Body,
   UseGuards,
-  Request,
+  Req,
   HttpCode,
   HttpStatus,
   BadRequestException,
@@ -29,7 +29,7 @@ export class MfaController {
    * Get current MFA status for the authenticated user
    */
   @Get('status')
-  async getStatus(@Request() req: AuthenticatedRequest) {
+  async getStatus(@Req() req: AuthenticatedRequest) {
     return this.mfaService.getUserMfaStatus(req.user.id);
   }
 
@@ -38,7 +38,7 @@ export class MfaController {
    * Returns the secret and backup codes (only shown once!)
    */
   @Post('setup')
-  async setup(@Request() req: AuthenticatedRequest) {
+  async setup(@Req() req: AuthenticatedRequest) {
     // Get user email for QR code
     const user = await this.mfaService['prisma'].user.findUnique({
       where: { id: req.user.id },
@@ -59,7 +59,7 @@ export class MfaController {
   @Post('enable')
   @HttpCode(HttpStatus.OK)
   async enable(
-    @Request() req: AuthenticatedRequest,
+    @Req() req: AuthenticatedRequest,
     @Body() body: { secret: string; code: string; backupCodes: string[] },
   ) {
     const { secret, code, backupCodes } = body;
@@ -77,7 +77,7 @@ export class MfaController {
   @Delete('disable')
   @HttpCode(HttpStatus.OK)
   async disable(
-    @Request() req: AuthenticatedRequest,
+    @Req() req: AuthenticatedRequest,
     @Body() body: { code: string },
   ) {
     if (!body.code) {
@@ -94,7 +94,7 @@ export class MfaController {
   @Post('backup-codes')
   @HttpCode(HttpStatus.OK)
   async regenerateBackupCodes(
-    @Request() req: AuthenticatedRequest,
+    @Req() req: AuthenticatedRequest,
     @Body() body: { code: string },
   ) {
     if (!body.code) {
@@ -111,7 +111,7 @@ export class MfaController {
   @Post('verify')
   @HttpCode(HttpStatus.OK)
   async verify(
-    @Request() req: AuthenticatedRequest,
+    @Req() req: AuthenticatedRequest,
     @Body() body: { code: string },
   ) {
     if (!body.code) {

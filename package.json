@@ -6,15 +6,21 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build:contracts && npm run build:shared && npm run build:backend && npm run build -w @authvital/frontend && npm run build -w @authvital/node && npm run build -w @authvital/react",
+    "build": "npm run build:contracts && npm run build:shared && npm run build:sdk-core && npm run build:sdk-browser && npm run build:sdk-server && npm run build:backend && npm run build -w @authvital/frontend",
     "build:contracts": "npm run build -w @authvital/contracts",
     "build:shared": "npm run build -w @authvital/shared",
+    "build:sdk-core": "npm run build -w @authvital/core",
+    "build:sdk-browser": "npm run build -w @authvital/browser",
+    "build:sdk-server": "npm run build -w @authvital/server",
     "build:backend": "DATABASE_URL=postgresql://build:build@localhost:5432/build npm run prisma:generate -w @authvital/backend && npm run build -w @authvital/backend",
     "dev:backend": "npm run start:dev -w @authvital/backend",
     "dev:frontend": "npm run dev -w @authvital/frontend",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "clean": "rm -rf packages/*/dist packages/*/node_modules node_modules"
+    "clean": "rm -rf packages/*/dist packages/*/node_modules node_modules",
+    "clean:sdk-core": "rm -rf packages/sdk-core/dist",
+    "clean:sdk-browser": "rm -rf packages/sdk-browser/dist",
+    "clean:sdk-server": "rm -rf packages/sdk-server/dist"
   },
   "engines": {
     "node": ">=18.0.0"

@@ -48,10 +48,10 @@ jobs:
         run: npm test -w @authvital/backend -- --silent
 
   # ===========================================================================
-  # React SDK: Build & Typecheck
+  # SDK Core: Build & Typecheck
   # ===========================================================================
-  sdk-react-build:
-    name: React SDK Build
+  sdk-core-build:
+    name: SDK Core Build
     runs-on: ubuntu-latest
     
     steps:
@@ -72,17 +72,17 @@ jobs:
       - name: Build shared
         run: npm run build -w @authvital/shared
 
-      - name: Build React SDK
-        run: npm run build -w @authvital/react
+      - name: Build SDK Core
+        run: npm run build -w @authvital/core
 
       - name: Typecheck
-        run: npm run typecheck -w @authvital/react
+        run: npm run typecheck -w @authvital/core
 
   # ===========================================================================
-  # Node SDK: Build & Typecheck
+  # SDK Browser: Build & Typecheck
   # ===========================================================================
-  sdk-node-build:
-    name: Node SDK Build
+  sdk-browser-build:
+    name: SDK Browser Build
     runs-on: ubuntu-latest
     
     steps:
@@ -103,11 +103,48 @@ jobs:
       - name: Build shared
         run: npm run build -w @authvital/shared
 
-      - name: Build Node SDK
-        run: npm run build -w @authvital/node
+      - name: Build SDK Core
+        run: npm run build -w @authvital/core
+
+      - name: Build SDK Browser
+        run: npm run build -w @authvital/browser
 
       - name: Typecheck
-        run: npm run typecheck -w @authvital/node
+        run: npm run typecheck -w @authvital/browser
+
+  # ===========================================================================
+  # SDK Server: Build & Typecheck
+  # ===========================================================================
+  sdk-server-build:
+    name: SDK Server Build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build contracts
+        run: npm run build:contracts
+
+      - name: Build shared
+        run: npm run build -w @authvital/shared
+
+      - name: Build SDK Core
+        run: npm run build -w @authvital/core
+
+      - name: Build SDK Server
+        run: npm run build -w @authvital/server
+
+      - name: Typecheck
+        run: npm run typecheck -w @authvital/server
 
   # ===========================================================================
   # Frontend: Build

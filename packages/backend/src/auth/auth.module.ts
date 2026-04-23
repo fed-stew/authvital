@@ -5,6 +5,7 @@ import { InstanceModule } from '../instance/instance.module';
 import { AuthorizationModule } from '../authorization';
 import { LicensingModule } from '../licensing/licensing.module';
 import { KeyModule } from '../oauth/key.module';
+import { OAuthModule } from '../oauth/oauth.module';
 import { SyncModule } from '../sync';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
@@ -34,6 +35,7 @@ import { MfaModule } from './mfa';
     InstanceModule,
     AuthorizationModule,
     KeyModule,
+    OAuthModule,
     forwardRef(() => LicensingModule),
     forwardRef(() => SyncModule), // For emitting signup events
     MfaModule,

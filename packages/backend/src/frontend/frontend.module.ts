@@ -11,7 +11,8 @@ import { join } from 'path';
           ? '/app/public'
           : join(process.cwd(), 'public'),
       // Exclude routes handled by NestJS controllers
-      exclude: ['/api/(.*)', '/oauth/(.*)', '/.well-known/(.*)'],
+      // Using path-to-regexp v8+ syntax (named wildcards)
+      exclude: ['/api/{*path}', '/oauth/{*path}', '/.well-known/{*path}'],
       // Don't serve index.html for unmatched routes - let main.ts handle SPA routing
       // This prevents returning HTML for missing asset files (which causes MIME errors)
       serveStaticOptions: {

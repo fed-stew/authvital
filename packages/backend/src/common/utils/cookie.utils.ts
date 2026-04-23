@@ -38,6 +38,25 @@ export function isSecureCookie(): boolean {
 }
 
 /**
+ * Determines the SameSite cookie attribute based on environment variable.
+ *
+ * Uses COOKIE_SAMESITE env var if set (must be 'strict', 'lax', or 'none').
+ * Defaults to 'strict' for maximum security.
+ *
+ * @example
+ * // .env for development:
+ * // COOKIE_SAMESITE=lax
+ */
+export function getCookieSameSite(): 'strict' | 'lax' | 'none' {
+  const sameSite = process.env.COOKIE_SAMESITE;
+  if (sameSite === 'strict' || sameSite === 'lax' || sameSite === 'none') {
+    return sameSite;
+  }
+  // Default to 'strict' for maximum security
+  return 'strict';
+}
+
+/**
  * Base cookie options for all AuthVital cookies.
  *
  * By NOT setting a domain, the browser creates a "HostOnly" cookie
@@ -69,5 +88,54 @@ export function getAuthFlowCookieOptions(): CookieOptions {
   return {
     ...getBaseCookieOptions(),
     maxAge: 10 * 60 * 1000, // 10 minutes
+  };
+}
+
+/**
+ * Cookie options for refresh token cookies in split-token architecture.
+ *
+ * Configuration:
+ * - httpOnly: true (always) - prevents JavaScript access
+ * - secure: determined by isSecureCookie() helper
+ * - sameSite: 'strict' by default (configurable via COOKIE_SAMESITE env var)
+ * - path: '/' - available on entire site
+ * - maxAge: 30 days (configurable via REFRESH_TOKEN_MAX_AGE_DAYS env var)
+ *
+ * @example
+ * // .env for production (default settings):
+ * // Uses strict SameSite, secure=true, 30-day expiry
+ *
+ * // .env for local development:
+ * // COOKIE_SAMESITE=lax
+ * // REFRESH_TOKEN_MAX_AGE_DAYS=7
+ */
+export function getRefreshTokenCookieOptions(): CookieOptions {
+  const maxAgeDays = parseInt(process.env.REFRESH_TOKEN_MAX_AGE_DAYS || '30', 10);
+  const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+
+  return {
+    httpOnly: true,
+    secure: isSecureCookie(),
+    sameSite: getCookieSameSite(),
+    path: '/',
+    maxAge: maxAgeMs,
+  };
+}
+
+/**
+ * @deprecated Access tokens should no longer be set as cookies in the split-token
+ * architecture. Access tokens should be returned in the response body and stored
+ * in memory by the client. This function is kept for backward compatibility only
+ * and will be removed in a future version.
+ *
+ * Use `getRefreshTokenCookieOptions()` for the refresh token cookie instead.
+ */
+export function getAccessTokenCookieOptions(): CookieOptions {
+  return {
+    httpOnly: true,
+    secure: isSecureCookie(),
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 15 * 60 * 1000, // 15 minutes
   };
 }

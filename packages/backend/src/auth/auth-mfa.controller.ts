@@ -5,7 +5,7 @@ import {
   Delete,
   Body,
   UseGuards,
-  Request,
+  Req,
   HttpCode,
   HttpStatus,
   BadRequestException,
@@ -31,7 +31,7 @@ export class AuthMfaController {
    */
   @Get('mfa/status')
   @UseGuards(JwtAuthGuard)
-  async getMfaStatus(@Request() req: AuthenticatedRequest) {
+  async getMfaStatus(@Req() req: AuthenticatedRequest) {
     return this.mfaService.getUserMfaStatus(req.user.id);
   }
 
@@ -40,7 +40,7 @@ export class AuthMfaController {
    */
   @Post('mfa/setup')
   @UseGuards(JwtAuthGuard)
-  async setupMfa(@Request() req: AuthenticatedRequest) {
+  async setupMfa(@Req() req: AuthenticatedRequest) {
     const user = await this.prisma.user.findUnique({
       where: { id: req.user.id },
       select: { email: true },
@@ -60,7 +60,7 @@ export class AuthMfaController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async enableMfa(
-    @Request() req: AuthenticatedRequest,
+    @Req() req: AuthenticatedRequest,
     @Body() body: { secret: string; code: string; backupCodes: string[] },
   ) {
     const { secret, code, backupCodes } = body;
@@ -79,7 +79,7 @@ export class AuthMfaController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async disableMfa(
-    @Request() req: AuthenticatedRequest,
+    @Req() req: AuthenticatedRequest,
     @Body() body: { code: string },
   ) {
     if (!body.code) {
@@ -96,7 +96,7 @@ export class AuthMfaController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async regenerateBackupCodes(
-    @Request() req: AuthenticatedRequest,
+    @Req() req: AuthenticatedRequest,
     @Body() body: { code: string },
   ) {
     if (!body.code) {

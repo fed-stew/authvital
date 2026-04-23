@@ -1,0 +1,78 @@
+{
+  "name": "@authvital/browser",
+  "version": "0.1.0",
+  "description": "AuthVital Browser SDK - SPA adapter with split-token architecture, in-memory storage, and silent refresh",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.mjs",
+      "require": "./dist/react/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint src --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": ">=17.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@authvital/core": "^1.0.0",
+    "@authvital/shared": "^1.0.0",
+    "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.2.0",
+    "@typescript-eslint/eslint-plugin": "^6.10.0",
+    "@typescript-eslint/parser": "^6.10.0",
+    "eslint": "^8.53.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "browser",
+    "spa",
+    "auth",
+    "oauth",
+    "authentication",
+    "authvital",
+    "identity",
+    "jwt",
+    "split-token",
+    "silent-refresh",
+    "axios",
+    "interceptor"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/intersparkio/authvital",
+    "directory": "packages/sdk-browser"
+  },
+  "homepage": "https://github.com/intersparkio/authvital#readme",
+  "bugs": {
+    "url": "https://github.com/intersparkio/authvital/issues"
+  }
+}

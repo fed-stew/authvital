@@ -7,6 +7,70 @@ import { AuthService } from '../auth.service';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { extractJwt } from '../utils/extract-jwt';
 
+/**
+ * JWT Authentication Guard - STRICTLY STATELESS.
+ *
+ * This guard enforces a strictly stateless authentication model by validating
+ * access tokens exclusively from the Authorization header. It embodies the
+ * split-token security architecture that separates access token transport
+ * from refresh token handling for maximum security.
+ *
+ * === STRICT AUTHORIZATION HEADER ENFORCEMENT ===
+ * Access tokens are ONLY accepted from the `Authorization: Bearer <token>` header.
+ * This guard will NEVER read tokens from cookies, request body, query parameters,
+ * or any other source. This is a deliberate architectural constraint that:
+ *
+ * 1. Prevents token leakage via XSS attacks (cookies can be stolen, headers cannot)
+ * 2. Enforces clear separation between access tokens (stateless) and refresh tokens
+ * 3. Ensures the guard remains completely stateless with no server-side session storage
+ *
+ * === NO COOKIE READING ===
+ * This guard explicitly does NOT access `req.cookies` in any form. Refresh tokens
+ * are handled separately by {@link CookieService} and {@link RefreshService}.
+ * The guard delegates all cookie-related operations to dedicated services,
+ * maintaining strict separation of concerns.
+ *
+ * === STATELESSNESS PRINCIPLE ===
+ * This guard is designed to be strictly stateless:
+ * - No server-side session storage is accessed or modified
+ * - Each request is validated independently
+ * - No authentication state persists between requests
+ * - Token validation is performed against cryptographic signatures only
+ *
+ * This statelessness enables:
+ * - Horizontal scalability (any server instance can validate any request)
+ * - Simplified deployment (no shared session store required)
+ * - Improved reliability (no session state to synchronize or expire)
+ * - Better performance (no database lookups for session validation)
+ *
+ * === SECURITY ARCHITECTURE ===
+ * - **XSS Protection**: Refresh tokens in HttpOnly cookies are immune to JavaScript
+ *   theft, while access tokens (short-lived, in-memory) minimize exposure window
+ * - **Separation of concerns**: Access tokens (stateless, 15-min lifespan) and refresh
+ *   tokens (stateful, rotating, long-lived) follow completely different validation paths
+ * - **Reduced attack surface**: Even if XSS compromises the frontend, refresh tokens
+ *   cannot be exfiltrated, and access tokens expire quickly
+ * - **Clear token lifecycle**: Each token type has dedicated acquisition, validation,
+ *   and renewal flows, making the system auditable and maintainable
+ *
+ * @see {@link extractJwt} - Header-only token extraction utility
+ * @see {@link CookieService} - Refresh token cookie operations (completely separate)
+ * @see {@link RefreshService} - Refresh token validation and rotation
+ *
+ * @example
+ * // Apply to entire controller (all routes protected)
+ * @UseGuards(JwtAuthGuard)
+ * @Controller('api/protected')
+ * export class ProtectedController {}
+ *
+ * @example
+ * // Apply to single route
+ * @UseGuards(JwtAuthGuard)
+ * @Get('profile')
+ * getProfile(@Req() req: RequestWithUser) {
+ *   return req.user;
+ * }
+ */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   private readonly issuer: string;
@@ -32,10 +96,11 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<Request>();
+    // Split-token: Only accepts Authorization header (no cookies)
     const token = extractJwt(request);
 
     if (!token) {
-      throw new UnauthorizedException('No token provided');
+      throw new UnauthorizedException('No Authorization header provided');
     }
 
     try {

@@ -16,12 +16,22 @@ import { Response, Request } from 'express';
 import { OAuthService } from './oauth.service';
 import { KeyService } from './key.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { getBaseCookieOptions } from '../common/utils/cookie.utils';
+import { getRefreshTokenCookieOptions } from '../common/utils/cookie.utils';
 
 /**
  * OAuth Controller
  * Core OAuth/OIDC endpoints: authorize, token, introspect, revoke
  * Session management is in OAuthSessionController
+ *
+ * Authentication Methods:
+ * - Authorization Header: All token-bearing requests must include `Authorization: Bearer <token>` header
+ * - No Cookie-based Auth: Access tokens are NEVER read from cookies (legacy support removed)
+ * - Refresh Token Cookie: Only refresh_token is stored as httpOnly cookie for the split-token flow
+ *
+ * Token Flow:
+ * - Access tokens are returned in JSON response body only
+ * - Refresh tokens are set as httpOnly, Secure, SameSite=Strict cookies
+ * - No auth_token or idp_session cookies are used
  */
 @Controller('oauth')
 export class OAuthController {
@@ -38,6 +48,9 @@ export class OAuthController {
 
   /**
    * Tenant-Scoped Authorization Endpoint
+   *
+   * Requires: Authorization: Bearer <token> header for user session validation
+   * Note: This endpoint does NOT support cookie-based authentication
    */
   @Get('authorize-tenant')
   async authorizeTenant(
@@ -54,7 +67,9 @@ export class OAuthController {
     @Req() req: Request,
     @Res() res: Response,
   ) {
-    const authToken = req.cookies?.['auth_token'];
+    // Extract token from Authorization header only (no cookie fallback)
+    const authHeader = req.headers.authorization;
+    const authToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : undefined;
     const user = authToken ? await this.oauthService.validateJwt(authToken) : null;
 
     if (!user) {
@@ -93,6 +108,13 @@ export class OAuthController {
 
   /**
    * Authorization Endpoint (OIDC)
+   *
+   * Authentication:
+   * - Standard flow: Requires `Authorization: Bearer <token>` header
+   * - Silent refresh (prompt=none): Returns login_required error if no valid session
+   *
+   * No cookie-based authentication is supported. Clients must explicitly provide
+   * the authorization token in the `Authorization: Bearer <token>` request header.
    */
   @Get('authorize')
   async authorize(
@@ -110,7 +132,10 @@ export class OAuthController {
     @Res() res: Response,
   ) {
     const isSilentRefresh = prompt === 'none';
-    const authToken = req.cookies?.['auth_token'];
+
+    // Extract token from Authorization header only (no legacy cookie support)
+    const authHeader = req.headers.authorization;
+    const authToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : undefined;
     const user = authToken ? await this.oauthService.validateJwt(authToken) : null;
 
     // Handle silent refresh
@@ -191,10 +216,7 @@ export class OAuthController {
       return res.redirect(finalRedirectUrl.toString());
     } catch (error) {
       if (error instanceof UnauthorizedException) {
-        const clearOpts = getBaseCookieOptions();
-        res.clearCookie('auth_token', clearOpts);
-        res.clearCookie('idp_session', clearOpts);
-
+        // No legacy cookie cleanup needed - tokens are header-only
         const frontendUrl = this.configService.get<string>('BASE_URL', 'http://localhost:8000');
         return res.redirect(`${frontendUrl}/auth/login?redirect_uri=${encodeURIComponent(oauthAuthorizeUrl)}`);
       }
@@ -224,6 +246,7 @@ export class OAuthController {
 
   /**
    * Trampoline Endpoint - Server-Side Token Exchange
+   * Returns JSON with access_token and sets refresh_token as httpOnly cookie
    */
   @Get('trampoline')
   async trampoline(
@@ -239,11 +262,12 @@ export class OAuthController {
     const safeRedirect = this.validateRedirectPath(finalRedirect);
 
     if (error) {
-      const errorParams = new URLSearchParams();
-      errorParams.set('error', error);
-      if (errorDescription) errorParams.set('error_description', errorDescription);
-      const separator = safeRedirect.includes('?') ? '&' : '?';
-      return res.redirect(`${safeRedirect}${separator}${errorParams.toString()}`);
+      return res.status(HttpStatus.BAD_REQUEST).json({
+        success: false,
+        error,
+        error_description: errorDescription,
+        redirect: safeRedirect,
+      });
     }
 
     if (!code || !state) {
@@ -274,23 +298,26 @@ export class OAuthController {
         codeVerifier,
       });
 
-      const cookieOptions = { ...getBaseCookieOptions(), maxAge: tokens.expires_in * 1000 };
-      res.cookie('auth_token', tokens.access_token, cookieOptions);
-
+      // Set refresh_token as httpOnly cookie only
       if (tokens.refresh_token) {
-        res.cookie('refresh_token', tokens.refresh_token, {
-          ...getBaseCookieOptions(),
-          maxAge: 30 * 24 * 60 * 60 * 1000,
-        });
+        res.cookie('refresh_token', tokens.refresh_token, getRefreshTokenCookieOptions());
       }
 
-      return res.redirect(safeRedirect);
+      // Return JSON response with tokens (access_token in body, refresh_token in cookie)
+      return res.json({
+        success: true,
+        access_token: tokens.access_token,
+        expires_in: tokens.expires_in,
+        ...(tokens.refresh_token && { refresh_token: tokens.refresh_token }),
+        redirect: safeRedirect,
+      });
     } catch (err) {
-      const errorParams = new URLSearchParams();
-      errorParams.set('error', 'token_exchange_failed');
-      errorParams.set('error_description', err instanceof Error ? err.message : 'Unknown error');
-      const separator = safeRedirect.includes('?') ? '&' : '?';
-      return res.redirect(`${safeRedirect}${separator}${errorParams.toString()}`);
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        success: false,
+        error: 'token_exchange_failed',
+        error_description: err instanceof Error ? err.message : 'Unknown error',
+        redirect: safeRedirect,
+      });
     }
   }
 
