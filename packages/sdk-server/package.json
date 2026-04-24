@@ -16,10 +16,20 @@
       "import": "./dist/session/index.mjs",
       "require": "./dist/session/index.js"
     },
-    "./middleware": {
-      "types": "./dist/middleware/index.d.ts",
-      "import": "./dist/middleware/index.mjs",
-      "require": "./dist/middleware/index.js"
+    "./middleware/express": {
+      "types": "./dist/middleware/express.d.ts",
+      "import": "./dist/middleware/express.mjs",
+      "require": "./dist/middleware/express.js"
+    },
+    "./middleware/nextjs": {
+      "types": "./dist/middleware/nextjs.d.ts",
+      "import": "./dist/middleware/nextjs.mjs",
+      "require": "./dist/middleware/nextjs.js"
+    },
+    "./middleware/nestjs": {
+      "types": "./dist/middleware/nestjs.d.ts",
+      "import": "./dist/middleware/nestjs.mjs",
+      "require": "./dist/middleware/nestjs.js"
     },
     "./client": {
       "types": "./dist/client/index.d.ts",
@@ -42,10 +52,14 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "next": ">=13.0.0"
+    "next": ">=13.0.0",
+    "@nestjs/common": ">=8.0.0"
   },
   "peerDependenciesMeta": {
     "next": {
+      "optional": true
+    },
+    "@nestjs/common": {
       "optional": true
     }
   },

@@ -1,56 +1,51 @@
 /**
  * @authvital/server
  *
- * AuthVital Server SDK - BFF/SSR Adapter for Next.js, Express, and other server environments.
+ * AuthVital Server SDK - Framework-agnostic server SDK.
  *
  * This package provides:
  * - Secure session cookie encryption (AES-256-GCM)
- * - Express middleware for authentication
- * - Next.js helpers (App Router, Pages Router, Edge Runtime)
+ * - Session store for managing authentication state
  * - Server-side API client with automatic token refresh
- * - Token rotation support
+ * - Cryptographic utilities for secure token handling
+ *
+ * This SDK is framework-agnostic. For framework-specific integrations,
+ * see separate adapter packages:
+ * - @authvital/server-express (Express middleware)
+ * - @authvital/server-nextjs (Next.js helpers)
  *
  * @example
  * ```typescript
- * // Express middleware
- * import { authVitalMiddleware } from '@authvital/server';
+ * // Create a session store
+ * import { createSessionStore } from '@authvital/server';
  *
- * app.use(authVitalMiddleware({
+ * const sessionStore = createSessionStore({
  *   secret: process.env.SESSION_SECRET,
  *   authVitalHost: 'https://auth.example.com',
  *   clientId: process.env.CLIENT_ID,
  *   clientSecret: process.env.CLIENT_SECRET,
- * }));
- *
- * app.get('/api/profile', (req, res) => {
- *   if (!req.authVital) {
- *     return res.status(401).json({ error: 'Unauthorized' });
- *   }
- *   // Use req.authVital.client to make API calls
  * });
+ *
+ * // Validate session from request cookies
+ * const result = await sessionStore.validate(cookies);
+ * if (!result.valid) {
+ *   return new Response('Unauthorized', { status: 401 });
+ * }
  * ```
  *
  * @example
  * ```typescript
- * // Next.js App Router
- * import { getServerAuth } from '@authvital/server';
- * import { cookies } from 'next/headers';
+ * // Server client for API calls
+ * import { createServerClient } from '@authvital/server';
  *
- * export default async function Page() {
- *   const auth = await getServerAuth(cookies(), {
- *     secret: process.env.SESSION_SECRET!,
- *     authVitalHost: process.env.AUTHVITAL_HOST!,
- *     clientId: process.env.CLIENT_ID!,
- *     clientSecret: process.env.CLIENT_SECRET!,
- *   });
+ * const client = createServerClient({
+ *   baseURL: process.env.AUTHVITAL_HOST,
+ *   clientId: process.env.CLIENT_ID,
+ *   clientSecret: process.env.CLIENT_SECRET,
+ *   accessToken: session.accessToken,
+ * });
  *
- *   if (!auth.isAuthenticated) {
- *     redirect('/login');
- *   }
- *
- *   const user = await auth.client.getCurrentUser();
- *   return <div>Hello {user?.email}</div>;
- * }
+ * const user = await client.getCurrentUser();
  * ```
  *
  * @packageDocumentation
@@ -118,44 +113,3 @@ export {
   type ApiError,
   type TokenRefreshHandler,
 } from './client/index.js';
-
-// =============================================================================
-// MIDDLEWARE MODULE (Express)
-// =============================================================================
-
-export {
-  authVitalMiddleware,
-  requireAuth,
-  requirePermission,
-  setSession,
-  clearSession,
-  type AuthVitalContext,
-  type AuthVitalMiddlewareConfig,
-  type RouteOptions,
-} from './middleware/express.js';
-
-// =============================================================================
-// MIDDLEWARE MODULE (Next.js) - Named exports to avoid conflicts
-// =============================================================================
-
-export {
-  // Edge middleware
-  createAuthMiddleware,
-
-  // Server components
-  getServerAuth,
-  requireServerAuth,
-
-  // Pages router
-  getServerSideAuth,
-
-  // API routes
-  getRouteAuth,
-  setRouteSession,
-  clearRouteSession,
-
-  // Next.js types
-  type NextAuthContext,
-  type EdgeMiddlewareConfig,
-  type ServerComponentOptions,
-} from './middleware/nextjs.js';

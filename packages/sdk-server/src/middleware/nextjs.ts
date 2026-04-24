@@ -8,7 +8,7 @@
  * - API route handlers
  */
 
-import { type NextRequest, NextResponse } from 'next/server';
+import type { NextRequest, NextResponse } from 'next/server';
 import type { ReadonlyRequestCookies } from 'next/dist/server/web/spec-extension/adapters/request-cookies';
 import type { TokenResponse } from '@authvital/shared';
 import {
@@ -117,6 +117,7 @@ export function createAuthMiddleware(config: EdgeMiddlewareConfig) {
   };
 
   return async function middleware(request: NextRequest): Promise<NextResponse> {
+    const { NextResponse } = await import('next/server');
     const { pathname } = request.nextUrl;
 
     // Check if path is public

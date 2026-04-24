@@ -2,34 +2,13 @@
  * @authvital/server - Middleware Module
  *
  * Framework-specific middleware implementations for server environments.
+ *
+ * Note: This file no longer exports combined middleware to avoid forcing
+ * framework-specific dependencies on all users.
+ *
+ * Import directly from framework-specific modules:
+ * - For Express: import { authVitalMiddleware } from './express.js'
+ * - For Next.js: import { createAuthMiddleware } from './nextjs.js'
  */
 
-// Express middleware and helpers
-export {
-  authVitalMiddleware,
-  requireAuth,
-  requirePermission,
-  setSession,
-  clearSession,
-  type AuthVitalContext,
-  type AuthVitalMiddlewareConfig,
-  type RouteOptions,
-} from './express.js';
-
-// Next.js middleware and helpers
-export {
-  createAuthMiddleware,
-  getServerAuth,
-  requireServerAuth,
-  getServerSideAuth,
-  getRouteAuth,
-  setRouteSession,
-  clearRouteSession,
-  type NextAuthContext,
-  type EdgeMiddlewareConfig,
-  type ServerComponentOptions,
-} from './nextjs.js';
-
-// Re-exports from other modules for convenience
-export { createSessionStore, createCookieOptions } from '../session/index.js';
-export { createServerClient } from '../client/index.js';
+// No combined exports - import from './express.js' or './nextjs.js' directly

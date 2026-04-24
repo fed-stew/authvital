@@ -5,6 +5,7 @@ export default defineConfig({
     index: 'src/index.ts',
     'session/index': 'src/session/index.ts',
     'middleware/index': 'src/middleware/index.ts',
+    'middleware/nestjs': 'src/middleware/nestjs.ts',
     'client/index': 'src/client/index.ts',
     'crypto/index': 'src/crypto/index.ts',
   },
