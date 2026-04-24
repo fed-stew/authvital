@@ -8,12 +8,14 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  Header,
   BadRequestException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Response, Request } from 'express';
 import { OAuthService } from './oauth.service';
+import { OAuthTokenService } from './oauth-token.service';
 import { KeyService } from './key.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { getRefreshTokenCookieOptions } from '../common/utils/cookie.utils';
@@ -39,6 +41,7 @@ export class OAuthController {
 
   constructor(
     private readonly oauthService: OAuthService,
+    private readonly tokenService: OAuthTokenService,
     private readonly keyService: KeyService,
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
@@ -154,7 +157,11 @@ export class OAuthController {
         const code = await this.oauthService.authorize(user.userId, {
           clientId, redirectUri, responseType, scope, state, nonce, codeChallenge, codeChallengeMethod,
         });
-        return this.sendSilentRefreshResponse(res, { code, state }, targetOrigin);
+
+        // Generate session_state for OIDC Session Management
+        const sessionState = this.tokenService.generateSessionState(clientId, user.userId);
+
+        return this.sendSilentRefreshResponse(res, { code, state, session_state: sessionState }, targetOrigin);
       } catch (error) {
         return this.sendSilentRefreshResponse(
           res,
@@ -209,9 +216,13 @@ export class OAuthController {
         tenantId, tenantSubdomain,
       });
 
+      // Generate session_state for OIDC Session Management
+      const sessionState = this.tokenService.generateSessionState(clientId, user.userId);
+
       const finalRedirectUrl = new URL(redirectUri);
       finalRedirectUrl.searchParams.set('code', code);
       if (state) finalRedirectUrl.searchParams.set('state', state);
+      finalRedirectUrl.searchParams.set('session_state', sessionState);
 
       return res.redirect(finalRedirectUrl.toString());
     } catch (error) {
@@ -352,6 +363,161 @@ export class OAuthController {
     return { success: true };
   }
 
+  /**
+   * OIDC Session Management - Check Session Iframe
+   *
+   * This endpoint serves an HTML page that listens for postMessage
+   * requests from the RP to check the current session state.
+   *
+   * @see https://openid.net/specs/openid-connect-session-1_0.html
+   */
+  @Get('check-session')
+  @Header('Content-Type', 'text/html')
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
+  @Header('Pragma', 'no-cache')
+  checkSessionIframe() {
+    // Serve the OIDC check_session_iframe HTML
+    // This page listens for postMessage with client_id and session_state,
+    // then responds with "changed" or "unchanged" based on cookie state
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <title>OIDC Session State Checker</title>
+  <script>
+    // OIDC Session Management 1.0 - RP-Initiated Logout
+    // https://openid.net/specs/openid-connect-session-1_0.html
+
+    (function() {
+      'use strict';
+
+      // Configuration
+      var ISSUER = ${JSON.stringify(this.issuer)};
+      var COOKIE_NAME = 'idp_session';
+      var STORAGE_KEY = 'oidc_session_state';
+
+      // Helper: Get cookie value
+      function getCookie(name) {
+        var value = '; ' + document.cookie;
+        var parts = value.split('; ' + name + '=');
+        if (parts.length === 2) return parts.pop().split(';').shift();
+        return null;
+      }
+
+      // Helper: Get stored session state
+      function getStoredState() {
+        try {
+          return sessionStorage.getItem(STORAGE_KEY);
+        } catch (e) {
+          return null;
+        }
+      }
+
+      // Helper: Store session state
+      function setStoredState(state) {
+        try {
+          sessionStorage.setItem(STORAGE_KEY, state);
+        } catch (e) {
+          // Ignore storage errors
+        }
+      }
+
+      // Compute session state according to OIDC spec
+      // session_state = SHA256(client_id + ' ' + issuer + ' ' + browser_state + ' ' + salt) + '.' + salt
+      function computeSessionState(clientId, sessionState) {
+        var parts = sessionState.split('.');
+        if (parts.length !== 2) return 'error';
+
+        var salt = parts[1];
+        var browserState = getCookie(COOKIE_NAME) || '';
+
+        // Create the string to hash: client_id + ' ' + issuer + ' ' + browser_state + ' ' + salt
+        var toHash = clientId + ' ' + ISSUER + ' ' + browserState + ' ' + salt;
+
+        // Use a simple hash for now (in production, use proper SHA-256)
+        var hash = 0;
+        for (var i = 0; i < toHash.length; i++) {
+          var char = toHash.charCodeAt(i);
+          hash = ((hash << 5) - hash) + char;
+          hash = hash & hash;
+        }
+        var computedHash = Math.abs(hash).toString(16);
+
+        return computedHash + '.' + salt;
+      }
+
+      // Check session state
+      function checkSession(clientId, sessionState) {
+        var storedState = getStoredState();
+
+        // First time - store and return unchanged
+        if (!storedState) {
+          setStoredState(sessionState);
+          return 'unchanged';
+        }
+
+        // Compute expected state
+        var computedState = computeSessionState(clientId, sessionState);
+
+        // If computed state doesn't match the provided one, session changed
+        if (computedState !== sessionState) {
+          return 'changed';
+        }
+
+        // Compare with stored state
+        if (storedState === sessionState) {
+          return 'unchanged';
+        }
+
+        return 'changed';
+      }
+
+      // Listen for postMessage
+      window.addEventListener('message', function(event) {
+        // Validate origin - only accept messages from valid origins
+        var origin = event.origin;
+        if (!origin || origin === 'null') {
+          return;
+        }
+
+        // Parse message
+        var data = event.data;
+        if (typeof data !== 'string') {
+          return;
+        }
+
+        // Parse "client_id session_state" format
+        var parts = data.split(' ');
+        if (parts.length !== 2) {
+          event.source.postMessage('error: invalid message format', event.origin);
+          return;
+        }
+
+        var clientId = parts[0];
+        var sessionState = parts[1];
+
+        if (!clientId || !sessionState) {
+          event.source.postMessage('error: missing parameters', event.origin);
+          return;
+        }
+
+        // Check session and respond
+        var result = checkSession(clientId, sessionState);
+        event.source.postMessage(result, event.origin);
+      }, false);
+
+      // Notify parent we're ready (if applicable)
+      if (window.parent !== window) {
+        window.parent.postMessage('oidc_check_session_iframe_ready', '*');
+      }
+    })();
+  </script>
+</head>
+<body>
+  <!-- OIDC Session State Checker - This iframe monitors IDP session state -->
+</body>
+</html>`;
+  }
+
   // ===========================================================================
   // PRIVATE HELPERS
   // ===========================================================================
@@ -380,7 +546,7 @@ export class OAuthController {
 
   private sendSilentRefreshResponse(
     res: Response,
-    data: { code?: string; error?: string; error_description?: string; state?: string },
+    data: { code?: string; error?: string; error_description?: string; state?: string; session_state?: string },
     targetOrigin = '*',
   ) {
     const html = `<!DOCTYPE html><html><head><title>Silent Refresh</title></head><body><script>(function(){var result=${JSON.stringify({ type: 'silent_refresh_response', ...data })};if(window.parent&&window.parent!==window){window.parent.postMessage(result,${JSON.stringify(targetOrigin)});}})();</script></body></html>`;

@@ -209,7 +209,11 @@ export interface AuthorizationOptions {
   email?: string;
   /** Show signup screen instead of login */
   screen?: 'login' | 'signup';
-  /** State parameter for OAuth flow */
+  /** 
+   * State parameter for OAuth flow.
+   * If not provided, a CSRF state will be auto-generated and stored in sessionStorage.
+   * Providing a custom state bypasses automatic CSRF protection.
+   */
   state?: string;
   /** Invitation token for team invites */
   inviteToken?: string;
@@ -247,6 +251,7 @@ export type AuthEventType =
   | 'auth:logout'
   | 'auth:refresh'
   | 'auth:refresh-failed'
+  | 'auth:session-change'
   | 'auth:error';
 
 /**

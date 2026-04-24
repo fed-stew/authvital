@@ -37,6 +37,18 @@ export const OAUTH_AUTHORIZE = `${OAUTH_BASE}/authorize`;
 export const OAUTH_TOKEN = `${OAUTH_BASE}/token`;
 
 /**
+ * OAuth token introspection endpoint (RFC 7662).
+ * Used for checking token validity and retrieving token metadata.
+ */
+export const OAUTH_INTROSPECT = `${OAUTH_BASE}/introspect`;
+
+/**
+ * OAuth token revocation endpoint (RFC 7009).
+ * Used for revoking access or refresh tokens.
+ */
+export const OAUTH_REVOKE = `${OAUTH_BASE}/revoke`;
+
+/**
  * JWKS endpoint for public key retrieval.
  */
 export const JWKS = '/.well-known/jwks.json';

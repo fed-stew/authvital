@@ -3,9 +3,30 @@
  *
  * Encryption/decryption utilities for secure session management.
  * Uses AES-256-GCM for authenticated encryption.
+ *
+ * Also re-exports JWT verification utilities from @authvital/core
+ * for server-side token validation.
  */
 
 import { createCipheriv, createDecipheriv, createHash, randomBytes, scryptSync, timingSafeEqual as cryptoTimingSafeEqual } from 'crypto';
+
+// Re-export JWT verification utilities from core
+export {
+  JWKSClient,
+  JWKSError,
+  SigningKeyNotFoundError,
+  verifyToken,
+  decodeToken,
+  JWTVerificationError,
+  type JWK,
+  type JsonWebKeySet,
+  /** @deprecated Use JsonWebKeySet instead */
+  type JWKS,
+  type JWKSClientOptions,
+  type VerifyOptions,
+  type VerifyResult,
+  // Note: JwtHeader and JwtPayload are also available from @authvital/core types
+} from '@authvital/core';
 
 // =============================================================================
 // CONSTANTS

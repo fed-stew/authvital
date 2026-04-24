@@ -21,6 +21,15 @@ import {
   isTokenExpired,
   getStateSnapshot,
 } from './token-store';
+import { attemptSilentAuth, SilentAuthResult } from './silent-auth';
+import {
+  startSessionMonitoring,
+  stopSessionMonitoring,
+  updateSessionState,
+  isSessionMonitoring,
+  SessionManagerOptions,
+} from './session-management';
+import { generateCSRFState } from '@authvital/core';
 import { initializeRefresh, performRefresh, ensureValidToken, scheduleProactiveRefresh } from './refresh';
 import { createAxiosInstance, createAuthFetch } from './interceptor';
 import type {
@@ -259,14 +268,21 @@ export class AuthVitalClient {
   /**
    * Redirect to AuthVital login page (OAuth flow)
    *
+   * Generates a CSRF state parameter for security and stores it in sessionStorage.
+   * The state will be validated in handleCallback() to prevent CSRF attacks.
+   *
    * @param options - Authorization options
    */
   login(options: AuthorizationOptions = {}): void {
     this.log('Redirecting to login', options);
 
+    // Generate and store CSRF state if not provided
+    const state = this.prepareCSRFState(options.state);
+
     const url = this.buildAuthorizationUrl({
       ...options,
       screen: options.screen || 'login',
+      state,
     });
 
     if (typeof window !== 'undefined') {
@@ -282,14 +298,21 @@ export class AuthVitalClient {
   /**
    * Redirect to AuthVital signup page (OAuth flow)
    *
+   * Generates a CSRF state parameter for security and stores it in sessionStorage.
+   * The state will be validated in handleCallback() to prevent CSRF attacks.
+   *
    * @param options - Authorization options
    */
   signup(options: AuthorizationOptions = {}): void {
     this.log('Redirecting to signup', options);
 
+    // Generate and store CSRF state if not provided
+    const state = this.prepareCSRFState(options.state);
+
     const url = this.buildAuthorizationUrl({
       ...options,
       screen: 'signup',
+      state,
     });
 
     if (typeof window !== 'undefined') {
@@ -396,9 +419,25 @@ export class AuthVitalClient {
       };
     }
 
-    // Get authorization code
+    // Get authorization code and state
     const code = params.get('code');
     const state = params.get('state') || undefined;
+
+    // Validate CSRF state to prevent attacks
+    try {
+      this.validateCSRFState(state ?? null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'CSRF validation failed';
+      this.log('OAuth callback failed state validation', { error: message });
+      this.emit('auth:error', { code: 'CSRF_ERROR', description: message });
+      
+      return {
+        success: false,
+        errorCode: 'CSRF_ERROR',
+        errorDescription: message,
+        state,
+      };
+    }
 
     if (!code) {
       const error = 'No authorization code in callback';
@@ -524,6 +563,117 @@ export class AuthVitalClient {
   }
 
   // ===========================================================================
+  // CSRF STATE MANAGEMENT
+  // ===========================================================================
+
+  /**
+   * CSRF state storage key in sessionStorage.
+   * Using sessionStorage ensures state is cleared when the tab is closed.
+   */
+  private static readonly CSRF_STATE_KEY = 'authvital_oauth_state';
+
+  /**
+   * Prepare CSRF state for OAuth flow.
+   *
+   * If a custom state is provided, it will be used directly (bypassing auto-CSRF).
+   * Otherwise, generates a cryptographically secure random state and stores it
+   * in sessionStorage for validation during the callback.
+   *
+   * @param customState - Optional custom state (bypasses auto-generation)
+   * @returns The state to use for the OAuth flow
+   */
+  private prepareCSRFState(customState?: string): string {
+    // If custom state provided, use it directly
+    if (customState) {
+      this.log('Using custom state (CSRF auto-generation bypassed)');
+      return customState;
+    }
+
+    // Generate a new CSRF state
+    const state = generateCSRFState();
+    
+    // Store in sessionStorage for callback validation
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem(AuthVitalClient.CSRF_STATE_KEY, state);
+        this.log('CSRF state generated and stored');
+      }
+    } catch (error) {
+      this.log('Failed to store CSRF state', { error });
+    }
+
+    return state;
+  }
+
+  /**
+   * Validate CSRF state from callback.
+   *
+   * Compares the state returned in the callback URL with the state
+   * stored in sessionStorage. Throws an error if they don't match,
+   * indicating a potential CSRF attack.
+   *
+   * @param receivedState - The state received from the OAuth callback
+   * @throws Error if state validation fails
+   */
+  private validateCSRFState(receivedState: string | null): void {
+    // Retrieve expected state from sessionStorage
+    let expectedState: string | null = null;
+    
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        expectedState = sessionStorage.getItem(AuthVitalClient.CSRF_STATE_KEY);
+      }
+    } catch (error) {
+      this.log('Failed to retrieve CSRF state from storage', { error });
+    }
+
+    // If we don't have an expected state, we can't validate
+    // This could happen if the user manually navigated to the callback URL
+    if (!expectedState) {
+      this.log('No CSRF state found in storage - skipping validation');
+      return;
+    }
+
+    // Clear the state from storage regardless of validation result
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem(AuthVitalClient.CSRF_STATE_KEY);
+      }
+    } catch (error) {
+      this.log('Failed to clear CSRF state from storage', { error });
+    }
+
+    // Validate the state matches
+    if (receivedState !== expectedState) {
+      this.log('CSRF state mismatch detected', { 
+        received: receivedState, 
+        expected: expectedState?.substring(0, 8) + '...' 
+      });
+      throw new Error(
+        'CSRF state validation failed. The OAuth state parameter does not match. ' +
+        'This could indicate a potential cross-site request forgery attack.'
+      );
+    }
+
+    this.log('CSRF state validated successfully');
+  }
+
+  /**
+   * Clear CSRF state from storage.
+   * Useful for cleanup or when manually handling OAuth flows.
+   */
+  clearCSRFState(): void {
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem(AuthVitalClient.CSRF_STATE_KEY);
+        this.log('CSRF state cleared from storage');
+      }
+    } catch (error) {
+      this.log('Failed to clear CSRF state', { error });
+    }
+  }
+
+  // ===========================================================================
   // INTERNAL METHODS
   // ===========================================================================
 
@@ -541,13 +691,15 @@ export class AuthVitalClient {
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('redirect_uri', this.config.redirectUri || '');
 
+    // Required: CSRF state parameter for security
+    // State should always be present (either auto-generated or custom)
+    if (options.state) {
+      url.searchParams.set('state', options.state);
+    }
+
     // Optional params
     if (this.config.scope) {
       url.searchParams.set('scope', this.config.scope);
-    }
-
-    if (options.state) {
-      url.searchParams.set('state', options.state);
     }
 
     if (options.email) {
@@ -723,6 +875,265 @@ export class AuthVitalClient {
   }
 
   // ===========================================================================
+  // SILENT AUTHENTICATION
+  // ===========================================================================
+
+  /**
+   * Attempt silent authentication using hidden iframe with `prompt=none`
+   *
+   * This method allows you to check if the user has a valid session at the IDP
+   * without triggering a full-page redirect. It creates a hidden iframe that
+   * navigates to the authorization endpoint with `prompt=none`.
+   *
+   * @param timeout - Timeout in milliseconds (default: 10000)
+   * @returns Promise resolving to the silent authentication result
+   *
+   * @example
+   * ```typescript
+   * const result = await auth.silentAuth();
+   *
+   * if (result.success) {
+   *   // User is authenticated, tokens are set
+   *   console.log('User:', result.user);
+   * } else if (result.error === 'login_required') {
+   *   // User needs to log in
+   *   auth.login();
+   * }
+   * ```
+   */
+  async silentAuth(timeout = 10000): Promise<SilentAuthResult> {
+    this.log('Attempting silent authentication', { timeout });
+
+    const result = await attemptSilentAuth({
+      authVitalHost: this.config.authVitalHost,
+      clientId: this.config.clientId,
+      redirectUri: this.config.redirectUri,
+      scope: this.config.scope,
+      timeout,
+      debug: this.config.debug,
+    });
+
+    if (result.success && result.accessToken) {
+      this.setAuth(result.accessToken);
+      this.log('Silent authentication successful');
+    } else {
+      this.log('Silent authentication failed', { error: result.error });
+    }
+
+    return result;
+  }
+
+  // ===========================================================================
+  // SESSION MANAGEMENT (OIDC)
+  // ===========================================================================
+
+  /**
+   * Start OIDC session monitoring
+   *
+   * Monitors the user's session state at the IDP using the check_session_iframe
+   * endpoint. When the session changes (e.g., user logs out in another tab),
+   * the callback is invoked.
+   *
+   * Requires the session_state parameter from the authorization response.
+   *
+   * @param sessionState - The session_state from the authorization response
+   * @param onSessionChange - Callback invoked when session changes
+   * @param checkInterval - Polling interval in milliseconds (default: 5000)
+   * @returns Promise resolving to true if monitoring started successfully
+   *
+   * @example
+   * ```typescript
+   * // Get session_state from URL after OAuth callback
+   * const urlParams = new URLSearchParams(window.location.search);
+   * const sessionState = urlParams.get('session_state');
+   *
+   * if (sessionState) {
+   *   await auth.startSessionMonitoring(sessionState, (changed) => {
+   *     if (changed) {
+   *       console.log('Session changed - re-authenticating');
+   *       auth.silentAuth().then(result => {
+   *         if (!result.success) {
+   *           auth.logout();
+   *         }
+   *       });
+   *     }
+   *   });
+   * }
+   * ```
+   */
+  async startSessionMonitoring(
+    sessionState: string,
+    onSessionChange?: (changed: boolean) => void,
+    checkInterval = 5000
+  ): Promise<boolean> {
+    this.log('Starting session monitoring', { checkInterval });
+
+    const options: SessionManagerOptions = {
+      authVitalHost: this.config.authVitalHost,
+      clientId: this.config.clientId,
+      sessionState,
+      checkInterval,
+      debug: this.config.debug,
+      onSessionChange: (changed, event) => {
+        this.log('Session change detected', { changed });
+        onSessionChange?.(changed);
+        this.emit('auth:session-change', { changed, event });
+      },
+      onError: (error) => {
+        this.log('Session monitoring error', { code: error.code, message: error.message });
+        this.emit('auth:error', { code: 'SESSION_MONITOR_ERROR', error });
+      },
+    };
+
+    return startSessionMonitoring(options);
+  }
+
+  /**
+   * Stop OIDC session monitoring
+   *
+   * Stops the session monitoring and cleans up the hidden iframe.
+   */
+  stopSessionMonitoring(): void {
+    this.log('Stopping session monitoring');
+    stopSessionMonitoring();
+  }
+
+  /**
+   * Update the session state being monitored
+   *
+   * Call this after a token refresh or silent authentication that
+   * returns a new session_state.
+   *
+   * @param sessionState - The new session_state value
+   * @returns true if updated successfully
+   */
+  updateSessionState(sessionState: string): boolean {
+    this.log('Updating session state');
+    return updateSessionState(sessionState);
+  }
+
+  /**
+   * Check if session monitoring is currently active
+   *
+   * @returns true if monitoring is running
+   */
+  isSessionMonitoring(): boolean {
+    return isSessionMonitoring();
+  }
+
+  // ===========================================================================
+  // TOKEN INTROSPECTION & REVOCATION
+  // ===========================================================================
+
+  /**
+   * Introspect a token to check its validity and get metadata
+   *
+   * Calls the OAuth introspection endpoint (RFC 7662) to check if a token
+   * is active and retrieve its associated metadata.
+   *
+   * @param token - The token to introspect (defaults to current access token)
+   * @returns Promise resolving to the introspection response
+   *
+   * @example
+   * ```typescript
+   * // Introspect current token
+   * const result = await auth.introspectToken();
+   * console.log('Token active:', result.active);
+   * console.log('Token expires:', new Date(result.exp! * 1000));
+   *
+   * // Introspect a specific token
+   * const result = await auth.introspectToken(someOtherToken);
+   * ```
+   */
+  async introspectToken(token?: string): Promise<{
+    active: boolean;
+    scope?: string;
+    client_id?: string;
+    username?: string;
+    token_type?: string;
+    exp?: number;
+    iat?: number;
+    nbf?: number;
+    sub?: string;
+    aud?: string | string[];
+    iss?: string;
+    jti?: string;
+  }> {
+    const tokenToIntrospect = token || getAccessToken();
+
+    if (!tokenToIntrospect) {
+      throw new Error('No token provided and no current access token available');
+    }
+
+    this.log('Introspecting token');
+
+    try {
+      const response = await this.axiosInstance.post(
+        `${this.config.authVitalHost}/oauth/introspect`,
+        { token: tokenToIntrospect }
+      );
+
+      return response.data;
+    } catch (error) {
+      this.log('Token introspection failed', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Revoke a token
+   *
+   * Calls the OAuth revocation endpoint (RFC 7009) to revoke a token.
+   * This invalidates the token at the authorization server.
+   *
+   * @param token - The token to revoke (defaults to current access token)
+   * @param tokenTypeHint - Hint for the token type ('access_token' or 'refresh_token')
+   * @returns Promise resolving to true if revocation was successful
+   *
+   * @example
+   * ```typescript
+   * // Revoke current access token
+   * await auth.revokeToken();
+   *
+   * // Revoke a specific refresh token
+   * await auth.revokeToken(refreshToken, 'refresh_token');
+   * ```
+   */
+  async revokeToken(
+    token?: string,
+    tokenTypeHint?: 'access_token' | 'refresh_token'
+  ): Promise<boolean> {
+    const tokenToRevoke = token || getAccessToken();
+
+    if (!tokenToRevoke) {
+      throw new Error('No token provided and no current access token available');
+    }
+
+    this.log('Revoking token', { tokenTypeHint });
+
+    try {
+      await this.axiosInstance.post(
+        `${this.config.authVitalHost}/oauth/revoke`,
+        {
+          token: tokenToRevoke,
+          ...(tokenTypeHint && { token_type_hint: tokenTypeHint }),
+        }
+      );
+
+      // If we revoked the current access token, clear local state
+      if (!token || token === getAccessToken()) {
+        this.clearAuth();
+      }
+
+      this.log('Token revoked successfully');
+      return true;
+    } catch (error) {
+      this.log('Token revocation failed', { error });
+      return false;
+    }
+  }
+
+  // ===========================================================================
   // DIAGNOSTICS
   // ===========================================================================
 
@@ -734,11 +1145,13 @@ export class AuthVitalClient {
   getDebugState(): {
     isAuthenticated: boolean;
     hasUser: boolean;
+    isSessionMonitoring: boolean;
     tokenStore: ReturnType<typeof getStateSnapshot>;
   } {
     return {
       isAuthenticated: this.isAuthenticated(),
       hasUser: !!this.currentUser,
+      isSessionMonitoring: isSessionMonitoring(),
       tokenStore: getStateSnapshot(),
     };
   }

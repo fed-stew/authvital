@@ -9,6 +9,7 @@
  * - Error classes
  * - JWT validation utilities
  * - Request/response formatting
+ * - JWKS and JWT verification utilities (Web Crypto API)
  *
  * This package has NO:
  * - localStorage references
@@ -25,3 +26,4 @@ export * from './api/index.js';
 export * from './oauth/index.js';
 export * from './errors/index.js';
 export * from './utils/index.js';
+export * from './crypto/index.js';

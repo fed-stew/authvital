@@ -78,6 +78,35 @@ export class OAuthTokenService {
   private readonly issuer: string;
   private readonly logger = new Logger(OAuthTokenService.name);
 
+  /**
+   * Generate session_state for OIDC Session Management
+   * Format: client_id + ' ' + issuer + ' ' + browser_state + ' ' + salt
+   * Hashed using SHA-256 with base64url encoding
+   *
+   * @see https://openid.net/specs/openid-connect-session-1_0.html
+   */
+  generateSessionState(clientId: string, userId: string): string {
+    // Generate a random salt
+    const salt = crypto.randomBytes(16).toString('base64url');
+
+    // Browser state is derived from user session (using userId as deterministic seed)
+    // In production, this could be a session cookie value or similar
+    const browserState = crypto
+      .createHash('sha256')
+      .update(userId + this.issuer)
+      .digest('base64url')
+      .substring(0, 16);
+
+    // Create the string to hash
+    const toHash = `${clientId} ${this.issuer} ${browserState} ${salt}`;
+
+    // Generate the hash
+    const hash = crypto.createHash('sha256').update(toHash).digest('base64url');
+
+    // Return as hash.salt format
+    return `${hash}.${salt}`;
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly keyService: KeyService,

@@ -88,6 +88,7 @@ export {
 // =============================================================================
 
 export {
+  // Server-specific encryption utilities
   encrypt,
   encryptToString,
   decrypt,
@@ -98,6 +99,22 @@ export {
   timingSafeEqual,
   type EncryptedData,
   type EncryptedString,
+
+  // Re-exported JWT verification utilities from @authvital/core
+  JWKSClient,
+  JWKSError,
+  SigningKeyNotFoundError,
+  verifyToken,
+  decodeToken,
+  JWTVerificationError,
+  type JWK,
+  type JsonWebKeySet,
+  /** @deprecated Use JsonWebKeySet instead */
+  type JWKS,
+  type JWKSClientOptions,
+  type VerifyOptions,
+  type VerifyResult,
+  // Note: JwtHeader and JwtPayload types are available from @authvital/core types module
 } from './crypto/index.js';
 
 // =============================================================================
@@ -112,4 +129,6 @@ export {
   type ApiResponse,
   type ApiError,
   type TokenRefreshHandler,
+  type M2MTokenResponse,
+  type IntrospectionResponse,
 } from './client/index.js';

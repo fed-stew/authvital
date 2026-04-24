@@ -39,7 +39,11 @@ export class WellKnownController {
       revocation_endpoint: `${this.issuer}/oauth/revoke`,
       introspection_endpoint: `${this.issuer}/oauth/introspect`,
       end_session_endpoint: `${this.issuer}/oauth/logout`,
-      
+
+      // OIDC Session Management 1.0
+      // https://openid.net/specs/openid-connect-session-1_0.html
+      check_session_iframe: `${this.issuer}/oauth/check-session`,
+
       // Supported features
       response_types_supported: ['code'],
       response_modes_supported: ['query'],
@@ -48,10 +52,10 @@ export class WellKnownController {
       id_token_signing_alg_values_supported: ['RS256'],
       token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
       code_challenge_methods_supported: ['S256'],
-      
+
       // Scopes
       scopes_supported: ['openid', 'profile', 'email', 'offline_access'],
-      
+
       // Claims
       claims_supported: [
         'sub',

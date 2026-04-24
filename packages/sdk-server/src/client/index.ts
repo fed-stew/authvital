@@ -12,4 +12,9 @@ export {
   type ApiResponse,
   type ApiError,
   type TokenRefreshHandler,
+  type IntrospectionResponse,
 } from './server-client.js';
+
+export {
+  type M2MTokenResponse,
+} from './types.js';

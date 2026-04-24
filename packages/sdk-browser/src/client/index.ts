@@ -66,6 +66,43 @@ export {
 } from './interceptor';
 
 // =============================================================================
+// SILENT AUTHENTICATION
+// =============================================================================
+
+export {
+  // Main function
+  attemptSilentAuth,
+  // Utilities
+  isSilentAuthAvailable,
+  abortSilentAuth,
+  // Types
+  type SilentAuthOptions,
+  type SilentAuthResult,
+} from './silent-auth';
+
+// =============================================================================
+// OIDC SESSION MANAGEMENT
+// =============================================================================
+
+export {
+  // Main functions
+  startSessionMonitoring,
+  stopSessionMonitoring,
+  updateSessionState,
+  checkSessionNow,
+  // Utilities
+  isSessionManagementAvailable,
+  isSessionMonitoring,
+  extractSessionState,
+  getMonitoringStatus,
+  clearCachedConfig,
+  // Types
+  type SessionManagerOptions,
+  type SessionChangeEvent,
+  type SessionManagerError,
+} from './session-management';
+
+// =============================================================================
 // TYPES
 // =============================================================================
 
@@ -73,38 +110,40 @@ export type {
   // Configuration
   AuthVitalBrowserConfig,
   InterceptorOptions,
-  
+
   // User & Session
   AuthUser,
   AuthState,
   AuthError,
-  
+
   // Results
   LoginResult,
   LogoutResult,
   RefreshResult,
-  
+
   // Token Store
   TokenMetadata,
   PendingRequestCallback,
-  
+
   // HTTP
   RequestMetadata,
-  
+
   // OAuth
   AuthorizationOptions,
   OAuthCallbackResult,
-  
+
   // Events
   AuthEventType,
   AuthEvent,
   AuthEventListener,
-  
+
   // Utilities
   DeepPartial,
   Nullable,
-  
+
   // Re-exports from shared
   EnhancedJwtPayload,
   TokenResponse,
 } from './types';
+
+
