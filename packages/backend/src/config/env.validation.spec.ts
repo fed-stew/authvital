@@ -18,7 +18,7 @@ describe("env.validation", () => {
   it("passes with required vars and warns when SendGrid key is missing", () => {
     process.env.BASE_URL = "https://idp.example.com";
     process.env.DATABASE_URL = "postgres://db";
-    process.env.SIGNING_KEY_SECRET = "secret";
+    process.env.MASTER_SECRET = "secret";
     process.env.PORT = "3000";
 
     expect(() => validateEnv()).not.toThrow();
@@ -35,7 +35,7 @@ describe("env.validation", () => {
 
     delete process.env.BASE_URL;
     delete process.env.DATABASE_URL;
-    delete process.env.SIGNING_KEY_SECRET;
+    delete process.env.MASTER_SECRET;
     delete process.env.PORT;
 
     validateEnv();
@@ -51,7 +51,7 @@ describe("env.validation", () => {
 
     process.env.BASE_URL = "not-a-url";
     process.env.DATABASE_URL = "postgres://db";
-    process.env.SIGNING_KEY_SECRET = "secret";
+    process.env.MASTER_SECRET = "secret";
     process.env.PORT = "3000";
 
     validateEnv();
@@ -68,7 +68,7 @@ describe("env.validation", () => {
 
     process.env.BASE_URL = "https://idp.example.com";
     process.env.DATABASE_URL = "postgres://db";
-    process.env.SIGNING_KEY_SECRET = "secret";
+    process.env.MASTER_SECRET = "secret";
     process.env.PORT = "abc";
 
     validateEnv();
@@ -85,7 +85,7 @@ describe("env.validation", () => {
 
     process.env.BASE_URL = "https://idp.example.com";
     process.env.DATABASE_URL = "postgres://db";
-    process.env.SIGNING_KEY_SECRET = "secret";
+    process.env.MASTER_SECRET = "secret";
     process.env.PORT = "3000";
     process.env.SENDGRID_API_KEY = "sg-key";
     delete process.env.SENDGRID_FROM_EMAIL;
