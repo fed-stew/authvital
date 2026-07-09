@@ -13,7 +13,7 @@ on:
     branches: [main]
 
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: '22'
 
 jobs:
   # ===========================================================================
@@ -269,12 +269,12 @@ jobs:
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION=${GITHUB_REF#refs/tags/v}
             npm version $VERSION --no-git-tag-version --allow-same-version
-            npm publish --tag latest --access public --provenance
+            npm publish --tag latest --access public
           else
             SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
             BUILD_NUM=${{ github.run_number }}
             npm version prerelease --preid="dev.${BUILD_NUM}.${SHORT_SHA}" --no-git-tag-version
-            npm publish --tag dev --access public --provenance
+            npm publish --tag dev --access public
           fi
 
   # ===========================================================================
@@ -333,12 +333,12 @@ jobs:
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION=${GITHUB_REF#refs/tags/v}
             npm version $VERSION --no-git-tag-version --allow-same-version
-            npm publish --tag latest --access public --provenance
+            npm publish --tag latest --access public
           else
             SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
             BUILD_NUM=${{ github.run_number }}
             npm version prerelease --preid="dev.${BUILD_NUM}.${SHORT_SHA}" --no-git-tag-version
-            npm publish --tag dev --access public --provenance
+            npm publish --tag dev --access public
           fi
 
   # ===========================================================================
@@ -397,10 +397,10 @@ jobs:
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION=${GITHUB_REF#refs/tags/v}
             npm version $VERSION --no-git-tag-version --allow-same-version
-            npm publish --tag latest --access public --provenance
+            npm publish --tag latest --access public
           else
             SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
             BUILD_NUM=${{ github.run_number }}
             npm version prerelease --preid="dev.${BUILD_NUM}.${SHORT_SHA}" --no-git-tag-version
-            npm publish --tag dev --access public --provenance
+            npm publish --tag dev --access public
           fi
