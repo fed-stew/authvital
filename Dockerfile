@@ -5,7 +5,7 @@
 # -----------------------------------------------------------------------------
 # Stage 1: Build All Packages
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 
@@ -47,7 +47,7 @@ RUN npm run build -w @authvital/frontend
 # -----------------------------------------------------------------------------
 # Stage 2: Production Image
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS production
+FROM node:24-alpine AS production
 
 # Install OpenSSL for Prisma
 RUN apk add --no-cache openssl
