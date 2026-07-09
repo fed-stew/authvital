@@ -23,7 +23,7 @@ import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { OptionalAuthGuard } from './guards/optional-auth.guard';
 import { AuthenticatedRequest } from './interfaces/auth.interface';
-import { getBaseCookieOptions, getRefreshTokenCookieOptions } from '../common/utils/cookie.utils';
+import { getBaseCookieOptions, getRefreshTokenCookieOptions, getSessionCookieOptions } from '../common/utils/cookie.utils';
 import { OAuthSessionService } from '../oauth/oauth-session.service';
 import { KeyService } from '../oauth/key.service';
 import * as crypto from 'crypto';
@@ -307,8 +307,9 @@ export class AuthController {
     }
 
     console.log(`[Login] Success for ${dto.email}`);
+    res.cookie('idp_session', result.accessToken, getSessionCookieOptions());
 
-    // Handle redirect flows - no access token cookies, just redirect
+    // Handle redirect flows
     if (dto.redirectUri) {
       if (!dto.redirectUri.startsWith('/') || dto.redirectUri.startsWith('//')) {
         throw new BadRequestException('Invalid redirect URI');
@@ -316,16 +317,28 @@ export class AuthController {
       return res.redirect(302, dto.redirectUri);
     }
 
-    let app: { initiateLoginUri: string | null; redirectUris: string[] } | null = null;
+    let app: { clientId: string; initiateLoginUri: string | null; redirectUris: string[] } | null = null;
     if (dto.clientId) {
       app = await this.prisma.application.findUnique({
         where: { clientId: dto.clientId },
-        select: { initiateLoginUri: true, redirectUris: true },
+        select: { clientId: true, initiateLoginUri: true, redirectUris: true },
       });
     }
 
     if (!dto.clientId) {
-      return res.redirect(302, '/auth/app-picker');
+      // Auto-select if only one application exists
+      const activeApps = await this.prisma.application.findMany({
+        where: { isActive: true, initiateLoginUri: { not: null } },
+        select: { clientId: true, initiateLoginUri: true, redirectUris: true },
+        take: 2, // Only need to know if there's more than 1
+      });
+
+      if (activeApps.length === 1) {
+        // Single app — skip app-picker, use this app
+        app = activeApps[0];
+      } else {
+        return res.redirect(302, '/auth/app-picker');
+      }
     }
 
     const user = await this.prisma.user.findUnique({
@@ -354,7 +367,7 @@ export class AuthController {
 
     if (memberships.length > 1) {
       const params = new URLSearchParams();
-      params.set('client_id', dto.clientId);
+      params.set('client_id', app!.clientId);
       return res.redirect(302, `/auth/org-picker?${params.toString()}`);
     }
 
@@ -378,6 +391,7 @@ export class AuthController {
     if (mfaResult.refreshToken) {
       res.cookie('refresh_token', mfaResult.refreshToken, getRefreshTokenCookieOptions());
     }
+    res.cookie('idp_session', result.accessToken, getSessionCookieOptions());
 
     // Calculate expires_in (7 days in seconds - matches JWT expiry)
     const expiresIn = 7 * 24 * 60 * 60;

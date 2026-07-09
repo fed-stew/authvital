@@ -18,3 +18,18 @@ export {
 export {
   type M2MTokenResponse,
 } from './types.js';
+
+export { IntegrationClient } from './integration.js';
+export type {
+  Membership,
+  ApplicationRole,
+  ApplicationRolesResult,
+  TenantRole,
+  Invitation,
+  LicenseHolder,
+  UserLicense,
+  LicenseUsageOverview,
+  SeatCheckResult,
+  PermissionCheckResult,
+  BulkPermissionCheckResult,
+} from './integration.js';

@@ -26,14 +26,14 @@ import { getRefreshTokenCookieOptions } from '../common/utils/cookie.utils';
  * Session management is in OAuthSessionController
  *
  * Authentication Methods:
- * - Authorization Header: All token-bearing requests must include `Authorization: Bearer <token>` header
- * - No Cookie-based Auth: Access tokens are NEVER read from cookies (legacy support removed)
- * - Refresh Token Cookie: Only refresh_token is stored as httpOnly cookie for the split-token flow
+ * - Authorization Header: Token-bearing requests can include `Authorization: Bearer <token>` header
+ * - IDP Session Cookie: The `idp_session` cookie (set during login) is used as fallback for browser redirects
+ * - Refresh Token Cookie: refresh_token is stored as httpOnly cookie for the split-token flow
  *
  * Token Flow:
- * - Access tokens are returned in JSON response body only
+ * - Access tokens are returned in JSON response body
+ * - The IDP session cookie enables authorize flows after browser 302 redirects
  * - Refresh tokens are set as httpOnly, Secure, SameSite=Strict cookies
- * - No auth_token or idp_session cookies are used
  */
 @Controller('oauth')
 export class OAuthController {
@@ -52,8 +52,7 @@ export class OAuthController {
   /**
    * Tenant-Scoped Authorization Endpoint
    *
-   * Requires: Authorization: Bearer <token> header for user session validation
-   * Note: This endpoint does NOT support cookie-based authentication
+   * Requires: Authorization: Bearer <token> header or IDP session cookie for user session validation
    */
   @Get('authorize-tenant')
   async authorizeTenant(
@@ -70,9 +69,10 @@ export class OAuthController {
     @Req() req: Request,
     @Res() res: Response,
   ) {
-    // Extract token from Authorization header only (no cookie fallback)
+    // Extract token from Authorization header, falling back to IDP session cookie
     const authHeader = req.headers.authorization;
-    const authToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : undefined;
+    const authToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7)
+      : (req as any).cookies?.['idp_session'] || undefined;
     const user = authToken ? await this.oauthService.validateJwt(authToken) : null;
 
     if (!user) {
@@ -113,11 +113,11 @@ export class OAuthController {
    * Authorization Endpoint (OIDC)
    *
    * Authentication:
-   * - Standard flow: Requires `Authorization: Bearer <token>` header
+   * - Standard flow: Requires `Authorization: Bearer <token>` header or IDP session cookie
    * - Silent refresh (prompt=none): Returns login_required error if no valid session
    *
-   * No cookie-based authentication is supported. Clients must explicitly provide
-   * the authorization token in the `Authorization: Bearer <token>` request header.
+   * Token is extracted from the Authorization header first, falling back to the
+   * `idp_session` cookie set during login.
    */
   @Get('authorize')
   async authorize(
@@ -136,9 +136,10 @@ export class OAuthController {
   ) {
     const isSilentRefresh = prompt === 'none';
 
-    // Extract token from Authorization header only (no legacy cookie support)
+    // Extract token from Authorization header, falling back to IDP session cookie
     const authHeader = req.headers.authorization;
-    const authToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : undefined;
+    const authToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7)
+      : (req as any).cookies?.['idp_session'] || undefined;
     const user = authToken ? await this.oauthService.validateJwt(authToken) : null;
 
     // Handle silent refresh
@@ -227,7 +228,7 @@ export class OAuthController {
       return res.redirect(finalRedirectUrl.toString());
     } catch (error) {
       if (error instanceof UnauthorizedException) {
-        // No legacy cookie cleanup needed - tokens are header-only
+        // Session expired or invalid - redirect to login
         const frontendUrl = this.configService.get<string>('BASE_URL', 'http://localhost:8000');
         return res.redirect(`${frontendUrl}/auth/login?redirect_uri=${encodeURIComponent(oauthAuthorizeUrl)}`);
       }

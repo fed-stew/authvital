@@ -29,7 +29,7 @@ export class OptionalAuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
-    const token = extractJwt(request);
+    const token = extractJwt(request) || (request as any).cookies?.['idp_session'] || null;
 
     if (!token) {
       // No token - that's fine, user is just not authenticated

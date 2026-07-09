@@ -34,6 +34,9 @@ import {
 } from '../session/index.js';
 import { ServerClient, type ServerClientConfig } from '../client/index.js';
 
+// Web Crypto API types (available in Node 15+ but not in ES2020 lib)
+type WebCryptoKey = Awaited<ReturnType<typeof crypto.subtle.importKey>>;
+
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -58,6 +61,45 @@ export interface AuthVitalContext {
     lastAccessedAt: number;
     rotationCount: number;
   };
+  /** Decoded JWT claims — user identity from the access token */
+  user: AuthVitalUser;
+}
+
+/**
+ * Decoded user identity from the JWT access token.
+ * Standard OIDC claims + AuthVital tenant claims.
+ */
+export interface AuthVitalUser {
+  /** User ID (from JWT `sub` claim) */
+  id: string;
+  /** User email */
+  email: string;
+  /** Given/first name */
+  givenName?: string;
+  /** Family/last name */
+  familyName?: string;
+  /** Display name */
+  displayName?: string;
+  /** Profile picture URL */
+  pictureUrl?: string;
+  /** Current tenant ID */
+  tenantId?: string;
+  /** Current tenant subdomain/slug */
+  tenantSlug?: string;
+  /** Tenant roles (e.g., ['owner', 'admin']) */
+  tenantRoles?: string[];
+  /** Tenant permissions */
+  tenantPermissions?: string[];
+  /** Application roles */
+  appRoles?: string[];
+  /** License info */
+  license?: {
+    type: string;
+    name: string;
+    features: string[];
+  };
+  /** Raw JWT claims for anything not mapped above */
+  [key: string]: unknown;
 }
 
 /**
@@ -230,6 +272,9 @@ export class AuthVitalMiddleware implements NestMiddleware {
       // Create server client with the (potentially refreshed) tokens
       const client = new ServerClient(this.clientConfig, tokens);
 
+      // Decode JWT claims for easy access to user identity
+      const user = this.decodeJwtPayload(tokens.accessToken);
+
       // Attach auth context to request
       req.authVital = {
         accessToken: tokens.accessToken,
@@ -237,6 +282,7 @@ export class AuthVitalMiddleware implements NestMiddleware {
         sessionId: tokens.sessionId,
         client,
         refreshed,
+        user,
         metadata: {
           createdAt: session.metadata.createdAt,
           lastAccessedAt: Date.now(),
@@ -264,6 +310,41 @@ export class AuthVitalMiddleware implements NestMiddleware {
     }
 
     return null;
+  }
+
+  /**
+   * Decode JWT payload without verification (token was already validated by encryption).
+   * The trust model: tokens are stored in AES-256-GCM encrypted cookies —
+   * only our server could have encrypted them, so the JWT content is trustworthy.
+   */
+  private decodeJwtPayload(token: string): AuthVitalUser {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) {
+        return { id: '', email: '' };
+      }
+      // Handle base64url padding
+      const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const padded = base64 + '==='.slice(0, (4 - (base64.length % 4)) % 4);
+      const payload = JSON.parse(Buffer.from(padded, 'base64').toString('utf-8'));
+
+      return {
+        id: payload.sub || '',
+        email: payload.email || '',
+        givenName: payload.given_name || payload.givenName || undefined,
+        familyName: payload.family_name || payload.familyName || undefined,
+        displayName: payload.name || payload.displayName || undefined,
+        pictureUrl: payload.picture || payload.pictureUrl || undefined,
+        tenantId: payload.tenant_id || payload.tenantId || undefined,
+        tenantSlug: payload.tenant_subdomain || payload.tenantSlug || undefined,
+        tenantRoles: payload.tenant_roles || payload.tenantRoles || undefined,
+        tenantPermissions: payload.tenant_permissions || payload.tenantPermissions || undefined,
+        appRoles: payload.app_roles || payload.appRoles || undefined,
+        license: payload.license || undefined,
+      };
+    } catch {
+      return { id: '', email: '' };
+    }
   }
 
   private async performTokenRefresh(
@@ -442,6 +523,205 @@ export class AuthVitalPermissionGuard implements CanActivate {
   }
 }
 
+/**
+ * Lightweight JWT Auth Guard.
+ *
+ * Works with plain JWT cookies or Authorization headers.
+ * Does NOT require AuthVitalMiddleware or SessionStore.
+ * Validates JWT signature via JWKS, then attaches user context to request.
+ *
+ * Use this when your app stores access_token as a plain httpOnly cookie
+ * (e.g., after OAuth callback) rather than using encrypted session cookies.
+ *
+ * @example
+ * ```typescript
+ * // Register as global guard in app.module.ts
+ * {
+ *   provide: APP_GUARD,
+ *   useClass: AuthVitalJwtGuard,
+ * }
+ * ```
+ */
+@Injectable()
+export class AuthVitalJwtGuard implements CanActivate {
+  private jwksUrl: string;
+  private cachedKeys: Map<string, WebCryptoKey> = new Map();
+  private keysLastFetched = 0;
+  private readonly KEY_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+  constructor(
+    @Inject(AUTHVITAL_OPTIONS)
+    private readonly options: AuthVitalModuleOptions,
+  ) {
+    this.jwksUrl = `${options.authVitalHost}/.well-known/jwks.json`;
+  }
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest<RequestWithAuthVital>();
+
+    // Check for @Public() decorator
+    const handler = context.getHandler();
+    const classRef = context.getClass();
+    const isPublic =
+      Reflect.getMetadata('authvital:public', handler) ||
+      Reflect.getMetadata('authvital:public', classRef);
+
+    if (isPublic) {
+      return true;
+    }
+
+    // Skip if middleware already ran (session-based auth)
+    if (request.authVital) {
+      return true;
+    }
+
+    // Extract token from cookie or Authorization header
+    const cookieToken = request.cookies?.['access_token'];
+    const headerAuth = request.headers.authorization;
+    const headerToken = headerAuth?.startsWith('Bearer ') ? headerAuth.substring(7) : undefined;
+    const token = cookieToken || headerToken;
+
+    if (!token) {
+      throw new UnauthorizedException('No authentication token provided');
+    }
+
+    // Decode and verify JWT
+    try {
+      const user = await this.verifyAndDecodeJwt(token);
+
+      // Attach auth context (compatible with @CurrentUser decorator)
+      request.authVital = {
+        accessToken: token,
+        refreshToken: request.cookies?.['refresh_token'] || null,
+        sessionId: '',
+        client: new ServerClient({
+          authVitalHost: this.options.authVitalHost,
+          clientId: this.options.clientId,
+          clientSecret: this.options.clientSecret,
+        }, {
+          accessToken: token,
+          refreshToken: request.cookies?.['refresh_token'] || '',
+          expiresAt: 0,
+          sessionId: '',
+        }),
+        refreshed: false,
+        user,
+        metadata: {
+          createdAt: 0,
+          lastAccessedAt: Date.now(),
+          rotationCount: 0,
+        },
+      };
+
+      return true;
+    } catch (error) {
+      throw new UnauthorizedException('Invalid or expired token');
+    }
+  }
+
+  private async verifyAndDecodeJwt(token: string): Promise<AuthVitalUser> {
+    // Decode header to get kid
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      throw new Error('Invalid JWT format');
+    }
+
+    const headerBase64 = parts[0].replace(/-/g, '+').replace(/_/g, '/');
+    const headerPadded = headerBase64 + '==='.slice(0, (4 - (headerBase64.length % 4)) % 4);
+    const header = JSON.parse(Buffer.from(headerPadded, 'base64').toString('utf-8'));
+    const kid = header.kid;
+
+    // Get signing key
+    const key = await this.getSigningKey(kid);
+
+    // Verify signature
+    const signatureInput = parts[0] + '.' + parts[1];
+    const signatureBase64 = parts[2].replace(/-/g, '+').replace(/_/g, '/');
+    const signaturePadded = signatureBase64 + '==='.slice(0, (4 - (signatureBase64.length % 4)) % 4);
+    const signature = Buffer.from(signaturePadded, 'base64');
+
+    const valid = await this.verifySignature(key, signatureInput, signature);
+    if (!valid) {
+      throw new Error('Invalid JWT signature');
+    }
+
+    // Decode payload
+    const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const payloadPadded = payloadBase64 + '==='.slice(0, (4 - (payloadBase64.length % 4)) % 4);
+    const payload = JSON.parse(Buffer.from(payloadPadded, 'base64').toString('utf-8'));
+
+    // Check expiration
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) {
+      throw new Error('Token expired');
+    }
+
+    return {
+      id: payload.sub || '',
+      email: payload.email || '',
+      givenName: payload.given_name || payload.givenName || undefined,
+      familyName: payload.family_name || payload.familyName || undefined,
+      displayName: payload.name || payload.displayName || undefined,
+      pictureUrl: payload.picture || payload.pictureUrl || undefined,
+      tenantId: payload.tenant_id || payload.tenantId || undefined,
+      tenantSlug: payload.tenant_subdomain || payload.tenantSlug || undefined,
+      tenantRoles: payload.tenant_roles || payload.tenantRoles || undefined,
+      tenantPermissions: payload.tenant_permissions || payload.tenantPermissions || undefined,
+      appRoles: payload.app_roles || payload.appRoles || undefined,
+      license: payload.license || undefined,
+    };
+  }
+
+  private async getSigningKey(kid: string): Promise<WebCryptoKey> {
+    // Check cache
+    const now = Date.now();
+    if (this.cachedKeys.has(kid) && (now - this.keysLastFetched) < this.KEY_CACHE_TTL) {
+      return this.cachedKeys.get(kid)!;
+    }
+
+    // Fetch JWKS
+    const response = await fetch(this.jwksUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch JWKS: ${response.status}`);
+    }
+
+    const jwks = await response.json() as { keys: Array<{ kid: string; kty: string; n: string; e: string; alg?: string; use?: string }> };
+    this.keysLastFetched = now;
+    this.cachedKeys.clear();
+
+    // Import all keys
+    for (const jwk of jwks.keys) {
+      if (jwk.kty === 'RSA' && (!jwk.use || jwk.use === 'sig')) {
+        const cryptoKey = await crypto.subtle.importKey(
+          'jwk',
+          { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: jwk.alg || 'RS256' },
+          { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+          false,
+          ['verify'],
+        );
+        this.cachedKeys.set(jwk.kid, cryptoKey);
+      }
+    }
+
+    const key = this.cachedKeys.get(kid);
+    if (!key) {
+      throw new Error(`Signing key not found for kid: ${kid}`);
+    }
+
+    return key;
+  }
+
+  private async verifySignature(key: WebCryptoKey, input: string, signature: Buffer): Promise<boolean> {
+    const encoder = new TextEncoder();
+    return crypto.subtle.verify(
+      'RSASSA-PKCS1-v1_5',
+      key,
+      signature,
+      encoder.encode(input),
+    );
+  }
+}
+
 // =============================================================================
 // DECORATORS
 // =============================================================================
@@ -598,13 +878,14 @@ export class AuthVitalModule {
       AuthVitalMiddleware,
       AuthVitalGuard,
       AuthVitalPermissionGuard,
+      AuthVitalJwtGuard,
     ];
 
     return {
       module: AuthVitalModule,
       global: options.isGlobal ?? false,
       providers,
-      exports: [AUTHVITAL_OPTIONS, AUTHVITAL_SESSION_STORE, AuthVitalMiddleware, AuthVitalGuard],
+      exports: [AUTHVITAL_OPTIONS, AUTHVITAL_SESSION_STORE, AuthVitalMiddleware, AuthVitalGuard, AuthVitalJwtGuard],
     };
   }
 
@@ -659,6 +940,7 @@ export class AuthVitalModule {
       AuthVitalMiddleware,
       AuthVitalGuard,
       AuthVitalPermissionGuard,
+      AuthVitalJwtGuard,
     ];
 
     return {
@@ -666,7 +948,7 @@ export class AuthVitalModule {
       global: options.isGlobal ?? false,
       imports: options.imports || [],
       providers,
-      exports: [AUTHVITAL_OPTIONS, AUTHVITAL_SESSION_STORE, AuthVitalMiddleware, AuthVitalGuard],
+      exports: [AUTHVITAL_OPTIONS, AUTHVITAL_SESSION_STORE, AuthVitalMiddleware, AuthVitalGuard, AuthVitalJwtGuard],
     };
   }
 }

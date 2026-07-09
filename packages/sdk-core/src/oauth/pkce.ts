@@ -66,42 +66,28 @@ export async function generateCodeChallenge(verifier: string): Promise<string> {
 /**
  * Generate both PKCE values at once.
  *
- * Convenience function that generates the verifier and challenge together.
+ * Generates the verifier and computes the S256 challenge.
+ * This function is async because SHA-256 hashing uses the Web Crypto API.
  *
- * @returns An object containing both codeVerifier and codeChallenge
+ * @returns A promise resolving to an object containing both codeVerifier and codeChallenge
  *
  * @example
  * ```ts
- * const { codeVerifier, codeChallenge } = generatePKCE();
+ * const { codeVerifier, codeChallenge } = await generatePKCE();
  * // Store codeVerifier for later token exchange
  * // Send codeChallenge with the authorization request
  * ```
  */
-export function generatePKCE(): { codeVerifier: string; codeChallenge: string } {
-  const codeVerifier = generateCodeVerifier();
-  // Note: We don't use async/await here to keep the function synchronous
-  // The caller should await generateCodeChallenge separately if needed
-  return { codeVerifier, codeChallenge: '' }; // codeChallenge will be generated separately
-}
-
-/**
- * Generate PKCE parameters asynchronously.
- *
- * This is the recommended function as it generates both values in one call,
- * handling the async nature of the challenge generation.
- *
- * @returns A promise resolving to an object with codeVerifier and codeChallenge
- *
- * @example
- * ```ts
- * const { codeVerifier, codeChallenge } = await generatePKCEAsync();
- * ```
- */
-export async function generatePKCEAsync(): Promise<{ codeVerifier: string; codeChallenge: string }> {
+export async function generatePKCE(): Promise<{ codeVerifier: string; codeChallenge: string }> {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
   return { codeVerifier, codeChallenge };
 }
+
+/**
+ * @deprecated Use generatePKCE() instead (it's now async by default)
+ */
+export const generatePKCEAsync = generatePKCE;
 
 // =============================================================================
 // BASE64URL ENCODING

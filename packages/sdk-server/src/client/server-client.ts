@@ -8,6 +8,7 @@
 import type { TokenResponse, User } from '@authvital/shared';
 import type { SessionTokens } from '../session/index.js';
 import type { M2MTokenResponse } from './types.js';
+import { IntegrationClient } from './integration.js';
 
 // =============================================================================
 // INTROSPECTION TYPES
@@ -126,7 +127,8 @@ export type TokenRefreshHandler = (tokens: TokenResponse) => void | Promise<void
  * - Machine-to-Machine (M2M) token management via Client Credentials Grant
  */
 export class ServerClient {
-  private readonly config: ServerClientConfig;
+  /** @internal */
+  readonly config: ServerClientConfig;
   private tokens: SessionTokens | null = null;
   private refreshHandler: TokenRefreshHandler | null = null;
   private refreshing = false;
@@ -135,6 +137,26 @@ export class ServerClient {
   // M2M token management
   private m2mToken: { accessToken: string; expiresAt: number; scope: string } | null = null;
   private m2mTokenPromise: Promise<string | null> | null = null;
+
+  // Integration API client (lazy-initialized)
+  private _integration: IntegrationClient | null = null;
+
+  /**
+   * Integration API client for server-to-server operations.
+   * Uses M2M (Client Credentials) authentication automatically.
+   *
+   * @example
+   * ```typescript
+   * const members = await client.integration.listTenantMembers({ tenantId: '...' });
+   * const roles = await client.integration.getApplicationRoles({ clientId: '...' });
+   * ```
+   */
+  get integration(): IntegrationClient {
+    if (!this._integration) {
+      this._integration = new IntegrationClient(this);
+    }
+    return this._integration;
+  }
 
   /**
    * Create a new server client.

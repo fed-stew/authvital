@@ -131,4 +131,28 @@ export {
   type TokenRefreshHandler,
   type M2MTokenResponse,
   type IntrospectionResponse,
+  IntegrationClient,
+  type Membership,
+  type ApplicationRole,
+  type ApplicationRolesResult,
+  type TenantRole,
+  type Invitation,
+  type LicenseHolder,
+  type UserLicense,
+  type LicenseUsageOverview,
+  type SeatCheckResult,
+  type PermissionCheckResult,
+  type BulkPermissionCheckResult,
 } from './client/index.js';
+
+// =============================================================================
+// OAUTH FLOW MODULE
+// =============================================================================
+
+export {
+  OAuthFlow,
+  type OAuthFlowConfig,
+  type StartFlowResult,
+  type TokenResponse,
+  type CallbackResult,
+} from './oauth/index.js';
