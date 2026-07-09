@@ -6,7 +6,7 @@ import * as crypto from 'crypto';
  * Handles encryption/decryption of SSO provider client secrets
  * Uses AES-256-GCM for authenticated encryption
  * 
- * Encryption key is derived from SIGNING_KEY_SECRET with a domain separator,
+ * Encryption key is derived from MASTER_SECRET with a domain separator,
  * ensuring SSO secrets use a different key than JWT signing.
  */
 @Injectable()
@@ -18,13 +18,13 @@ export class SsoEncryptionService {
   private readonly encryptionKey: Buffer;
 
   constructor(private readonly configService: ConfigService) {
-    const signingSecret = this.configService.getOrThrow<string>('SIGNING_KEY_SECRET');
+    const masterSecret = this.configService.getOrThrow<string>('MASTER_SECRET');
 
     // Derive encryption key from signing secret with domain separator
     // This ensures SSO secrets use a different key than JWT signing
     this.encryptionKey = crypto
       .createHash('sha256')
-      .update(signingSecret + ':sso-secrets')
+      .update(masterSecret + ':sso-secrets')
       .digest();
   }
 
