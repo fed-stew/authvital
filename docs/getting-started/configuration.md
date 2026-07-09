@@ -19,18 +19,18 @@
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `SIGNING_KEY_SECRET` | Yes | - | 32-byte hex string (64 chars) for JWT signing |
+| `MASTER_SECRET` | Yes | - | 32-byte hex string (64 chars) — master key for encrypting JWT signing keys, HMAC derivation, and data encryption at rest |
 | `COOKIE_SECURE` | No | `true` in prod | Set HTTPS-only cookies |
 | `KEY_ROTATION_INTERVAL_SECONDS` | No | `604800` | JWT key rotation interval (7 days) |
 
-**Generate a secure signing key:**
+**Generate a secure master secret:**
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 # Output: a1b2c3d4e5f6...
 ```
 
-⚠️ **Warning**: Changing `SIGNING_KEY_SECRET` invalidates all existing tokens and sessions!
+⚠️ **Warning**: Changing `MASTER_SECRET` invalidates all existing tokens and sessions — the stored JWT signing keys can no longer be decrypted.
 
 ### Database (Cloud SQL)
 
@@ -283,7 +283,7 @@ DATABASE_URL=postgresql://authvital:localdev123@localhost:5432/authvital
 BASE_URL=http://localhost:8000
 PORT=8000
 NODE_ENV=development
-SIGNING_KEY_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+MASTER_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 COOKIE_SECURE=false
 SUPER_ADMIN_EMAIL=admin@localhost
 ```
@@ -298,7 +298,7 @@ DB_PASSWORD=<from-secret-manager>
 DB_DATABASE=authvital
 BASE_URL=https://auth.yourcompany.com
 NODE_ENV=production
-SIGNING_KEY_SECRET=<from-secret-manager>
+MASTER_SECRET=<from-secret-manager>
 COOKIE_SECURE=true
 CORS_ORIGINS=https://app.yourcompany.com,https://admin.yourcompany.com
 SENDGRID_API_KEY=<from-secret-manager>
@@ -313,7 +313,7 @@ DATABASE_URL=postgresql://authvital:securepassword@db:5432/authvital
 BASE_URL=https://auth.yourcompany.com
 PORT=8000
 NODE_ENV=production
-SIGNING_KEY_SECRET=<generate-secure-key>
+MASTER_SECRET=<generate-secure-key>
 COOKIE_SECURE=true
 CORS_ORIGINS=https://app.yourcompany.com
 SENDGRID_API_KEY=SG.xxxx

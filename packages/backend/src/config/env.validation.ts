@@ -13,7 +13,7 @@ export interface RequiredEnvVars {
   DATABASE_URL: string;
   
   // Security
-  SIGNING_KEY_SECRET: string;
+  MASTER_SECRET: string;
   
   // Optional but validated if present
   PORT?: string;
@@ -37,7 +37,7 @@ export interface RequiredEnvVars {
 const REQUIRED_ENV_VARS = [
   'BASE_URL',
   'DATABASE_URL', 
-  'SIGNING_KEY_SECRET',
+  'MASTER_SECRET',
   'PORT',
 ] as const;
 

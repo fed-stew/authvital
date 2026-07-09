@@ -88,7 +88,7 @@ PORT=8000
 NODE_ENV=development
 
 # Security (generate a new one!)
-SIGNING_KEY_SECRET=your-32-byte-hex-string-here
+MASTER_SECRET=your-32-byte-hex-string-here
 
 # Cookie (false for local HTTP)
 COOKIE_SECURE=false
@@ -224,8 +224,8 @@ gcloud sql databases create authvital \
 # Database password
 echo -n "your-db-password" | gcloud secrets create DB_PASSWORD --data-file=-
 
-# Signing key
-echo -n "$(openssl rand -hex 32)" | gcloud secrets create SIGNING_KEY_SECRET --data-file=-
+# Master secret (encrypts JWT signing keys at rest)
+echo -n "$(openssl rand -hex 32)" | gcloud secrets create MASTER_SECRET --data-file=-
 
 # SendGrid API key (for emails)
 echo -n "SG.xxx" | gcloud secrets create SENDGRID_API_KEY --data-file=-
@@ -238,7 +238,7 @@ gcloud run jobs create authvital-migration \
   --image=gcr.io/PROJECT_ID/authvital:latest \
   --command="./migrate.sh" \
   --set-cloudsql-instances=PROJECT_ID:REGION:authvital-db \
-  --set-secrets=DB_PASSWORD=DB_PASSWORD:latest,SIGNING_KEY_SECRET=SIGNING_KEY_SECRET:latest \
+  --set-secrets=DB_PASSWORD=DB_PASSWORD:latest,MASTER_SECRET=MASTER_SECRET:latest \
   --set-env-vars="DB_HOST=/cloudsql/PROJECT_ID:REGION:authvital-db,DB_USERNAME=postgres,DB_DATABASE=authvital,BASE_URL=https://auth.yourdomain.com"
 ```
 
@@ -254,7 +254,7 @@ gcloud run jobs execute authvital-migration --wait
 gcloud run deploy authvital \
   --image=gcr.io/PROJECT_ID/authvital:latest \
   --set-cloudsql-instances=PROJECT_ID:REGION:authvital-db \
-  --set-secrets=DB_PASSWORD=DB_PASSWORD:latest,SIGNING_KEY_SECRET=SIGNING_KEY_SECRET:latest \
+  --set-secrets=DB_PASSWORD=DB_PASSWORD:latest,MASTER_SECRET=MASTER_SECRET:latest \
   --set-env-vars="DB_HOST=/cloudsql/PROJECT_ID:REGION:authvital-db,DB_USERNAME=postgres,DB_DATABASE=authvital,BASE_URL=https://auth.yourdomain.com,NODE_ENV=production" \
   --allow-unauthenticated \
   --port=8000
@@ -277,7 +277,7 @@ secrets:
   - name: DATABASE_URL
     secretRef: authvital-secrets
     key: database-url
-  - name: SIGNING_KEY_SECRET
+  - name: MASTER_SECRET
     secretRef: authvital-secrets
     key: signing-key
 
@@ -310,7 +310,7 @@ services:
       BASE_URL: https://auth.yourdomain.com
       NODE_ENV: production
       COOKIE_SECURE: "true"
-      SIGNING_KEY_SECRET: ${SIGNING_KEY_SECRET}
+      MASTER_SECRET: ${MASTER_SECRET}
     depends_on:
       - db
 
@@ -326,7 +326,7 @@ volumes:
 |----------|-------------|--------|
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:pass@host:5432/db` |
 | `BASE_URL` | Public URL of AuthVital | `https://auth.yourdomain.com` |
-| `SIGNING_KEY_SECRET` | 32-byte hex key for JWT signing | `0123456789abcdef...` (64 chars) |
+| `MASTER_SECRET` | 32-byte hex master key (encrypts signing keys at rest) | `0123456789abcdef...` (64 chars) |
 
 ### Optional
 
@@ -419,7 +419,7 @@ npx prisma migrate resolve --rolled-back MIGRATION_NAME
 ### Token Validation Failed
 
 1. Ensure `BASE_URL` matches the issuer in JWTs
-2. Verify `SIGNING_KEY_SECRET` is the same across all instances
+2. Verify `MASTER_SECRET` is the same across all instances (it decrypts the shared signing keys)
 3. Check token hasn't expired
 
 ### CORS Errors

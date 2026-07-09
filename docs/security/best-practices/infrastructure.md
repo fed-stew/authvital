@@ -198,8 +198,8 @@ DB_PASSWORD=long-random-string-32-chars-minimum
 # Rotate signing keys periodically (AuthVital does this automatically)
 KEY_ROTATION_INTERVAL_SECONDS=604800  # 7 days
 
-# ⚠️ Rotating SIGNING_KEY_SECRET invalidates all tokens!
-# Plan for this: users will need to re-login
+# ⚠️ Changing MASTER_SECRET invalidates all tokens!
+# The stored signing keys can no longer be decrypted — users will need to re-login
 ```
 
 ### Webhook Secrets

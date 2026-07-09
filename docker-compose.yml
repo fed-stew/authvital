@@ -116,8 +116,8 @@ services:
       # Set to 'true' when using HTTPS in production
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
 
-      # Security - DO NOT USE DEFAULT IN PRODUCTION
-      SIGNING_KEY_SECRET: "${SIGNING_KEY_SECRET:-}"
+      # Master secret for key encryption - DO NOT USE DEFAULT IN PRODUCTION
+      MASTER_SECRET: "${MASTER_SECRET:-}"
 
       # CORS - includes localhost:8080 for local docker-compose dev by default
       # Add additional origins as comma-separated list

@@ -5,7 +5,7 @@ import * as crypto from 'crypto';
 /**
  * KeyEncryptionService: Encrypts/decrypts private keys using AES-256-GCM
  * 
- * Uses SIGNING_KEY_SECRET environment variable as the Master Key (KEK).
+ * Uses MASTER_SECRET environment variable as the Master Key (KEK).
  * Format: iv:authTag:encryptedContent (stored as single string)
  * 
  * SECURITY: Never logs private keys or master key!
@@ -22,13 +22,13 @@ export class KeyEncryptionService implements OnModuleInit {
   constructor(private readonly configService: ConfigService) {}
 
   onModuleInit() {
-    // SIGNING_KEY_SECRET is validated at startup - this is a safety check
-    const secret = this.configService.getOrThrow<string>('SIGNING_KEY_SECRET');
+    // MASTER_SECRET is validated at startup - this is a safety check
+    const secret = this.configService.getOrThrow<string>('MASTER_SECRET');
 
     // Validate format: must be 64-character hex string (32 bytes)
     if (!/^[a-fA-F0-9]{64}$/.test(secret)) {
       throw new Error(
-        'SIGNING_KEY_SECRET must be a 64-character hex string (32 bytes). ' +
+        'MASTER_SECRET must be a 64-character hex string (32 bytes). ' +
         `Generate one with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
       );
     }

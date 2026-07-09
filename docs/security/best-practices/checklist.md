@@ -13,7 +13,7 @@
 
 ### Authentication
 
-- [ ] Strong `SIGNING_KEY_SECRET` (32+ bytes)
+- [ ] Strong `MASTER_SECRET` (32+ bytes)
 - [ ] Secrets in secret manager, not env files
 - [ ] Client secrets not exposed to browsers
 - [ ] PKCE enabled for all SPAs

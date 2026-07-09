@@ -1,7 +1,7 @@
 /**
  * Signing Key Secret Validation
  *
- * Validates SIGNING_KEY_SECRET meets security requirements at startup:
+ * Validates MASTER_SECRET meets security requirements at startup:
  * - Must be exactly 64 hexadecimal characters (256-bit key)
  * - Must not be a known insecure/test value in production
  * - Must have sufficient entropy (no repeating patterns)
@@ -104,7 +104,7 @@ export interface SecretValidationResult {
 }
 
 /**
- * Validates the SIGNING_KEY_SECRET meets all security requirements.
+ * Validates the MASTER_SECRET meets all security requirements.
  *
  * @param secret - The secret value to validate
  * @param isProduction - Whether we're running in production mode
@@ -121,11 +121,11 @@ export function validateSigningKeySecretValue(
   if (!isValidHexFormat(secret)) {
     if (secret.length !== 64) {
       errors.push(
-        `SIGNING_KEY_SECRET must be exactly 64 hex characters (got ${secret.length})`,
+        `MASTER_SECRET must be exactly 64 hex characters (got ${secret.length})`,
       );
     } else {
       errors.push(
-        'SIGNING_KEY_SECRET contains non-hexadecimal characters',
+        'MASTER_SECRET contains non-hexadecimal characters',
       );
     }
     // Can't do further checks if format is wrong
@@ -137,11 +137,11 @@ export function validateSigningKeySecretValue(
   if (KNOWN_INSECURE_VALUES.has(lowerSecret)) {
     if (isProduction) {
       errors.push(
-        'SIGNING_KEY_SECRET is a known insecure test value - generate a real secret!',
+        'MASTER_SECRET is a known insecure test value - generate a real secret!',
       );
     } else {
       warnings.push(
-        'SIGNING_KEY_SECRET is a known insecure test value - do NOT use in production',
+        'MASTER_SECRET is a known insecure test value - do NOT use in production',
       );
     }
   }
@@ -150,11 +150,11 @@ export function validateSigningKeySecretValue(
   if (hasRepetitivePattern(secret)) {
     if (isProduction) {
       errors.push(
-        'SIGNING_KEY_SECRET has a repeating pattern - use a random value!',
+        'MASTER_SECRET has a repeating pattern - use a random value!',
       );
     } else {
       warnings.push(
-        'SIGNING_KEY_SECRET has a repeating pattern - not suitable for production',
+        'MASTER_SECRET has a repeating pattern - not suitable for production',
       );
     }
   }
@@ -166,11 +166,11 @@ export function validateSigningKeySecretValue(
 
   if (isProduction && entropy < MIN_ENTROPY_PRODUCTION) {
     errors.push(
-      `SIGNING_KEY_SECRET has low entropy (${entropy.toFixed(2)} bits) - use a cryptographically random value`,
+      `MASTER_SECRET has low entropy (${entropy.toFixed(2)} bits) - use a cryptographically random value`,
     );
   } else if (!isProduction && entropy < MIN_ENTROPY_DEVELOPMENT) {
     warnings.push(
-      `SIGNING_KEY_SECRET has low entropy (${entropy.toFixed(2)} bits) - not suitable for production`,
+      `MASTER_SECRET has low entropy (${entropy.toFixed(2)} bits) - not suitable for production`,
     );
   }
 
@@ -183,15 +183,15 @@ export function validateSigningKeySecretValue(
 }
 
 /**
- * Validates SIGNING_KEY_SECRET from environment and exits if invalid.
+ * Validates MASTER_SECRET from environment and exits if invalid.
  * Call this after validateEnv() in your startup sequence.
  */
 export function validateSigningKeySecret(): void {
-  const secret = process.env.SIGNING_KEY_SECRET;
+  const secret = process.env.MASTER_SECRET;
 
   // Should already be validated by validateEnv(), but be defensive
   if (!secret) {
-    console.error('FATAL: SIGNING_KEY_SECRET is not set');
+    console.error('FATAL: MASTER_SECRET is not set');
     process.exit(1);
   }
 
@@ -209,7 +209,7 @@ export function validateSigningKeySecret(): void {
 
   // Print errors and exit
   if (!result.valid) {
-    console.error('\nFATAL: Invalid SIGNING_KEY_SECRET:');
+    console.error('\nFATAL: Invalid MASTER_SECRET:');
     console.error('='.repeat(60));
     for (const error of result.errors) {
       console.error(`   ❌ ${error}`);

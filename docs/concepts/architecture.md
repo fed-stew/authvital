@@ -277,10 +277,10 @@ authvital/
 
 ### Key Management
 
-- **Signing Keys**: Ed25519 for JWT signatures
-- **Automatic Rotation**: Keys rotate every 7 days
-- **JWKS Endpoint**: Public keys available at `/.well-known/jwks.json`
-- **Key Encryption**: Sensitive data encrypted at rest
+- **JWT Signing Keys**: Ed25519 key pairs, automatically rotated every 7 days
+- **Master Secret** (`MASTER_SECRET` env var): Root-of-trust key that encrypts the Ed25519 private keys at rest in the database, derives HMAC keys for cookies/CSRF/auth codes, and encrypts sensitive data like OAuth client secrets
+- **JWKS Endpoint**: Public keys available at `/.well-known/jwks.json` — clients validate JWTs against these
+- **Two-Layer Architecture**: JWTs are signed by the rotating Ed25519 keys, NOT by the master secret directly. Changing `MASTER_SECRET` invalidates everything because the stored signing keys can no longer be decrypted
 
 ### MFA Implementation
 
