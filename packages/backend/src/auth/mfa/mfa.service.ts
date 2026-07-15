@@ -21,7 +21,7 @@ export interface MfaVerifyResult {
 /**
  * MFA Service - TOTP-based Multi-Factor Authentication
  * 
- * Uses existing KeyEncryptionService (SIGNING_KEY_SECRET) for encrypting TOTP secrets.
+ * Uses existing KeyEncryptionService (MASTER_SECRET) for encrypting TOTP secrets.
  * Supports both regular users and super admins.
  */
 @Injectable()

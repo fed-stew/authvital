@@ -216,11 +216,11 @@ export class KeyManagerService implements OnModuleInit {
     try {
       decryptedPrivateKey = this.keyEncryption.decrypt(activeKey.privateKey);
     } catch (error: any) {
-      // Decryption failed - likely SIGNING_KEY_SECRET changed
+      // Decryption failed - likely MASTER_SECRET changed
       // This happens in dev when the secret is randomly generated each restart
       this.logger.warn(
         `Failed to decrypt key ${activeKey.kid}: ${error.message}. ` +
-          "This usually means SIGNING_KEY_SECRET changed. Generating new key...",
+          "This usually means MASTER_SECRET changed. Generating new key...",
       );
       // Archive the old key and generate a new one
       await this.prisma.signingKey.update({

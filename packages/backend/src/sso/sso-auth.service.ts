@@ -370,7 +370,7 @@ export class SsoAuthService {
    */
   private async generateAccessToken(userId: string): Promise<string> {
     const jwt = await import('jsonwebtoken');
-    const secret = this.configService.getOrThrow<string>('SIGNING_KEY_SECRET');
+    const secret = this.configService.getOrThrow<string>('MASTER_SECRET');
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
