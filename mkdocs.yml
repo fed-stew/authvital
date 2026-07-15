@@ -8,7 +8,7 @@ site_description: B2B Identity Provider with OAuth 2.0/OIDC, Multi-Tenancy, RBAC
 site_url: https://authvital.readthedocs.io
 
 repo_name: authvital
-repo_url: https://github.com/intersparkio/authvital
+repo_url: https://github.com/fed-stew/authvital
 edit_uri: edit/main/docs/
 
 docs_dir: docs

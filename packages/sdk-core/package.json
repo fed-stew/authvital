@@ -97,12 +97,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/intersparkio/authvital",
+    "url": "https://github.com/fed-stew/authvital",
     "directory": "packages/sdk-core"
   },
-  "homepage": "https://github.com/intersparkio/authvital#readme",
+  "homepage": "https://github.com/fed-stew/authvital#readme",
   "bugs": {
-    "url": "https://github.com/intersparkio/authvital/issues"
+    "url": "https://github.com/fed-stew/authvital/issues"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^6.10.0",

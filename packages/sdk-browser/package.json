@@ -68,11 +68,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/intersparkio/authvital",
+    "url": "https://github.com/fed-stew/authvital",
     "directory": "packages/sdk-browser"
   },
-  "homepage": "https://github.com/intersparkio/authvital#readme",
+  "homepage": "https://github.com/fed-stew/authvital#readme",
   "bugs": {
-    "url": "https://github.com/intersparkio/authvital/issues"
+    "url": "https://github.com/fed-stew/authvital/issues"
   }
 }
