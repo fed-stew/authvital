@@ -79,8 +79,8 @@ function App() {
 
   return (
     <AuthVitalProvider
-      authVitalHost={import.meta.env.VITE_AUTHVITAL_HOST}
-      clientId={import.meta.env.VITE_AUTHVITAL_CLIENT_ID}
+      authVitalHost={import.meta.env.VITE_AV_HOST}
+      clientId={import.meta.env.VITE_AV_CLIENT_ID}
       initialUser={initialUser}
       initialTenants={initialTenants}
     >
@@ -152,16 +152,16 @@ function App() {
 
 ```bash
 # .env (Vite)
-VITE_AUTHVITAL_HOST=https://auth.yourapp.com
-VITE_AUTHVITAL_CLIENT_ID=your-client-id
+VITE_AV_HOST=https://auth.yourapp.com
+VITE_AV_CLIENT_ID=your-client-id
 
 # .env (Create React App)
-REACT_APP_AUTHVITAL_HOST=https://auth.yourapp.com
-REACT_APP_AUTHVITAL_CLIENT_ID=your-client-id
+REACT_APP_AV_HOST=https://auth.yourapp.com
+REACT_APP_AV_CLIENT_ID=your-client-id
 
 # .env (Next.js - client-side)
-NEXT_PUBLIC_AUTHVITAL_HOST=https://auth.yourapp.com
-NEXT_PUBLIC_AUTHVITAL_CLIENT_ID=your-client-id
+NEXT_PUBLIC_AV_HOST=https://auth.yourapp.com
+NEXT_PUBLIC_AV_CLIENT_ID=your-client-id
 ```
 
 !!! warning "Security"

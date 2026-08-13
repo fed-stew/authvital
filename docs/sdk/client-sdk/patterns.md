@@ -21,15 +21,15 @@ import { createAuthVital } from '@authvital/sdk/server';
 import { OAuthFlow } from '@authvital/sdk/server';
 
 const authvital = createAuthVital({
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
 });
 
 const oauth = new OAuthFlow({
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
   redirectUri: 'https://yourapp.com/api/auth/callback',
 });
 
@@ -76,15 +76,15 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { serialize } from 'cookie';
 
 const authvital = createAuthVital({
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
 });
 
 const oauth = new OAuthFlow({
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
   redirectUri: 'https://yourapp.com/api/auth/callback',
 });
 

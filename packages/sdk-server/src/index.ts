@@ -39,7 +39,7 @@
  * import { createServerClient } from '@authvital/server';
  *
  * const client = createServerClient({
- *   baseURL: process.env.AUTHVITAL_HOST,
+ *   baseURL: process.env.AV_HOST,
  *   clientId: process.env.CLIENT_ID,
  *   clientSecret: process.env.CLIENT_SECRET,
  *   accessToken: session.accessToken,

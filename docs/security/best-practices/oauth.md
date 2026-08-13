@@ -55,11 +55,11 @@ sessionStorage.removeItem('oauth_state'); // Clean up after validation
 ```bash
 # ✅ Server-side only
 # .env (backend)
-AUTHVITAL_CLIENT_SECRET=secret_xxx
+AV_CLIENT_SECRET=secret_xxx
 
 # ❌ Never in client code
 # .env (frontend) - WRONG!
-VITE_AUTHVITAL_CLIENT_SECRET=secret_xxx  # Exposed in browser!
+VITE_AV_CLIENT_SECRET=secret_xxx  # Exposed in browser!
 ```
 
 ---

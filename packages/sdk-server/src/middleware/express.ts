@@ -98,8 +98,8 @@ export interface RouteOptions {
  * app.use(authVitalMiddleware({
  *   secret: process.env.SESSION_SECRET,
  *   authVitalHost: 'https://auth.example.com',
- *   clientId: process.env.AUTHVITAL_CLIENT_ID,
- *   clientSecret: process.env.AUTHVITAL_CLIENT_SECRET,
+ *   clientId: process.env.AV_CLIENT_ID,
+ *   clientSecret: process.env.AV_CLIENT_SECRET,
  * }));
  *
  * // Access auth context in routes

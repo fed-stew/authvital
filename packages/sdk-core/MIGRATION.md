@@ -317,9 +317,9 @@ const response = await authFetch('/api/data');
 import { createAuthVital } from '@authvital/node';
 
 const authvital = createAuthVital({
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
 });
 
 // JWT validation
@@ -346,16 +346,16 @@ import { createSessionStore } from '@authvital/server/session';
 
 const sessionStore = createSessionStore({
   secret: process.env.SESSION_SECRET!,
-  authVitalHost: process.env.AUTHVITAL_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   isProduction: process.env.NODE_ENV === 'production',
 });
 
 // Apply middleware
 app.use(authVitalMiddleware({
   secret: process.env.SESSION_SECRET!,
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
   publicRoutes: ['/login', '/signup', '/api/public'],
 }));
 
@@ -390,7 +390,7 @@ const app = express();
 // Session store for manual operations
 const sessionStore = createSessionStore({
   secret: process.env.SESSION_SECRET!,
-  authVitalHost: process.env.AUTHVITAL_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   cookie: {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -401,9 +401,9 @@ const sessionStore = createSessionStore({
 // Apply AuthVital middleware to all routes
 app.use(authVitalMiddleware({
   secret: process.env.SESSION_SECRET!,
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
   publicRoutes: ['/login', '/signup', '/auth/callback'],
 }));
 
@@ -412,13 +412,13 @@ app.post('/auth/callback', express.json(), async (req, res) => {
   const { code } = req.body;
   
   // Exchange code for tokens
-  const tokenResponse = await fetch(`${process.env.AUTHVITAL_HOST}/oauth/token`, {
+  const tokenResponse = await fetch(`${process.env.AV_HOST}/oauth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       grant_type: 'authorization_code',
-      client_id: process.env.AUTHVITAL_CLIENT_ID,
-      client_secret: process.env.AUTHVITAL_CLIENT_SECRET,
+      client_id: process.env.AV_CLIENT_ID,
+      client_secret: process.env.AV_CLIENT_SECRET,
       code,
       redirect_uri: `${req.headers.origin}/auth/callback`,
     }),
@@ -481,7 +481,7 @@ import { createSessionStore } from '@authvital/server/session';
 
 const sessionStore = createSessionStore({
   secret: process.env.SESSION_SECRET!, // 32+ character secret
-  authVitalHost: process.env.AUTHVITAL_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   cookie: {
     name: 'authvital_session',    // Cookie name
     httpOnly: true,               // Prevents XSS access
@@ -528,7 +528,7 @@ export function authenticateRequest(req: Request, res: Response, next: NextFunct
   
   // Validate JWT (using JWKS from AuthVital)
   const parser = new JWTParser({
-    jwksUri: `${process.env.AUTHVITAL_HOST}/.well-known/jwks.json`,
+    jwksUri: `${process.env.AV_HOST}/.well-known/jwks.json`,
   });
   
   const result = parser.validate(token);
@@ -705,9 +705,9 @@ import { createAuthMiddleware } from '@authvital/server/middleware';
 
 export default createAuthMiddleware({
   secret: process.env.SESSION_SECRET!,
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
   publicPaths: ['/login', '/signup', '/auth/callback'],
   loginPath: '/login',
 });
@@ -730,17 +730,17 @@ export default async function RootLayout({
 }) {
   const auth = await getServerAuth(cookies(), {
     secret: process.env.SESSION_SECRET!,
-    authVitalHost: process.env.AUTHVITAL_HOST!,
-    clientId: process.env.AUTHVITAL_CLIENT_ID!,
-    clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+    authVitalHost: process.env.AV_HOST!,
+    clientId: process.env.AV_CLIENT_ID!,
+    clientSecret: process.env.AV_CLIENT_SECRET!,
   });
 
   return (
     <html>
       <body>
         <AuthVitalProvider
-          clientId={process.env.AUTHVITAL_CLIENT_ID!}
-          authVitalHost={process.env.AUTHVITAL_HOST!}
+          clientId={process.env.AV_CLIENT_ID!}
+          authVitalHost={process.env.AV_HOST!}
           initialState={{
             isAuthenticated: auth.isAuthenticated,
             user: auth.isAuthenticated ? await auth.client.getCurrentUser() : null,
@@ -764,13 +764,13 @@ export async function POST(request: NextRequest) {
   const { code } = await request.json();
   
   // Exchange code for tokens
-  const tokenRes = await fetch(`${process.env.AUTHVITAL_HOST}/oauth/token`, {
+  const tokenRes = await fetch(`${process.env.AV_HOST}/oauth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       grant_type: 'authorization_code',
-      client_id: process.env.AUTHVITAL_CLIENT_ID,
-      client_secret: process.env.AUTHVITAL_CLIENT_SECRET,
+      client_id: process.env.AV_CLIENT_ID,
+      client_secret: process.env.AV_CLIENT_SECRET,
       code,
       redirect_uri: `${request.headers.get('origin')}/auth/callback`,
     }),
@@ -783,7 +783,7 @@ export async function POST(request: NextRequest) {
   
   setRouteSession(tokens, response, {
     secret: process.env.SESSION_SECRET!,
-    authVitalHost: process.env.AUTHVITAL_HOST!,
+    authVitalHost: process.env.AV_HOST!,
   });
   
   return response;
@@ -814,16 +814,16 @@ app.use(express.json());
 // Session configuration
 const sessionStore = createSessionStore({
   secret: process.env.SESSION_SECRET!,
-  authVitalHost: process.env.AUTHVITAL_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   isProduction: process.env.NODE_ENV === 'production',
 });
 
 // Apply AuthVital middleware
 app.use(authVitalMiddleware({
   secret: process.env.SESSION_SECRET!,
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
   publicRoutes: ['/login', '/signup', '/api/auth/callback', '/api/public'],
 }));
 
@@ -831,13 +831,13 @@ app.use(authVitalMiddleware({
 app.post('/api/auth/callback', async (req, res) => {
   const { code } = req.body;
   
-  const tokenRes = await fetch(`${process.env.AUTHVITAL_HOST}/oauth/token`, {
+  const tokenRes = await fetch(`${process.env.AV_HOST}/oauth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       grant_type: 'authorization_code',
-      client_id: process.env.AUTHVITAL_CLIENT_ID,
-      client_secret: process.env.AUTHVITAL_CLIENT_SECRET,
+      client_id: process.env.AV_CLIENT_ID,
+      client_secret: process.env.AV_CLIENT_SECRET,
       code,
       redirect_uri: req.body.redirectUri,
     }),
@@ -865,9 +865,9 @@ app.post('/api/logout', (req, res) => {
 app.get('/api/admin/users', requireAuth(), async (req, res) => {
   // For M2M calls, create a server client with client credentials
   const adminClient = createServerClient({
-    authVitalHost: process.env.AUTHVITAL_HOST!,
-    clientId: process.env.AUTHVITAL_CLIENT_ID!,
-    clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+    authVitalHost: process.env.AV_HOST!,
+    clientId: process.env.AV_CLIENT_ID!,
+    clientSecret: process.env.AV_CLIENT_SECRET!,
   });
   
   const users = await adminClient.get('/api/admin/users');

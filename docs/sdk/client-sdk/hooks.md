@@ -124,8 +124,8 @@ function MyApp({ Component, pageProps }) {
   
   return (
     <AuthVitalProvider
-      authVitalHost={process.env.NEXT_PUBLIC_AUTHVITAL_HOST!}
-      clientId={process.env.NEXT_PUBLIC_AUTHVITAL_CLIENT_ID!}
+      authVitalHost={process.env.NEXT_PUBLIC_AV_HOST!}
+      clientId={process.env.NEXT_PUBLIC_AV_CLIENT_ID!}
       initialUser={user}
       initialTenants={tenants}
     >

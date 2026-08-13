@@ -70,9 +70,9 @@ const app = express();
 // Initialize AuthVital middleware
 app.use(authVitalMiddleware({
   secret: process.env.SESSION_SECRET!,      // Min 32 chars
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
   publicRoutes: ['/login', '/api/public'],
 }));
 
@@ -93,9 +93,9 @@ import { createAuthMiddleware } from '@authvital/server/nextjs';
 
 export default createAuthMiddleware({
   secret: process.env.SESSION_SECRET!,
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
   publicPaths: ['/login', '/signup'],
   loginPath: '/login',
 });
@@ -113,7 +113,7 @@ import { cookies } from 'next/headers';
 export default async function DashboardPage() {
   const auth = await requireServerAuth(cookies(), {
     secret: process.env.SESSION_SECRET!,
-    authVitalHost: process.env.AUTHVITAL_HOST!,
+    authVitalHost: process.env.AV_HOST!,
     clientId: process.env.CLIENT_ID!,
     clientSecret: process.env.CLIENT_SECRET!,
   }, { loginPath: '/login' });
@@ -133,7 +133,7 @@ import type { GetServerSideProps } from 'next';
 export const getServerSideProps: GetServerSideProps = async (context) => {
   const auth = await getServerSideAuth(context, {
     secret: process.env.SESSION_SECRET!,
-    authVitalHost: process.env.AUTHVITAL_HOST!,
+    authVitalHost: process.env.AV_HOST!,
     clientId: process.env.CLIENT_ID!,
     clientSecret: process.env.CLIENT_SECRET!,
   });
@@ -228,7 +228,7 @@ const app = express();
 // Session store (can be shared across routes)
 const sessionStore = createSessionStore({
   secret: process.env.SESSION_SECRET!,
-  authVitalHost: process.env.AUTHVITAL_HOST!,
+  authVitalHost: process.env.AV_HOST!,
 });
 
 // Apply middleware
@@ -284,9 +284,9 @@ import { createAuthMiddleware } from '@authvital/server/nextjs';
 
 export default createAuthMiddleware({
   secret: process.env.SESSION_SECRET!,
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
   publicPaths: ['/login', '/signup', '/forgot-password'],
   loginPath: '/login',
   cookieOptions: {
@@ -309,7 +309,7 @@ export default async function DashboardPage() {
   // Validates session and auto-refreshes tokens
   const auth = await requireServerAuth(cookies(), {
     secret: process.env.SESSION_SECRET!,
-    authVitalHost: process.env.AUTHVITAL_HOST!,
+    authVitalHost: process.env.AV_HOST!,
     clientId: process.env.CLIENT_ID!,
     clientSecret: process.env.CLIENT_SECRET!,
   }, { loginPath: '/login' });
@@ -335,7 +335,7 @@ import { getRouteAuth } from '@authvital/server/nextjs';
 export async function GET(request: NextRequest) {
   const auth = await getRouteAuth(request, {
     secret: process.env.SESSION_SECRET!,
-    authVitalHost: process.env.AUTHVITAL_HOST!,
+    authVitalHost: process.env.AV_HOST!,
     clientId: process.env.CLIENT_ID!,
     clientSecret: process.env.CLIENT_SECRET!,
   });
@@ -374,7 +374,7 @@ export const getServerSideProps: GetServerSideProps<DashboardProps> = async (
 ) => {
   const auth = await getServerSideAuth(context, {
     secret: process.env.SESSION_SECRET!,
-    authVitalHost: process.env.AUTHVITAL_HOST!,
+    authVitalHost: process.env.AV_HOST!,
     clientId: process.env.CLIENT_ID!,
     clientSecret: process.env.CLIENT_SECRET!,
   });

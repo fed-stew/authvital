@@ -24,7 +24,7 @@ From the AuthVital Admin Panel, create an application and note:
 
 | Credential | Example | Where to find |
 |------------|---------|---------------|
-| `AUTHVITAL_HOST` | `https://auth.yourcompany.com` | Your AuthVital URL |
+| `AV_HOST` | `https://auth.yourcompany.com` | Your AuthVital URL |
 | `CLIENT_ID` | `a1b2c3d4-e5f6-...` | Application → Settings |
 | `CLIENT_SECRET` | `secret_xyz...` | Application → Settings (server only) |
 
@@ -37,9 +37,9 @@ From the AuthVital Admin Panel, create an application and note:
 import { createAuthVital } from '@authvital/sdk/server';
 
 export const authvital = createAuthVital({
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
 });
 ```
 
@@ -122,8 +122,8 @@ import { Dashboard } from './pages/Dashboard';
 export function App() {
   return (
     <AuthVitalProvider
-      authVitalHost={import.meta.env.VITE_AUTHVITAL_HOST}
-      clientId={import.meta.env.VITE_AUTHVITAL_CLIENT_ID}
+      authVitalHost={import.meta.env.VITE_AV_HOST}
+      clientId={import.meta.env.VITE_AV_CLIENT_ID}
     >
       <Dashboard />
     </AuthVitalProvider>
@@ -209,16 +209,16 @@ export function AppRoutes() {
 ### Server (.env)
 
 ```bash
-AUTHVITAL_HOST=https://auth.yourcompany.com
-AUTHVITAL_CLIENT_ID=your-client-id
-AUTHVITAL_CLIENT_SECRET=your-client-secret
+AV_HOST=https://auth.yourcompany.com
+AV_CLIENT_ID=your-client-id
+AV_CLIENT_SECRET=your-client-secret
 ```
 
 ### Client (.env)
 
 ```bash
-VITE_AUTHVITAL_HOST=https://auth.yourcompany.com
-VITE_AUTHVITAL_CLIENT_ID=your-client-id
+VITE_AV_HOST=https://auth.yourcompany.com
+VITE_AV_CLIENT_ID=your-client-id
 # Never expose CLIENT_SECRET to the client!
 ```
 
@@ -239,9 +239,9 @@ app.use(cookieParser());
 app.use(express.json());
 
 const authvital = createAuthVital({
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
 });
 
 // Auth middleware
@@ -320,7 +320,7 @@ Add your frontend origin to "Allowed Web Origins" in your application settings.
 
 ### "Token validation failed"
 
-1. Check `AUTHVITAL_HOST` matches your AuthVital URL exactly
+1. Check `AV_HOST` matches your AuthVital URL exactly
 2. Ensure `CLIENT_ID` and `CLIENT_SECRET` are correct
 3. Verify the JWT hasn't expired
 

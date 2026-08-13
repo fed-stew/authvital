@@ -28,9 +28,9 @@ import { createAuthVital } from '@authvital/sdk/server';
 
 // Configure once at startup
 const authvital = createAuthVital({
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
 });
 
 // Use everywhere
@@ -88,12 +88,12 @@ app.get('/api/protected', async (req, res) => {
 
 ```bash
 # Required
-AUTHVITAL_HOST=https://auth.yourapp.com
-AUTHVITAL_CLIENT_ID=your-client-id
-AUTHVITAL_CLIENT_SECRET=your-client-secret
+AV_HOST=https://auth.yourapp.com
+AV_CLIENT_ID=your-client-id
+AV_CLIENT_SECRET=your-client-secret
 
 # Optional (for OAuth flow)
-AUTHVITAL_REDIRECT_URI=https://yourapp.com/callback
+AV_REDIRECT_URI=https://yourapp.com/callback
 ```
 
 ## Next Steps

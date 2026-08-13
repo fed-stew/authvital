@@ -54,9 +54,9 @@ pnpm add @authvital/sdk
 import { createAuthVital } from '@authvital/sdk/server';
 
 const authvital = createAuthVital({
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
 });
 
 // Validate JWT from incoming request
@@ -79,8 +79,8 @@ import { AuthVitalProvider, useAuth } from '@authvital/sdk/client';
 function App({ initialUser, initialTenants }) {
   return (
     <AuthVitalProvider
-      authVitalHost={import.meta.env.VITE_AUTHVITAL_HOST}
-      clientId={import.meta.env.VITE_AUTHVITAL_CLIENT_ID}
+      authVitalHost={import.meta.env.VITE_AV_HOST}
+      clientId={import.meta.env.VITE_AV_CLIENT_ID}
       initialUser={initialUser}
       initialTenants={initialTenants}
     >
@@ -115,9 +115,9 @@ function MyApp() {
 import { createAuthVital } from '@authvital/sdk/server';
 
 const authvital = createAuthVital({
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
 });
 ```
 
@@ -129,6 +129,8 @@ const authvital = createAuthVital({
 | `clientId` | `string` | Yes | OAuth client ID |
 | `clientSecret` | `string` | Yes | OAuth client secret |
 | `scope` | `string` | No | Default scopes (default: `system:admin`) |
+
+> These `camelCase` options map to the `AV_`-prefixed environment variables. See [Env var ↔ SDK option naming](#env-var--sdk-option-naming).
 
 ---
 
@@ -413,9 +415,9 @@ For server-side OAuth with PKCE:
 import { OAuthFlow } from '@authvital/sdk/server';
 
 const oauth = new OAuthFlow({
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
   redirectUri: 'https://myapp.com/api/auth/callback',
 });
 
@@ -608,6 +610,8 @@ function App({ initialUser, initialTenants }) {
 | `initialUser` | `AuthVitalUser \| null` | No | Pre-loaded user from server |
 | `initialTenants` | `AuthVitalTenant[]` | No | Pre-loaded tenants from server |
 
+> These `camelCase` props map to the `AV_`-prefixed environment variables. See [Env var ↔ SDK option naming](#env-var--sdk-option-naming).
+
 ---
 
 ### useAuth Hook
@@ -751,7 +755,7 @@ import { WebhookRouter, IdentitySyncHandler } from '@authvital/sdk/server';
 
 // Option 1: Use built-in IdentitySyncHandler for database mirroring
 const router = new WebhookRouter({
-  authVitalHost: process.env.AUTHVITAL_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   handler: new IdentitySyncHandler(prisma),
 });
 
@@ -785,7 +789,7 @@ class MyEventHandler extends AuthVitalEventHandler {
 }
 
 const router = new WebhookRouter({
-  authVitalHost: process.env.AUTHVITAL_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   handler: new MyEventHandler(),
 });
 
@@ -880,7 +884,7 @@ import { prisma } from './prisma';
 const syncHandler = new IdentitySyncHandler(prisma);
 
 const router = new WebhookRouter({
-  authVitalHost: process.env.AUTHVITAL_HOST!,
+  authVitalHost: process.env.AV_HOST!,
   handler: syncHandler,
 });
 
@@ -985,15 +989,67 @@ import type {
 
 ## Environment Variables
 
-```bash
-# Required
-AUTHVITAL_HOST=https://auth.yourapp.com
-AUTHVITAL_CLIENT_ID=your-client-id
-AUTHVITAL_CLIENT_SECRET=your-client-secret
+All AuthVital environment variables use the `AV_` prefix. Front-end frameworks add their own public-exposure prefix in front (e.g. `VITE_AV_HOST`, `NEXT_PUBLIC_AV_HOST`, `REACT_APP_AV_HOST`).
 
-# Optional (for OAuth flow)
-AUTHVITAL_REDIRECT_URI=https://yourapp.com/api/auth/callback
+```bash
+# --- Required (server-side) ---
+AV_HOST=https://auth.yourapp.com       # Your AuthVital instance URL
+AV_CLIENT_ID=your-client-id            # OAuth client ID (identifies your app to AuthVital)
+AV_CLIENT_SECRET=your-client-secret    # OAuth client secret (server-side ONLY, never ship to browser)
+
+# --- Required when using the server SDK's session cookies ---
+SESSION_SECRET=your-32-char-min-secret # Encryption key for session cookies (see below)
+
+# --- Optional ---
+AV_REDIRECT_URI=https://yourapp.com/api/auth/callback  # OAuth callback (must match dashboard)
 ```
+
+| Variable | Required | Scope | Purpose |
+| --- | --- | --- | --- |
+| `AV_HOST` | Yes | Server + client | Base URL of your AuthVital instance. JWKS and OAuth endpoints are derived from it. |
+| `AV_CLIENT_ID` | Yes | Server + client | Public OAuth client identifier. Safe to expose to the browser. |
+| `AV_CLIENT_SECRET` | Yes | **Server only** | Authenticates your backend *to AuthVital*. Never expose to the browser. |
+| `SESSION_SECRET` | Server SDK only | **Server only** | Symmetric key the server SDK uses to encrypt/decrypt session cookies. |
+| `AV_REDIRECT_URI` | Optional | Server | OAuth callback URL. Must exactly match the one registered in the dashboard. |
+
+### Env var ↔ SDK option naming
+
+Environment variables use the `AV_` prefix and `SCREAMING_SNAKE_CASE`. The SDK **configuration options** are `camelCase`. They map one-to-one:
+
+| Environment variable | SDK option / prop |
+| --- | --- |
+| `AV_HOST` | `authVitalHost` |
+| `AV_CLIENT_ID` | `clientId` |
+| `AV_CLIENT_SECRET` | `clientSecret` |
+| `AV_REDIRECT_URI` | `redirectUri` |
+
+You wire them together yourself — the SDK does not read `process.env` for you:
+
+```typescript
+const client = createAuthVital({
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
+});
+```
+
+### About `SESSION_SECRET`
+
+`SESSION_SECRET` is **not** an AuthVital credential — that's why it has no `AV_` prefix. It belongs to *your* application. The server SDK (`@authvital/server`) uses it as the **AES-256-GCM encryption key** for the httpOnly session cookie that stores the user's access & refresh tokens (the Backend-for-Frontend pattern).
+
+- **Server-side only.** It never reaches the browser. Only the resulting *encrypted* cookie does — the browser can carry the ciphertext but cannot read it. If this key leaked to the client, an attacker could decrypt every user's tokens.
+- **Minimum 32 characters.** It's a real symmetric encryption key, not just a signing salt. Generate one with `openssl rand -hex 32`.
+- **How it differs from `AV_CLIENT_SECRET`.** `AV_CLIENT_SECRET` proves *your backend to AuthVital*. `SESSION_SECRET` is the key *your backend* uses to protect *its own* cookies. AuthVital never sees it.
+
+```typescript
+import { createSessionStore } from '@authvital/server';
+
+const store = createSessionStore({
+  secret: process.env.SESSION_SECRET!, // 32+ char AES-256-GCM key, server-side only
+});
+```
+
+> **Never commit real secrets.** Add your `.env` file to `.gitignore`.
 
 ---
 

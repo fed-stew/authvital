@@ -424,8 +424,8 @@ app.get('/callback', async (req, res) => {
 
   // Exchange code for tokens (SDK handles PKCE automatically)
   const tokens = await exchangeCodeForTokens({
-    authVitalHost: process.env.AUTHVITAL_HOST!,
-    clientId: process.env.AUTHVITAL_CLIENT_ID!,
+    authVitalHost: process.env.AV_HOST!,
+    clientId: process.env.AV_CLIENT_ID!,
     code: code as string,
     codeVerifier: req.session.pkce_verifier,
     redirectUri: 'https://app.example.com/callback',
@@ -443,8 +443,8 @@ app.get('/callback', async (req, res) => {
 import { refreshAccessToken } from '@authvital/sdk/server';
 
 const newTokens = await refreshAccessToken({
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
   refreshToken: storedRefreshToken,
 });
 
@@ -459,9 +459,9 @@ import { createAuthVital } from '@authvital/sdk/server';
 
 // The SDK handles client_credentials automatically for M2M calls
 const authvital = createAuthVital({
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
 });
 
 // For user-context operations, pass the request (JWT is extracted automatically):

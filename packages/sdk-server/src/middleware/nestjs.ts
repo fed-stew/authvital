@@ -834,8 +834,8 @@ export const RequirePermissions = (...permissions: string[]) =>
  *     AuthVitalModule.forRoot({
  *       secret: process.env.SESSION_SECRET!,
  *       authVitalHost: 'https://auth.example.com',
- *       clientId: process.env.AUTHVITAL_CLIENT_ID!,
- *       clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+ *       clientId: process.env.AV_CLIENT_ID!,
+ *       clientSecret: process.env.AV_CLIENT_SECRET!,
  *       publicRoutes: ['/api/public', '/health'],
  *       isGlobal: true,
  *     }),
@@ -900,9 +900,9 @@ export class AuthVitalModule {
    *   imports: [ConfigModule],
    *   useFactory: async (config: ConfigService) => ({
    *     secret: config.get('SESSION_SECRET'),
-   *     authVitalHost: config.get('AUTHVITAL_HOST'),
-   *     clientId: config.get('AUTHVITAL_CLIENT_ID'),
-   *     clientSecret: config.get('AUTHVITAL_CLIENT_SECRET'),
+   *     authVitalHost: config.get('AV_HOST'),
+   *     clientId: config.get('AV_CLIENT_ID'),
+   *     clientSecret: config.get('AV_CLIENT_SECRET'),
    *     isGlobal: true,
    *   }),
    *   inject: [ConfigService],

@@ -93,9 +93,9 @@ export interface ServerComponentOptions {
  *
  * export default createAuthMiddleware({
  *   secret: process.env.SESSION_SECRET!,
- *   authVitalHost: process.env.AUTHVITAL_HOST!,
- *   clientId: process.env.AUTHVITAL_CLIENT_ID!,
- *   clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+ *   authVitalHost: process.env.AV_HOST!,
+ *   clientId: process.env.AV_CLIENT_ID!,
+ *   clientSecret: process.env.AV_CLIENT_SECRET!,
  *   publicPaths: ['/login', '/signup', '/api/public'],
  *   loginPath: '/login',
  * });
@@ -233,9 +233,9 @@ export function createAuthMiddleware(config: EdgeMiddlewareConfig) {
  * export default async function DashboardPage() {
  *   const auth = await getServerAuth(cookies(), {
  *     secret: process.env.SESSION_SECRET!,
- *     authVitalHost: process.env.AUTHVITAL_HOST!,
- *     clientId: process.env.AUTHVITAL_CLIENT_ID!,
- *     clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+ *     authVitalHost: process.env.AV_HOST!,
+ *     clientId: process.env.AV_CLIENT_ID!,
+ *     clientSecret: process.env.AV_CLIENT_SECRET!,
  *   });
  *
  *   if (!auth.isAuthenticated) {
@@ -336,9 +336,9 @@ export async function getServerAuth(
  * export default async function ProtectedPage() {
  *   const auth = await requireServerAuth(cookies(), {
  *     secret: process.env.SESSION_SECRET!,
- *     authVitalHost: process.env.AUTHVITAL_HOST!,
- *     clientId: process.env.AUTHVITAL_CLIENT_ID!,
- *     clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+ *     authVitalHost: process.env.AV_HOST!,
+ *     clientId: process.env.AV_CLIENT_ID!,
+ *     clientSecret: process.env.AV_CLIENT_SECRET!,
  *   }, { loginPath: '/login' });
  *
  *   // User is authenticated here
@@ -381,9 +381,9 @@ export async function requireServerAuth(
  * export const getServerSideProps: GetServerSideProps = async (context) => {
  *   const auth = await getServerSideAuth(context, {
  *     secret: process.env.SESSION_SECRET!,
- *     authVitalHost: process.env.AUTHVITAL_HOST!,
- *     clientId: process.env.AUTHVITAL_CLIENT_ID!,
- *     clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+ *     authVitalHost: process.env.AV_HOST!,
+ *     clientId: process.env.AV_CLIENT_ID!,
+ *     clientSecret: process.env.AV_CLIENT_SECRET!,
  *   });
  *
  *   if (!auth.isAuthenticated) {
@@ -526,9 +526,9 @@ export async function getServerSideAuth(
  * export async function GET(request: NextRequest) {
  *   const auth = await getRouteAuth(request, {
  *     secret: process.env.SESSION_SECRET!,
- *     authVitalHost: process.env.AUTHVITAL_HOST!,
- *     clientId: process.env.AUTHVITAL_CLIENT_ID!,
- *     clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+ *     authVitalHost: process.env.AV_HOST!,
+ *     clientId: process.env.AV_CLIENT_ID!,
+ *     clientSecret: process.env.AV_CLIENT_SECRET!,
  *   });
  *
  *   if (!auth.isAuthenticated) {
@@ -630,7 +630,7 @@ export async function getRouteAuth(
  *
  *   setRouteSession(tokens, response, {
  *     secret: process.env.SESSION_SECRET!,
- *     authVitalHost: process.env.AUTHVITAL_HOST!,
+ *     authVitalHost: process.env.AV_HOST!,
  *   });
  *
  *   return response;

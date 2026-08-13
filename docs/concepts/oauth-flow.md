@@ -223,8 +223,8 @@ Access tokens expire (default: 1 hour). Use the SDK to refresh tokens:
 import { refreshAccessToken } from '@authvital/sdk/server';
 
 const newTokens = await refreshAccessToken({
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
   refreshToken: storedRefreshToken,
 });
 
@@ -242,9 +242,9 @@ import { createAuthVital } from '@authvital/sdk/server';
 
 // Configure with client secret for M2M
 const authvital = createAuthVital({
-  authVitalHost: process.env.AUTHVITAL_HOST!,
-  clientId: process.env.AUTHVITAL_CLIENT_ID!,
-  clientSecret: process.env.AUTHVITAL_CLIENT_SECRET!,
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
 });
 
 // The SDK automatically uses client_credentials for M2M API calls
