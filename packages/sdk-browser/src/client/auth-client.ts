@@ -29,7 +29,7 @@ import {
   isSessionMonitoring,
   SessionManagerOptions,
 } from './session-management';
-import { generateCSRFState } from '@authvital/core';
+import { generateCSRFState, generatePKCE } from '@authvital/core';
 import { initializeRefresh, performRefresh, ensureValidToken, scheduleProactiveRefresh } from './refresh';
 import { createAxiosInstance, createAuthFetch } from './interceptor';
 import type {
@@ -273,16 +273,22 @@ export class AuthVitalClient {
    *
    * @param options - Authorization options
    */
-  login(options: AuthorizationOptions = {}): void {
+  async login(options: AuthorizationOptions = {}): Promise<void> {
     this.log('Redirecting to login', options);
 
     // Generate and store CSRF state if not provided
     const state = this.prepareCSRFState(options.state);
 
+    // Generate and persist a PKCE verifier; SPAs (public clients) MUST send an
+    // S256 code_challenge on the authorize request. The verifier is stored so
+    // handleCallback() can prove ownership at the /oauth/token exchange.
+    const codeChallenge = await this.preparePKCE();
+
     const url = this.buildAuthorizationUrl({
       ...options,
       screen: options.screen || 'login',
       state,
+      codeChallenge,
     });
 
     if (typeof window !== 'undefined') {
@@ -303,16 +309,20 @@ export class AuthVitalClient {
    *
    * @param options - Authorization options
    */
-  signup(options: AuthorizationOptions = {}): void {
+  async signup(options: AuthorizationOptions = {}): Promise<void> {
     this.log('Redirecting to signup', options);
 
     // Generate and store CSRF state if not provided
     const state = this.prepareCSRFState(options.state);
 
+    // PKCE is required for SPA (public) clients on every authorize request.
+    const codeChallenge = await this.preparePKCE();
+
     const url = this.buildAuthorizationUrl({
       ...options,
       screen: 'signup',
       state,
+      codeChallenge,
     });
 
     if (typeof window !== 'undefined') {
@@ -573,6 +583,59 @@ export class AuthVitalClient {
   private static readonly CSRF_STATE_KEY = 'authvital_oauth_state';
 
   /**
+   * PKCE code_verifier storage key in sessionStorage.
+   * Persisted across the authorize redirect so the callback can send the
+   * verifier on the /oauth/token exchange (RFC 7636).
+   */
+  private static readonly PKCE_VERIFIER_KEY = 'authvital_pkce_verifier';
+
+  /**
+   * Prepare PKCE for the OAuth flow.
+   *
+   * Generates a fresh code_verifier + S256 code_challenge, stores the verifier
+   * in sessionStorage (so it survives the full-page authorize redirect), and
+   * returns the challenge to be appended to the authorize URL.
+   *
+   * SPA / public clients MUST use PKCE, so this runs on every login()/signup().
+   *
+   * @returns The S256 code_challenge for the authorize request
+   */
+  private async preparePKCE(): Promise<string> {
+    const { codeVerifier, codeChallenge } = await generatePKCE();
+
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem(AuthVitalClient.PKCE_VERIFIER_KEY, codeVerifier);
+        this.log('PKCE verifier generated and stored');
+      }
+    } catch (error) {
+      this.log('Failed to store PKCE verifier', { error });
+    }
+
+    return codeChallenge;
+  }
+
+  /**
+   * Retrieve (and clear) the stored PKCE code_verifier for the token exchange.
+   *
+   * @returns The stored verifier, or null if none was stored
+   */
+  private consumePKCEVerifier(): string | null {
+    let verifier: string | null = null;
+
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        verifier = sessionStorage.getItem(AuthVitalClient.PKCE_VERIFIER_KEY);
+        sessionStorage.removeItem(AuthVitalClient.PKCE_VERIFIER_KEY);
+      }
+    } catch (error) {
+      this.log('Failed to read PKCE verifier from storage', { error });
+    }
+
+    return verifier;
+  }
+
+  /**
    * Prepare CSRF state for OAuth flow.
    *
    * If a custom state is provided, it will be used directly (bypassing auto-CSRF).
@@ -683,13 +746,19 @@ export class AuthVitalClient {
    * @param options - Authorization options
    * @returns Authorization URL
    */
-  private buildAuthorizationUrl(options: AuthorizationOptions): string {
+  private buildAuthorizationUrl(options: AuthorizationOptions & { codeChallenge?: string }): string {
     const url = new URL(`${this.config.authVitalHost}/oauth/authorize`);
 
     // Required params
     url.searchParams.set('client_id', this.config.clientId);
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('redirect_uri', this.config.redirectUri || '');
+
+    // Required for SPA (public) clients: PKCE challenge with S256 method.
+    if (options.codeChallenge) {
+      url.searchParams.set('code_challenge', options.codeChallenge);
+      url.searchParams.set('code_challenge_method', 'S256');
+    }
 
     // Required: CSRF state parameter for security
     // State should always be present (either auto-generated or custom)
@@ -753,6 +822,10 @@ export class AuthVitalClient {
     refresh_token?: string;
     scope?: string;
   }> {
+    // Recover the PKCE verifier stored at login() so the server can validate it
+    // against the code_challenge sent on the authorize request (RFC 7636).
+    const codeVerifier = this.consumePKCEVerifier();
+
     const response = await fetch(`${this.config.authVitalHost}/oauth/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -761,6 +834,7 @@ export class AuthVitalClient {
         client_id: this.config.clientId,
         code,
         redirect_uri: this.config.redirectUri,
+        ...(codeVerifier ? { code_verifier: codeVerifier } : {}),
       }),
     });
 

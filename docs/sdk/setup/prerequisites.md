@@ -31,28 +31,33 @@
 
 ## Installation
 
-Install the AuthVital SDK in your project:
+!!! warning "Package names"
+    There is no single `@authvital/sdk` package. AuthVital ships **two** SDK
+    packages: `@authvital/browser` (with React entry `@authvital/browser/react`)
+    and `@authvital/server` (plus the shared `@authvital/core` /
+    `@authvital/shared`). `createAuthVital`, `WebhookRouter`, and
+    `IdentitySyncHandler` **do not exist** — see notes below.
+
+Browser / React app:
 
 ```bash
-# npm
-npm install @authvital/sdk
-
-# yarn
-yarn add @authvital/sdk
-
-# pnpm
-pnpm add @authvital/sdk
+npm install @authvital/browser
 ```
 
-The SDK includes both **server** and **client** modules:
+Server / BFF app:
+
+```bash
+npm install @authvital/server @authvital/core
+```
+
+Real imports:
 
 ```typescript
 // Server-side (Node.js backend)
-import { createAuthVital, OAuthFlow } from '@authvital/sdk/server';
-import { WebhookRouter, IdentitySyncHandler } from '@authvital/sdk/server';
+import { createServerClient, OAuthFlow, verifyToken } from '@authvital/server';
 
 // Client-side (React frontend)
-import { AuthVitalProvider, useAuth } from '@authvital/sdk/client';
+import { AuthVitalProvider, useAuth } from '@authvital/browser/react';
 ```
 
 ---
@@ -86,34 +91,49 @@ SESSION_SECRET=your-super-secret-key-at-least-32-chars
 
 ## SDK Configuration
 
-Create a centralized AuthVital client instance:
+!!! warning "No `createAuthVital()` factory"
+    The real server entry point is `createServerClient()`, which returns a
+    `ServerClient` (with `.integration.*` for M2M calls). See the
+    [Server SDK](../server-sdk/index.md) reference.
+
+Create a centralized server client instance:
 
 ```typescript
 // lib/authvital.ts
-import { createAuthVital } from '@authvital/sdk/server';
+import { createServerClient } from '@authvital/server';
 
 if (!process.env.AV_HOST) throw new Error('AV_HOST is required');
 if (!process.env.AV_CLIENT_ID) throw new Error('AV_CLIENT_ID is required');
 if (!process.env.AV_CLIENT_SECRET) throw new Error('AV_CLIENT_SECRET is required');
 
-export const authvital = createAuthVital({
+export const authvital = createServerClient({
   authVitalHost: process.env.AV_HOST,
   clientId: process.env.AV_CLIENT_ID,
   clientSecret: process.env.AV_CLIENT_SECRET,
 });
 ```
 
-**What this gives you:**
+**What this actually gives you** (verified against
+`packages/sdk-server/src/client`):
 
-| Method | Purpose |
-|--------|--------|
-| `authvital.getCurrentUser(req)` | Soft validation - returns `{ authenticated, user, error }` |
-| `authvital.validateRequest(req)` | Strict validation - throws if not authenticated |
-| `authvital.memberships.*` | Tenant membership operations |
-| `authvital.invitations.*` | Invitation management |
-| `authvital.permissions.*` | Permission checks |
-| `authvital.licenses.*` | License operations |
-| `authvital.sessions.*` | Session management |
+| Member | Purpose |
+|--------|---------|
+| `authvital.integration` | M2M (client-credentials) API: `listTenantMembers`, `checkPermission`, `getUserLicenses`, `sendInvitation`, `setMemberRole`, … Takes explicit params like `{ tenantId }`, **not** an Express `req`. See [Memberships](../server-sdk/namespaces/memberships.md). |
+| `authvital.getClientCredentialsToken()` | Fetch/cache an M2M access token. |
+| `authvital.introspectToken(token?)` / `authvital.revokeToken(...)` | Token introspection / revocation. |
+| `authvital.getCurrentUser()` | `GET /api/users/me` for the client's **own stored** access token — takes **no** `req`, returns `User \| null`. Requires user tokens via `setTokens(...)`. |
+| `authvital.getTenantMemberships()` / `authvital.hasPermission(perm)` | Convenience calls for the client's stored-token user. |
+| `authvital.get/post/put/patch/delete(...)` | Low-level authenticated requests to arbitrary paths. |
+| `authvital.setTokens(...)` / `getTokens()` / `isAuthenticated()` | Manage the tokens the client sends. |
+
+!!! warning "These are NOT on the client"
+    There is **no** `authvital.getCurrentUser(req)` returning
+    `{ authenticated, user, error }`, **no** `authvital.validateRequest(req)`, and
+    **no** fluent `authvital.memberships.*` / `.invitations.*` / `.permissions.*`
+    / `.licenses.*` / `.sessions.*` namespaces. Request/JWT validation is done
+    with the standalone `verifyToken()` / `decodeToken()` functions (see
+    [JWT Validation](../server-sdk/jwt-validation.md)); session cookies are
+    handled by `SessionStore` / `authVitalMiddleware`.
 
 ---
 

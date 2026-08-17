@@ -4,17 +4,24 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import * as bcrypt from 'bcrypt';
-import * as crypto from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AdminRolesService } from './admin-roles.service';
+import {
+  AdminApplicationClientsService,
+  CreateClientInput,
+} from './admin-application-clients.service';
 import { SystemWebhookService } from '../../webhooks/system-webhook.service';
 import { AccessMode } from '@prisma/client';
+import { INTERNAL_APP_SLUG } from '../../auth/internal-client';
 import {
-  validateRedirectUriPattern,
-  validateRedirectUriPatterns,
-  validateSafeUrl,
-} from '../../common/utils/url-validation.utils';
+  APP_INCLUDE,
+  mapAppWithClients,
+  validateBrandingUrls,
+  buildApplicationCreatedPayload,
+  buildApplicationUpdatedPayload,
+  buildApplicationStatusChangedPayload,
+  buildApplicationDeletedPayload,
+} from './admin-applications.helpers';
 
 // ===========================================================================
 // APPLICATION SERVICE
@@ -32,6 +39,7 @@ export class AdminApplicationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly rolesService: AdminRolesService,
+    private readonly clientsService: AdminApplicationClientsService,
     private readonly systemWebhookService: SystemWebhookService,
   ) {}
 
@@ -40,118 +48,63 @@ export class AdminApplicationsService {
   // ===========================================================================
 
   /**
-   * Get all applications in the instance
+   * Map a loaded Application (+clients/roles/licenseTypes) to the container-model
+   * AppWithClients shape. Credentials are exposed EXPLICITLY as a clients[]
+   * array — never flattened to a single "sole client" (app-client-split).
    */
-  async getApplications() {
-    const applications = await this.prisma.application.findMany({
-      include: {
-        _count: {
-          select: { roles: true, licenseTypes: true },
-        },
-        roles: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-            description: true,
-            isDefault: true,
-          },
-          orderBy: { name: 'asc' },
-        },
-        licenseTypes: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-            status: true,
-            features: true,
-            displayOrder: true,
-          },
-          orderBy: { displayOrder: 'asc' },
-        },
-      },
-      orderBy: { name: 'asc' },
-    });
-
-    return applications.map((app) => ({
-      id: app.id,
-      name: app.name,
-      slug: app.slug,
-      description: app.description,
-      clientId: app.clientId,
-      hasClientSecret: !!app.clientSecret,
-      redirectUris: app.redirectUris,
-      postLogoutRedirectUri: app.postLogoutRedirectUris[0] || undefined,
-      accessTokenTtl: app.accessTokenTtl,
-      refreshTokenTtl: app.refreshTokenTtl,
-      isActive: app.isActive,
-      createdAt: app.createdAt,
-      availableFeatures: app.availableFeatures as Array<{
-        key: string;
-        name: string;
-        description?: string;
-      }>,
-      allowMixedLicensing: app.allowMixedLicensing,
-      brandingName: app.brandingName,
-      brandingLogoUrl: app.brandingLogoUrl,
-      brandingIconUrl: app.brandingIconUrl,
-      brandingPrimaryColor: app.brandingPrimaryColor,
-      brandingBackgroundColor: app.brandingBackgroundColor,
-      brandingAccentColor: app.brandingAccentColor,
-      brandingSupportUrl: app.brandingSupportUrl,
-      brandingPrivacyUrl: app.brandingPrivacyUrl,
-      brandingTermsUrl: app.brandingTermsUrl,
-      initiateLoginUri: app.initiateLoginUri,
-      licensingMode: app.licensingMode,
-      accessMode: app.accessMode,
-      defaultLicenseTypeId: app.defaultLicenseTypeId,
-      defaultSeatCount: app.defaultSeatCount,
-      autoProvisionOnSignup: app.autoProvisionOnSignup,
-      autoGrantToOwner: app.autoGrantToOwner,
-      webhookUrl: app.webhookUrl,
-      webhookEnabled: app.webhookEnabled,
-      webhookEvents: app.webhookEvents,
-      licenseTypeCount: app._count.licenseTypes,
-      licenseTypes: app.licenseTypes.map((licenseType) => ({
-        id: licenseType.id,
-        name: licenseType.name,
-        slug: licenseType.slug,
-        status: licenseType.status,
-        features: licenseType.features as Record<string, boolean>,
-        displayOrder: licenseType.displayOrder,
-      })),
-      roleCount: app._count.roles,
-      roles: app.roles.map((r) => ({
-        id: r.id,
-        name: r.name,
-        slug: r.slug,
-        description: r.description,
-        isDefault: r.isDefault,
-      })),
-    }));
+  private toAppWithClients(app: any) {
+    return mapAppWithClients(app, (c) => this.clientsService.toPublicClient(c));
   }
 
   /**
-   * Get a single application by ID
+   * Get all applications in the instance (container + clients[]). The reserved
+   * internal auth-flow container is hidden — it is not a customer application.
+   */
+  async getApplications() {
+    const applications = await this.prisma.application.findMany({
+      where: { slug: { not: INTERNAL_APP_SLUG } },
+      include: APP_INCLUDE,
+      orderBy: { name: 'asc' },
+    });
+    return applications.map((app) => this.toAppWithClients(app));
+  }
+
+  /**
+   * Get a single application by ID (container + clients[]).
    */
   async getApplication(applicationId: string) {
     const app = await this.prisma.application.findUnique({
       where: { id: applicationId },
-      include: {
-        roles: {
-          orderBy: { name: 'asc' },
-        },
-        licenseTypes: {
-          orderBy: { displayOrder: 'asc' },
-        },
-      },
+      include: APP_INCLUDE,
     });
 
-    if (!app) {
+    if (!app || app.slug === INTERNAL_APP_SLUG) {
       throw new NotFoundException('Application not found');
     }
 
-    return app;
+    return this.toAppWithClients(app);
+  }
+
+  /** Reload an application in the AppWithClients shape (post-mutation helper). */
+  private async loadAppWithClients(applicationId: string) {
+    const app = await this.prisma.application.findUnique({
+      where: { id: applicationId },
+      include: APP_INCLUDE,
+    });
+    if (!app) throw new NotFoundException('Application not found');
+    return this.toAppWithClients(app);
+  }
+
+  /**
+   * A representative credential (earliest created) for webhook metadata only.
+   * Not a "sole client" assumption — containers may have multiple credentials.
+   */
+  private firstClient(applicationId: string) {
+    return this.prisma.applicationClient.findFirst({
+      where: { applicationId },
+      orderBy: { createdAt: 'asc' },
+      select: { clientId: true },
+    });
   }
 
   /**
@@ -161,9 +114,6 @@ export class AdminApplicationsService {
     name: string;
     clientId?: string;
     description?: string;
-    redirectUris?: string[];
-    postLogoutRedirectUri?: string;
-    initiateLoginUri?: string;
     availableFeatures?: Array<{ key: string; name: string; description?: string }>;
     allowMixedLicensing?: boolean;
     licensingMode?: 'FREE' | 'PER_SEAT' | 'TENANT_WIDE';
@@ -181,48 +131,21 @@ export class AdminApplicationsService {
     brandingSupportUrl?: string;
     brandingPrivacyUrl?: string;
     brandingTermsUrl?: string;
+    // The FIRST credential to create with the container (SPA or MACHINE).
+    // OPTIONAL: when omitted, only the container is created (zero credentials).
+    client?: CreateClientInput;
   }) {
-    // Validate redirect URIs for security
-    if (data.redirectUris?.length) {
-      const result = validateRedirectUriPatterns(data.redirectUris);
-      if (!result.valid) {
-        throw new BadRequestException(result.error);
-      }
-    }
-
-    // Validate post-logout redirect URI for security
-    if (data.postLogoutRedirectUri) {
-      const result = validateRedirectUriPattern(data.postLogoutRedirectUri);
-      if (!result.valid) {
-        throw new BadRequestException(result.error);
-      }
-    }
+    // Credential (redirect/scope) validation lives in the clients service; it
+    // runs when we create the first credential below.
 
     // Validate branding URLs for security
-    const brandingUrlFields: { name: string; value: string | undefined }[] = [
+    validateBrandingUrls([
       { name: 'brandingLogoUrl', value: data.brandingLogoUrl },
       { name: 'brandingIconUrl', value: data.brandingIconUrl },
       { name: 'brandingSupportUrl', value: data.brandingSupportUrl },
       { name: 'brandingPrivacyUrl', value: data.brandingPrivacyUrl },
       { name: 'brandingTermsUrl', value: data.brandingTermsUrl },
-    ];
-
-    for (const { name: _name, value } of brandingUrlFields) {
-      if (value) {
-        const result = validateSafeUrl(value);
-        if (!result.valid) {
-          throw new BadRequestException(result.error);
-        }
-      }
-    }
-
-    // Validate initiateLoginUri separately (allows {tenant} placeholder)
-    if (data.initiateLoginUri) {
-      const result = validateSafeUrl(data.initiateLoginUri, { allowTenantPlaceholder: true });
-      if (!result.valid) {
-        throw new BadRequestException(result.error);
-      }
-    }
+    ]);
 
     // Validate auto-provision settings
     if (data.autoProvisionOnSignup && !data.defaultLicenseTypeId) {
@@ -266,11 +189,7 @@ export class AdminApplicationsService {
       data: {
         name: data.name,
         slug,
-        clientId: data.clientId || undefined,
         description: data.description,
-        redirectUris: data.redirectUris || [],
-        postLogoutRedirectUris: data.postLogoutRedirectUri ? [data.postLogoutRedirectUri] : [],
-        initiateLoginUri: data.initiateLoginUri,
         availableFeatures: data.availableFeatures || [],
         allowMixedLicensing: data.allowMixedLicensing || false,
         licensingMode: data.licensingMode || 'FREE',
@@ -290,6 +209,23 @@ export class AdminApplicationsService {
         brandingTermsUrl: data.brandingTermsUrl,
       },
     });
+
+    // Create the FIRST OAuth credential (SPA or MACHINE) chosen by the caller.
+    // The clients service validates type-appropriate fields and mints the
+    // one-time MACHINE secret. No <=1-per-type check needed: the app is brand new.
+    // When no credential is supplied, the app is created as an EMPTY container;
+    // credentials are added later on the Credentials tab.
+    let client: Awaited<ReturnType<typeof this.clientsService.createClientRow>>['client'] | null = null;
+    let plaintextSecret: string | undefined;
+    if (data.client) {
+      const created = await this.clientsService.createClientRow(
+        app.id,
+        data.client,
+        data.clientId,
+      );
+      client = created.client;
+      plaintextSecret = created.plaintextSecret;
+    }
 
     // Auto-create "Free" license type for FREE-mode apps
     if ((data.licensingMode || 'FREE') === 'FREE') {
@@ -316,55 +252,14 @@ export class AdminApplicationsService {
     }
 
     // Dispatch application.created event
-    this.systemWebhookService.dispatch('application.created' as any, {
-      application_id: app.id,
-      tenant_id: null,
-      name: app.name,
-      description: app.description,
-      slug: app.slug,
-      client_id: app.clientId,
-      application_type: app.accessMode,
-      is_active: true,
-      created_at: app.createdAt.toISOString(),
-      config: {
-        redirect_uris: app.redirectUris,
-        post_logout_redirect_uris: app.postLogoutRedirectUris,
-        initiate_login_uri: app.initiateLoginUri,
-        access_token_ttl_seconds: app.accessTokenTtl,
-        refresh_token_ttl_seconds: app.refreshTokenTtl,
-      },
-      licensing: {
-        mode: app.licensingMode,
-        allow_mixed: app.allowMixedLicensing,
-        default_seat_count: app.defaultSeatCount,
-        auto_provision_on_signup: app.autoProvisionOnSignup,
-        auto_grant_to_owner: app.autoGrantToOwner,
-      },
-    }).catch((err) => this.logger.warn(`Failed to dispatch application.created event: ${err.message}`));
+    this.systemWebhookService.dispatch(
+      'application.created' as any,
+      buildApplicationCreatedPayload(app, client),
+    ).catch((err) => this.logger.warn(`Failed to dispatch application.created event: ${err.message}`));
 
-    return {
-      id: app.id,
-      name: app.name,
-      slug: app.slug,
-      clientId: app.clientId,
-      redirectUris: app.redirectUris,
-      postLogoutRedirectUri: app.postLogoutRedirectUris[0] || undefined,
-      initiateLoginUri: app.initiateLoginUri,
-      licensingMode: app.licensingMode,
-      defaultLicenseTypeId: app.defaultLicenseTypeId,
-      defaultSeatCount: app.defaultSeatCount,
-      autoProvisionOnSignup: app.autoProvisionOnSignup,
-      autoGrantToOwner: app.autoGrantToOwner,
-      brandingName: app.brandingName,
-      brandingLogoUrl: app.brandingLogoUrl,
-      brandingIconUrl: app.brandingIconUrl,
-      brandingPrimaryColor: app.brandingPrimaryColor,
-      brandingBackgroundColor: app.brandingBackgroundColor,
-      brandingAccentColor: app.brandingAccentColor,
-      brandingSupportUrl: app.brandingSupportUrl,
-      brandingPrivacyUrl: app.brandingPrivacyUrl,
-      brandingTermsUrl: app.brandingTermsUrl,
-    };
+    // Return the container + clients[] plus the one-time MACHINE secret (if any).
+    const appWithClients = await this.loadAppWithClients(app.id);
+    return { ...appWithClients, clientSecret: plaintextSecret };
   }
 
   /**
@@ -375,11 +270,6 @@ export class AdminApplicationsService {
     data: {
       name?: string;
       description?: string;
-      redirectUris?: string[];
-      postLogoutRedirectUri?: string;
-      initiateLoginUri?: string;
-      accessTokenTtl?: number;
-      refreshTokenTtl?: number;
       isActive?: boolean;
       availableFeatures?: Array<{ key: string; name: string; description?: string }>;
       allowMixedLicensing?: boolean;
@@ -403,56 +293,26 @@ export class AdminApplicationsService {
       webhookEvents?: string[];
     },
   ) {
+    // Container-level update ONLY. Credential fields (redirect URIs, TTLs, M2M
+    // authz) are managed via the /applications/:id/clients endpoints — this is
+    // the explicit multi-credential model that replaced the sole-client flatten.
     const app = await this.prisma.application.findUnique({
       where: { id: applicationId },
     });
 
-    if (!app) {
+    if (!app || app.slug === INTERNAL_APP_SLUG) {
       throw new NotFoundException('Application not found');
     }
 
-    // Validate redirect URIs for security
-    if (data.redirectUris?.length) {
-      const result = validateRedirectUriPatterns(data.redirectUris);
-      if (!result.valid) {
-        throw new BadRequestException(result.error);
-      }
-    }
-
-    // Validate post-logout redirect URI for security
-    if (data.postLogoutRedirectUri) {
-      const result = validateRedirectUriPattern(data.postLogoutRedirectUri);
-      if (!result.valid) {
-        throw new BadRequestException(result.error);
-      }
-    }
-
-    // Validate branding URLs for security
-    const brandingUrlFields: { name: string; value: string | null | undefined }[] = [
+    // Validate branding + webhook URLs for security
+    validateBrandingUrls([
       { name: 'brandingLogoUrl', value: data.brandingLogoUrl },
       { name: 'brandingIconUrl', value: data.brandingIconUrl },
       { name: 'brandingSupportUrl', value: data.brandingSupportUrl },
       { name: 'brandingPrivacyUrl', value: data.brandingPrivacyUrl },
       { name: 'brandingTermsUrl', value: data.brandingTermsUrl },
       { name: 'webhookUrl', value: data.webhookUrl },
-    ];
-
-    for (const { name: _name, value } of brandingUrlFields) {
-      if (value) {
-        const result = validateSafeUrl(value);
-        if (!result.valid) {
-          throw new BadRequestException(result.error);
-        }
-      }
-    }
-
-    // Validate initiateLoginUri separately (allows {tenant} placeholder)
-    if (data.initiateLoginUri) {
-      const result = validateSafeUrl(data.initiateLoginUri, { allowTenantPlaceholder: true });
-      if (!result.valid) {
-        throw new BadRequestException(result.error);
-      }
-    }
+    ]);
 
     // Validate auto-provision settings
     const autoProvisionOnSignup = data.autoProvisionOnSignup ?? app.autoProvisionOnSignup;
@@ -476,103 +336,47 @@ export class AdminApplicationsService {
       }
     }
 
-    // Convert postLogoutRedirectUri to array for storage
-    const updateData: Record<string, unknown> = { ...data };
-    if (data.postLogoutRedirectUri !== undefined) {
-      updateData.postLogoutRedirectUris = data.postLogoutRedirectUri
-        ? [data.postLogoutRedirectUri]
-        : [];
-      delete updateData.postLogoutRedirectUri;
-    }
-
     const result = await this.prisma.application.update({
       where: { id: applicationId },
-      data: updateData,
+      data,
     });
 
-    // Build changed_fields and previous_values from the diff
+    // Build changed_fields / previous_values from the container diff.
     const changedFields: string[] = [];
     const previousValues: Record<string, unknown> = {};
-
-    if (data.name !== undefined && data.name !== app.name) {
-      changedFields.push('name');
-      previousValues.name = app.name;
-    }
-    if (data.description !== undefined && data.description !== app.description) {
-      changedFields.push('description');
-      previousValues.description = app.description;
-    }
-    if (data.redirectUris !== undefined) {
-      changedFields.push('config.redirect_uris');
-      previousValues['config.redirect_uris'] = app.redirectUris;
-    }
-    if (data.postLogoutRedirectUri !== undefined) {
-      changedFields.push('config.post_logout_redirect_uris');
-      previousValues['config.post_logout_redirect_uris'] = app.postLogoutRedirectUris;
-    }
-    if (data.initiateLoginUri !== undefined && data.initiateLoginUri !== app.initiateLoginUri) {
-      changedFields.push('config.initiate_login_uri');
-      previousValues['config.initiate_login_uri'] = app.initiateLoginUri;
-    }
-    if (data.accessTokenTtl !== undefined && data.accessTokenTtl !== app.accessTokenTtl) {
-      changedFields.push('config.access_token_ttl_seconds');
-      previousValues['config.access_token_ttl_seconds'] = app.accessTokenTtl;
-    }
-    if (data.refreshTokenTtl !== undefined && data.refreshTokenTtl !== app.refreshTokenTtl) {
-      changedFields.push('config.refresh_token_ttl_seconds');
-      previousValues['config.refresh_token_ttl_seconds'] = app.refreshTokenTtl;
-    }
-    if (data.isActive !== undefined && data.isActive !== app.isActive) {
-      changedFields.push('is_active');
-      previousValues.is_active = app.isActive;
-    }
-    if (data.licensingMode !== undefined && data.licensingMode !== app.licensingMode) {
-      changedFields.push('licensing.mode');
-      previousValues['licensing.mode'] = app.licensingMode;
-    }
-    if (data.accessMode !== undefined && data.accessMode !== app.accessMode) {
-      changedFields.push('access_mode');
-      previousValues.access_mode = app.accessMode;
-    }
-    if (data.webhookUrl !== undefined && data.webhookUrl !== app.webhookUrl) {
-      changedFields.push('webhook_url');
-      previousValues.webhook_url = app.webhookUrl;
-    }
-    if (data.webhookEnabled !== undefined && data.webhookEnabled !== app.webhookEnabled) {
-      changedFields.push('webhook_enabled');
-      previousValues.webhook_enabled = app.webhookEnabled;
-    }
+    const trackChange = (key: string, next: unknown, prev: unknown) => {
+      if (next !== undefined && next !== prev) {
+        changedFields.push(key);
+        previousValues[key] = prev;
+      }
+    };
+    trackChange('name', data.name, app.name);
+    trackChange('description', data.description, app.description);
+    trackChange('is_active', data.isActive, app.isActive);
+    trackChange('licensing.mode', data.licensingMode, app.licensingMode);
+    trackChange('access_mode', data.accessMode, app.accessMode);
+    trackChange('webhook_url', data.webhookUrl, app.webhookUrl);
+    trackChange('webhook_enabled', data.webhookEnabled, app.webhookEnabled);
 
     if (changedFields.length > 0) {
-      this.systemWebhookService.dispatch('application.updated' as any, {
-        application_id: applicationId,
-        tenant_id: null,
-        name: result.name,
-        description: result.description,
-        slug: result.slug,
-        client_id: result.clientId,
-        application_type: result.accessMode,
-        is_active: result.isActive,
-        changed_fields: changedFields,
-        previous_values: previousValues,
-        config: {
-          redirect_uris: result.redirectUris,
-          post_logout_redirect_uris: result.postLogoutRedirectUris,
-          initiate_login_uri: result.initiateLoginUri,
-          access_token_ttl_seconds: result.accessTokenTtl,
-          refresh_token_ttl_seconds: result.refreshTokenTtl,
-        },
-        licensing: {
-          mode: result.licensingMode,
-          allow_mixed: result.allowMixedLicensing,
-          default_seat_count: result.defaultSeatCount,
-          auto_provision_on_signup: result.autoProvisionOnSignup,
-          auto_grant_to_owner: result.autoGrantToOwner,
-        },
-      }).catch((err) => this.logger.warn(`Failed to dispatch application.updated event: ${err.message}`));
+      const firstClient = await this.prisma.applicationClient.findFirst({
+        where: { applicationId },
+        orderBy: { createdAt: 'asc' },
+        select: { clientId: true },
+      });
+      this.systemWebhookService.dispatch(
+        'application.updated' as any,
+        buildApplicationUpdatedPayload({
+          applicationId,
+          result,
+          clientId: firstClient?.clientId,
+          changedFields,
+          previousValues,
+        }),
+      ).catch((err) => this.logger.warn(`Failed to dispatch application.updated event: ${err.message}`));
     }
 
-    return result;
+    return this.loadAppWithClients(applicationId);
   }
 
   /**
@@ -583,7 +387,7 @@ export class AdminApplicationsService {
       where: { id: applicationId },
     });
 
-    if (!app) {
+    if (!app || app.slug === INTERNAL_APP_SLUG) {
       throw new NotFoundException('Application not found');
     }
 
@@ -593,16 +397,19 @@ export class AdminApplicationsService {
       );
     }
 
+    // Representative credential id for the deleted webhook (metadata only).
+    const client = await this.firstClient(applicationId);
+
     await this.prisma.$transaction(async (tx) => {
-      // Revoke all refresh tokens
+      // Revoke all refresh tokens (scoped via the client relation)
       await tx.refreshToken.updateMany({
-        where: { applicationId },
+        where: { applicationClient: { applicationId } },
         data: { revoked: true, revokedAt: new Date() },
       });
 
       // Delete authorization codes
       await tx.authorizationCode.deleteMany({
-        where: { applicationId },
+        where: { applicationClient: { applicationId } },
       });
 
       // Delete orphaned AppAccess records (no cascade relation exists)
@@ -610,21 +417,18 @@ export class AdminApplicationsService {
         where: { applicationId },
       });
 
-      // Delete the application (Prisma cascade handles roles, license types, subscriptions)
+      // Delete the application (Prisma cascade handles clients, roles,
+      // license types, subscriptions)
       await tx.application.delete({ where: { id: applicationId } });
     });
 
     this.logger.log(`Application "${app.name}" (${applicationId}) deleted with all associated data`);
 
     // Dispatch application.deleted event
-    this.systemWebhookService.dispatch('application.deleted' as any, {
-      application_id: applicationId,
-      tenant_id: null,
-      name: app.name,
-      slug: app.slug,
-      client_id: app.clientId,
-      deleted_at: new Date().toISOString(),
-    }).catch((err) => this.logger.warn(`Failed to dispatch application.deleted event: ${err.message}`));
+    this.systemWebhookService.dispatch(
+      'application.deleted' as any,
+      buildApplicationDeletedPayload(app, applicationId, client?.clientId),
+    ).catch((err) => this.logger.warn(`Failed to dispatch application.deleted event: ${err.message}`));
 
     return { success: true, message: 'Application deleted' };
   }
@@ -637,7 +441,7 @@ export class AdminApplicationsService {
       where: { id: applicationId },
     });
 
-    if (!app) {
+    if (!app || app.slug === INTERNAL_APP_SLUG) {
       throw new NotFoundException('Application not found');
     }
 
@@ -645,10 +449,12 @@ export class AdminApplicationsService {
       throw new BadRequestException('Application is already disabled');
     }
 
+    const client = await this.firstClient(applicationId);
+
     const revokedCount = await this.prisma.$transaction(async (tx) => {
       // Revoke tokens FIRST (before setting isActive=false) to close TOCTOU window
       const revoked = await tx.refreshToken.updateMany({
-        where: { applicationId, revoked: false },
+        where: { applicationClient: { applicationId }, revoked: false },
         data: { revoked: true, revokedAt: new Date() },
       });
 
@@ -666,18 +472,10 @@ export class AdminApplicationsService {
     );
 
     // Dispatch webhook (using app loaded before transaction — only isActive changed)
-    this.systemWebhookService.dispatch('application.updated' as any, {
-      application_id: applicationId,
-      tenant_id: null,
-      name: app.name,
-      description: app.description,
-      slug: app.slug,
-      client_id: app.clientId,
-      application_type: app.accessMode,
-      is_active: false,
-      changed_fields: ['is_active'],
-      previous_values: { is_active: true },
-    }).catch((err) => this.logger.warn(`Failed to dispatch application.updated event: ${err.message}`));
+    this.systemWebhookService.dispatch(
+      'application.updated' as any,
+      buildApplicationStatusChangedPayload(app, client?.clientId, false),
+    ).catch((err) => this.logger.warn(`Failed to dispatch application.updated event: ${err.message}`));
 
     return {
       success: true,
@@ -694,7 +492,7 @@ export class AdminApplicationsService {
       where: { id: applicationId },
     });
 
-    if (!app) {
+    if (!app || app.slug === INTERNAL_APP_SLUG) {
       throw new NotFoundException('Application not found');
     }
 
@@ -709,19 +507,13 @@ export class AdminApplicationsService {
 
     this.logger.log(`Application "${app.name}" (${applicationId}) re-enabled.`);
 
+    const client = await this.firstClient(applicationId);
+
     // Dispatch webhook
-    this.systemWebhookService.dispatch('application.updated' as any, {
-      application_id: applicationId,
-      tenant_id: null,
-      name: result.name,
-      description: result.description,
-      slug: result.slug,
-      client_id: result.clientId,
-      application_type: result.accessMode,
-      is_active: true,
-      changed_fields: ['is_active'],
-      previous_values: { is_active: false },
-    }).catch((err) => this.logger.warn(`Failed to dispatch application.updated event: ${err.message}`));
+    this.systemWebhookService.dispatch(
+      'application.updated' as any,
+      buildApplicationStatusChangedPayload(result, client?.clientId, true),
+    ).catch((err) => this.logger.warn(`Failed to dispatch application.updated event: ${err.message}`));
 
     return {
       success: true,
@@ -730,49 +522,10 @@ export class AdminApplicationsService {
   }
 
   // ===========================================================================
-  // CLIENT SECRET MANAGEMENT
+  // CREDENTIAL MANAGEMENT (Delegates to AdminApplicationClientsService)
   // ===========================================================================
-
-  /**
-   * Generate or regenerate client secret for any application
-   */
-  async regenerateClientSecret(applicationId: string): Promise<string> {
-    const app = await this.prisma.application.findUnique({
-      where: { id: applicationId },
-    });
-
-    if (!app) {
-      throw new NotFoundException('Application not found');
-    }
-
-    const secret = crypto.randomBytes(32).toString('hex');
-    const hashedSecret = await bcrypt.hash(secret, 12);
-
-    await this.prisma.application.update({
-      where: { id: applicationId },
-      data: { clientSecret: hashedSecret },
-    });
-
-    return secret;
-  }
-
-  /**
-   * Revoke client secret for an application
-   */
-  async revokeClientSecret(applicationId: string): Promise<void> {
-    const app = await this.prisma.application.findUnique({
-      where: { id: applicationId },
-    });
-
-    if (!app) {
-      throw new NotFoundException('Application not found');
-    }
-
-    await this.prisma.application.update({
-      where: { id: applicationId },
-      data: { clientSecret: null },
-    });
-  }
+  // Secret + M2M-grant management now targets a specific credential by clientId
+  // rather than the app. See AdminApplicationClientsService.
 
   // ===========================================================================
   // ROLE MANAGEMENT (Delegates to AdminRolesService)

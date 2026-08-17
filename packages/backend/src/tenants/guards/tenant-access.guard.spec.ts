@@ -66,18 +66,18 @@ describe("TenantAccessGuard", () => {
     );
   });
 
-  it("attaches tenant, membership, permissions and owner flag when valid", async () => {
+  it("attaches the explicit (de-duped) permissions for a non-owner", async () => {
     const tenant = { id: "t1", name: "Tenant", slug: "tenant" };
     const membership = {
       id: "m1",
       membershipTenantRoles: [
         {
           tenantRole: {
-            slug: "owner",
+            slug: "admin",
             permissions: ["members:invite", "licenses:*"],
           },
         },
-        { tenantRole: { slug: "admin", permissions: ["domains:verify"] } },
+        { tenantRole: { slug: "custom", permissions: ["domains:verify"] } },
       ],
     };
 
@@ -95,6 +95,34 @@ describe("TenantAccessGuard", () => {
       "licenses:*",
       "domains:verify",
     ]);
+    expect(request.isOwner).toBe(false);
+  });
+
+  it("expands an owner to the full permission set (god mode)", async () => {
+    const tenant = { id: "t1", name: "Tenant", slug: "tenant" };
+    const membership = {
+      id: "m1",
+      membershipTenantRoles: [
+        { tenantRole: { slug: "owner", permissions: ["tenant:*"] } },
+      ],
+    };
+
+    mockPrisma.tenant.findUnique.mockResolvedValue(tenant);
+    mockPrisma.membership.findFirst.mockResolvedValue(membership);
+
+    const request: any = { user: { sub: "u1" }, params: { tenantId: "t1" } };
+    const context = createContext(request);
+
+    await expect(guard.canActivate(context as any)).resolves.toBe(true);
     expect(request.isOwner).toBe(true);
+    // The wildcard alone would NOT grant these; expansion must.
+    expect(request.tenantPermissions).toEqual(
+      expect.arrayContaining([
+        "licenses:manage",
+        "licenses:provision",
+        "members:invite",
+        "tenant:delete",
+      ]),
+    );
   });
 });

@@ -182,12 +182,20 @@ export class LicenseCheckService {
         },
       });
 
+      const now = new Date();
       for (const assignment of assignments) {
         const sub = assignment.subscription;
         if (!['ACTIVE', 'TRIALING'].includes(sub.status)) {
           result[assignment.applicationId] = {
             hasLicense: false,
             reason: 'Subscription is no longer active',
+          };
+          continue;
+        }
+        if (sub.currentPeriodEnd <= now) {
+          result[assignment.applicationId] = {
+            hasLicense: false,
+            reason: 'Subscription period has ended',
           };
           continue;
         }
@@ -208,6 +216,7 @@ export class LicenseCheckService {
           tenantId,
           applicationId: { in: tenantWideAppIds },
           status: { in: ['ACTIVE', 'TRIALING'] },
+          currentPeriodEnd: { gt: new Date() }, // Must not be expired
         },
         include: {
           licenseType: {
@@ -303,6 +312,15 @@ export class LicenseCheckService {
       return {
         hasLicense: false,
         reason: 'Subscription is no longer active',
+      };
+    }
+
+    // A PER_SEAT seat is only valid while the subscription period is current.
+    // (FREE/TENANT_WIDE enforce this via the query filter; PER_SEAT must too.)
+    if (assignment.subscription.currentPeriodEnd <= new Date()) {
+      return {
+        hasLicense: false,
+        reason: 'Subscription period has ended',
       };
     }
 

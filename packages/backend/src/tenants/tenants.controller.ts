@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Req,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -14,7 +15,10 @@ import { TenantsService } from './tenants.service';
 import { MfaService } from '../auth/mfa/mfa.service';
 import { CreateTenantDto, UpdateTenantDto } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { TenantAccessGuard } from './guards';
+import { TenantAccessGuard, TenantIdentifierGuard } from './guards';
+import { PermissionGuard } from '../authorization/guards/permission.guard';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
+import { TENANT_PERMISSIONS } from '../authorization/constants';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 /**
@@ -32,7 +36,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
  * - GET /api/tenants/:tenantId/applications - Get tenant's app subscriptions
  */
 @Controller('tenants')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, TenantIdentifierGuard)
 export class TenantsController {
   constructor(
     private readonly tenantsService: TenantsService,
@@ -73,7 +77,8 @@ export class TenantsController {
    * Get tenant details
    */
   @Get(':tenantId')
-  @UseGuards(TenantAccessGuard)
+  @UseGuards(TenantAccessGuard, PermissionGuard)
+  @RequirePermission(TENANT_PERMISSIONS.TENANT_VIEW)
   async getTenant(@Param('tenantId') tenantId: string) {
     return this.tenantsService.getTenant(tenantId);
   }
@@ -83,9 +88,17 @@ export class TenantsController {
    * Get tenant dashboard stats
    */
   @Get(':tenantId/overview')
-  @UseGuards(TenantAccessGuard)
-  async getTenantOverview(@Param('tenantId') tenantId: string) {
-    return this.tenantsService.getTenantOverview(tenantId);
+  @UseGuards(TenantAccessGuard, PermissionGuard)
+  @RequirePermission(TENANT_PERMISSIONS.TENANT_VIEW)
+  async getTenantOverview(@Param('tenantId') tenantId: string, @Req() req: any) {
+    const overview = await this.tenantsService.getTenantOverview(tenantId);
+    // Surface the caller's effective (owner-expanded) tenant permissions so the
+    // portal can gate UI. TenantAccessGuard already resolved these.
+    return {
+      ...overview,
+      permissions: (req.tenantPermissions as string[]) ?? [],
+      isOwner: (req.isOwner as boolean) ?? false,
+    };
   }
 
   /**
@@ -93,12 +106,14 @@ export class TenantsController {
    * Update tenant settings
    */
   @Patch(':tenantId')
-  @UseGuards(TenantAccessGuard)
+  @UseGuards(TenantAccessGuard, PermissionGuard)
+  @RequirePermission(TENANT_PERMISSIONS.TENANT_MANAGE)
   async updateTenant(
     @Param('tenantId') tenantId: string,
     @Body() dto: UpdateTenantDto,
+    @CurrentUser('id') userId: string,
   ) {
-    return this.tenantsService.updateTenant(tenantId, dto);
+    return this.tenantsService.updateTenant(tenantId, dto, userId);
   }
 
   /**
@@ -106,7 +121,8 @@ export class TenantsController {
    * Delete a tenant (requires owner role - checked in service)
    */
   @Delete(':tenantId')
-  @UseGuards(TenantAccessGuard)
+  @UseGuards(TenantAccessGuard, PermissionGuard)
+  @RequirePermission(TENANT_PERMISSIONS.TENANT_DELETE)
   @HttpCode(HttpStatus.OK)
   async deleteTenant(@Param('tenantId') tenantId: string) {
     return this.tenantsService.deleteTenant(tenantId);
@@ -117,7 +133,8 @@ export class TenantsController {
    * Get tenant's app subscriptions
    */
   @Get(':tenantId/applications')
-  @UseGuards(TenantAccessGuard)
+  @UseGuards(TenantAccessGuard, PermissionGuard)
+  @RequirePermission(TENANT_PERMISSIONS.TENANT_VIEW)
   async getTenantApplications(@Param('tenantId') tenantId: string) {
     return this.tenantsService.getTenantApplications(tenantId);
   }
@@ -131,7 +148,8 @@ export class TenantsController {
    * Get the MFA policy for this tenant
    */
   @Get(':tenantId/mfa-policy')
-  @UseGuards(TenantAccessGuard)
+  @UseGuards(TenantAccessGuard, PermissionGuard)
+  @RequirePermission(TENANT_PERMISSIONS.TENANT_VIEW)
   async getMfaPolicy(@Param('tenantId') tenantId: string) {
     return this.mfaService.getTenantMfaPolicy(tenantId);
   }
@@ -142,7 +160,8 @@ export class TenantsController {
    * Requires owner or admin tenant role
    */
   @Patch(':tenantId/mfa-policy')
-  @UseGuards(TenantAccessGuard)
+  @UseGuards(TenantAccessGuard, PermissionGuard)
+  @RequirePermission(TENANT_PERMISSIONS.TENANT_MANAGE)
   @HttpCode(HttpStatus.OK)
   async updateMfaPolicy(
     @Param('tenantId') tenantId: string,
@@ -150,12 +169,13 @@ export class TenantsController {
       policy: 'DISABLED' | 'OPTIONAL' | 'ENCOURAGED' | 'REQUIRED';
       gracePeriodDays?: number;
     },
+    @CurrentUser('id') userId: string,
   ) {
-    // TODO: Add role check for owner/admin once permission guard is ready
     return this.mfaService.updateTenantMfaPolicy(
       tenantId,
       dto.policy,
       dto.gracePeriodDays,
+      userId,
     );
   }
 
@@ -164,7 +184,8 @@ export class TenantsController {
    * Get MFA compliance statistics for this tenant
    */
   @Get(':tenantId/mfa-stats')
-  @UseGuards(TenantAccessGuard)
+  @UseGuards(TenantAccessGuard, PermissionGuard)
+  @RequirePermission(TENANT_PERMISSIONS.TENANT_VIEW)
   async getMfaStats(@Param('tenantId') tenantId: string) {
     return this.mfaService.getTenantMfaStats(tenantId);
   }

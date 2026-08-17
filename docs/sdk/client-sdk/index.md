@@ -1,88 +1,67 @@
 # Client SDK (React)
 
-> React components and hooks for AuthVital authentication.
+> React provider and hooks for AuthVital authentication in Single Page Apps.
 
-The AuthVital Client SDK provides React components and hooks for managing authentication state in your frontend application.
+The AuthVital Client SDK (`@authvital/browser`) is a browser SDK for SPAs. Its
+React integration lives at `@authvital/browser/react` and provides an
+`AuthVitalProvider` plus a set of hooks.
 
 ## Overview
 
 The SDK handles:
 
-- 🔐 **Authentication state management** - Track user login status
-- 👤 **User data access** - Display user info, roles, permissions
-- 🏢 **Multi-tenant support** - Tenant selection and switching
-- 📨 **Invitation flows** - Accept and process team invitations
-- 🚀 **OAuth initiation** - Start login/signup flows that redirect to AuthVital
+-  **Authentication state** — login status, current user, errors
+-  **User data** — decoded from the access token (roles, permissions, license)
+-  **OAuth initiation** — `login()` / `signup()` redirect to AuthVital
+-  **Silent refresh** — automatic background access-token renewal
+-  **Authenticated HTTP** — a ready-to-use Axios instance
 
 ---
 
-## ⚠️ Important: Cookie-Based Authentication
+## Architecture: split-token, not cookie-mirroring
 
-**The Client SDK does NOT call the AuthVital IDP directly!**
+!!! important "How the browser SDK actually stores tokens"
+    `@authvital/browser` talks to the AuthVital IdP **directly** and uses a
+    **split-token** model:
 
-Auth state is managed via **httpOnly cookies** that your server sets. This is **intentional** for XSS protection:
+    - The **access token lives in memory** (a JS closure) — never
+      `localStorage`/`sessionStorage`. It **is** readable from your own code via
+      `useAccessToken()` / `client.getAccessToken()`.
+    - The **refresh token is an httpOnly cookie** set by the IdP — not readable
+      from JS.
 
-```
-┌─────────────┐         ┌─────────────┐         ┌─────────────┐
-│   Browser   │         │ Your Server │         │  AuthVital  │
-│  (Client)   │         │   (API)     │         │    IDP      │
-└──────┬──────┘         └──────┬──────┘         └──────┬──────┘
-       │                       │                       │
-       │  1. Redirect to OAuth │                       │
-       │──────────────────────────────────────────────>│
-       │                       │                       │
-       │  2. OAuth callback with code                  │
-       │<──────────────────────────────────────────────│
-       │                       │                       │
-       │  3. POST code to your server                  │
-       │──────────────────────>│                       │
-       │                       │  4. Exchange code     │
-       │                       │──────────────────────>│
-       │                       │  5. Return JWT        │
-       │                       │<──────────────────────│
-       │                       │                       │
-       │  6. Set httpOnly cookie + return user data    │
-       │<──────────────────────│                       │
-       │                       │                       │
-       │  7. setAuthState(user, tenants)               │
-       │  (Client updates React state)                 │
-       └───────────────────────────────────────────────┘
-```
+    This is different from a BFF/cookie-session setup. If you want the server to
+    hold *all* tokens in an encrypted cookie session, that's the
+    [Server SDK](../server-sdk/index.md) (`@authvital/server`) — the BFF pattern —
+    not this package.
 
-**Key Points:**
-
-- ✅ Tokens are stored in **httpOnly cookies** (set by YOUR server)
-- ✅ JavaScript **cannot access** the actual JWT tokens
-- ✅ Your server verifies JWTs using `getCurrentUser()` from the Server SDK
-- ✅ Server passes user data to client via props or API response
-- ✅ Client updates state via `setAuthState(user, tenants)`
-- ❌ No `getAccessToken()` method - tokens aren't accessible from JS!
+The OAuth callback is handled **client-side** by the SDK
+(`handleCallback()` / `useAuthCallback()`), which exchanges the authorization
+code for tokens.
 
 ---
 
 ## Installation
 
 ```bash
-npm install @authvital/sdk
+npm install @authvital/browser
 ```
+
+`react` / `react-dom` are peer dependencies (only needed for the React entry
+point).
 
 ---
 
 ## Quick Setup
 
 ```tsx
-import { AuthVitalProvider, useAuth } from '@authvital/sdk/client';
+import { AuthVitalProvider, useAuth } from '@authvital/browser/react';
 
 function App() {
-  // initialUser/initialTenants come from your server (SSR props, API call, etc.)
-  const { initialUser, initialTenants } = useServerData();
-
   return (
     <AuthVitalProvider
       authVitalHost={import.meta.env.VITE_AV_HOST}
       clientId={import.meta.env.VITE_AV_CLIENT_ID}
-      initialUser={initialUser}
-      initialTenants={initialTenants}
     >
       <MyApp />
     </AuthVitalProvider>
@@ -90,16 +69,15 @@ function App() {
 }
 
 function MyApp() {
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, isLoading, login, logout } = useAuth();
 
-  if (!isAuthenticated) {
-    return <LoginPage />;
-  }
+  if (isLoading) return <p>Loading…</p>;
+  if (!isAuthenticated) return <button onClick={() => login()}>Sign In</button>;
 
   return (
     <div>
       <p>Welcome, {user?.email}!</p>
-      <button onClick={logout}>Logout</button>
+      <button onClick={() => logout()}>Logout</button>
     </div>
   );
 }
@@ -109,26 +87,20 @@ function MyApp() {
 
 ## AuthVitalProvider
 
-Wrap your app with `AuthVitalProvider` to enable authentication:
-
 ```tsx
-import { AuthVitalProvider } from '@authvital/sdk/client';
+import { AuthVitalProvider } from '@authvital/browser/react';
 
 function App() {
   return (
     <AuthVitalProvider
       authVitalHost="https://auth.yourapp.com"
       clientId="your-client-id"
-      redirectUri="https://yourapp.com/api/auth/callback"  // Optional
-      initialUser={null}                                   // From server
-      initialTenants={[]}                                  // From server
-      onAuthStateChange={(user) => {                       // Optional callback
-        console.log('Auth state changed:', user);
-      }}
+      redirectUri="https://yourapp.com/auth/callback" // optional
+      scope="openid profile email"                     // optional
+      onAuthRequired={() => router.push('/login')}      // optional
+      onLogin={(user) => console.log('logged in', user.email)} // optional
     >
-      <Router>
-        <Routes />
-      </Router>
+      <Routes />
     </AuthVitalProvider>
   );
 }
@@ -136,15 +108,24 @@ function App() {
 
 ### Provider Props
 
+`AuthVitalProviderProps` extends `AuthVitalBrowserConfig`:
+
 | Prop | Type | Required | Description |
 |------|------|----------|-------------|
 | `authVitalHost` | `string` | Yes | AuthVital server URL |
 | `clientId` | `string` | Yes | OAuth client ID |
-| `redirectUri` | `string` | No | OAuth callback URL (default: `/api/auth/callback`) |
-| `scope` | `string` | No | OAuth scopes (default: `openid profile email`) |
-| `initialUser` | `AuthVitalUser \| null` | No | Pre-loaded user from server |
-| `initialTenants` | `AuthVitalTenant[]` | No | Pre-loaded tenants from server |
-| `onAuthStateChange` | `function` | No | Callback when auth state changes |
+| `redirectUri` | `string` | No | OAuth callback URL (default: current origin + `/auth/callback`) |
+| `scope` | `string` | No | OAuth scopes (space-separated) |
+| `debug` | `boolean` | No | Enable debug logging |
+| `onAuthRequired` | `() => void` | No | Called when authentication is required |
+| `onRefreshFailed` | `(error: Error) => void` | No | Called when a token refresh fails |
+| `onLogin` | `(user: AuthUser) => void` | No | Called after successful login |
+| `onLogout` | `() => void` | No | Called after logout |
+| `initialState` | `Partial<AuthState>` | No | Initial state for SSR/hydration |
+
+There is **no** `initialUser`, `initialTenants`, or `onAuthStateChange` prop.
+(For state-change callbacks, use the [`useAuthStateChange`](./hooks.md#useauthstatechange)
+hook.)
 
 ---
 
@@ -155,17 +136,14 @@ function App() {
 VITE_AV_HOST=https://auth.yourapp.com
 VITE_AV_CLIENT_ID=your-client-id
 
-# .env (Create React App)
-REACT_APP_AV_HOST=https://auth.yourapp.com
-REACT_APP_AV_CLIENT_ID=your-client-id
-
-# .env (Next.js - client-side)
+# .env (Next.js — client-side)
 NEXT_PUBLIC_AV_HOST=https://auth.yourapp.com
 NEXT_PUBLIC_AV_CLIENT_ID=your-client-id
 ```
 
 !!! warning "Security"
-    Never expose `CLIENT_SECRET` to the browser! The secret is only used server-side.
+    Never expose `CLIENT_SECRET` to the browser. The browser SDK is a **public
+    client** and uses no secret; the secret is only for the Server SDK.
 
 ---
 
@@ -177,19 +155,20 @@ NEXT_PUBLIC_AV_CLIENT_ID=your-client-id
 
     ---
 
-    useAuth, useOAuth, useInvitation, and helper hooks.
+    `useAuth`, `useProtectedRoute`, `usePermissions`, and the rest.
 
--   :material-view-module:{ .lg .middle } **[Components](./components.md)**
-
-    ---
-
-    ProtectedRoute, SignUpForm, and pre-built UI components.
-
--   :material-code-braces:{ .lg .middle } **[Patterns](./patterns.md)**
+-   :material-view-module:{ .lg .middle } **[Components & Patterns](./components.md)**
 
     ---
 
-    OAuth flow, state management, permission checks, TypeScript types.
+    Route protection, role/permission gating, and small reusable components you
+    build on top of the hooks.
+
+-   :material-code-braces:{ .lg .middle } **[Patterns & Types](./patterns.md)**
+
+    ---
+
+    Callback handling, invitation flow, tenant switching, and TypeScript types.
 
 </div>
 
@@ -197,7 +176,7 @@ NEXT_PUBLIC_AV_CLIENT_ID=your-client-id
 
 ## Next Steps
 
-1. **[Hooks Reference](./hooks.md)** - Learn about useAuth and other hooks
-2. **[Components](./components.md)** - Explore pre-built components
-3. **[Patterns](./patterns.md)** - Common implementation patterns
-4. **[Server SDK](../server-sdk/index.md)** - Server-side token verification
+1. **[Hooks Reference](./hooks.md)** — `useAuth` and friends
+2. **[Components & Patterns](./components.md)** — protecting routes with the hooks
+3. **[Patterns & Types](./patterns.md)** — callbacks, invites, tenant switching
+4. **[Server SDK](../server-sdk/index.md)** — server-side / BFF integration

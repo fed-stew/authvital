@@ -6,6 +6,8 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../../audit/audit.service';
+import { AUDIT_ACTIONS, AUDIT_TARGET_TYPES } from '../../audit/audit-actions';
 import { randomUUID } from 'crypto';
 import * as dns from 'dns';
 
@@ -18,13 +20,16 @@ export class DomainsService {
   private readonly logger = new Logger(DomainsService.name);
   private readonly DNS_TIMEOUT_MS = 10000; // 10 seconds
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+  ) {}
 
   /**
    * Register a new domain for verification
    * Generates a cryptographically secure verification token
    */
-  async registerDomain(tenantId: string, domainName: string) {
+  async registerDomain(tenantId: string, domainName: string, actorUserId?: string) {
     const normalizedDomain = domainName.toLowerCase().trim();
 
     const tenant = await this.prisma.tenant.findUnique({
@@ -83,13 +88,23 @@ export class DomainsService {
       `Domain "${normalizedDomain}" registered for tenant ${tenantId}`,
     );
 
+    // Audit (non-fatal): a new domain was added for verification.
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actorUserId ?? null,
+      action: AUDIT_ACTIONS.DOMAIN_ADDED,
+      targetType: AUDIT_TARGET_TYPES.DOMAIN,
+      targetId: domain.id,
+      metadata: { domainName: normalizedDomain },
+    });
+
     return this.formatDomainResponse(domain);
   }
 
   /**
    * Verify a domain by checking DNS TXT records
    */
-  async verifyDomain(domainId: string) {
+  async verifyDomain(domainId: string, actorUserId?: string) {
     const domain = await this.prisma.domain.findUnique({
       where: { id: domainId },
     });
@@ -144,6 +159,16 @@ export class DomainsService {
 
       this.logger.log(`Domain "${domain.domainName}" verified successfully`);
 
+      // Audit (non-fatal): domain ownership verified.
+      await this.auditService.log({
+        tenantId: domain.tenantId,
+        actorUserId: actorUserId ?? null,
+        action: AUDIT_ACTIONS.DOMAIN_VERIFIED,
+        targetType: AUDIT_TARGET_TYPES.DOMAIN,
+        targetId: domain.id,
+        metadata: { domainName: domain.domainName },
+      });
+
       return {
         success: true,
         message: 'Domain verified successfully!',
@@ -197,7 +222,7 @@ export class DomainsService {
   /**
    * Delete a domain
    */
-  async deleteDomain(domainId: string) {
+  async deleteDomain(domainId: string, actorUserId?: string) {
     const domain = await this.prisma.domain.findUnique({
       where: { id: domainId },
     });
@@ -211,6 +236,16 @@ export class DomainsService {
     });
 
     this.logger.log(`Domain "${domain.domainName}" deleted`);
+
+    // Audit (non-fatal): domain removed from the tenant.
+    await this.auditService.log({
+      tenantId: domain.tenantId,
+      actorUserId: actorUserId ?? null,
+      action: AUDIT_ACTIONS.DOMAIN_REMOVED,
+      targetType: AUDIT_TARGET_TYPES.DOMAIN,
+      targetId: domain.id,
+      metadata: { domainName: domain.domainName },
+    });
 
     return { success: true, message: 'Domain removed successfully' };
   }

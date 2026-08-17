@@ -129,16 +129,27 @@ export class SignupConfigController {
    */
   @Get('application/:clientId')
   async getApplicationByClientId(@Param('clientId') clientId: string) {
-    const app = await this.prisma.application.findUnique({
-      where: { clientId, isActive: true },
-      select: { id: true, clientId: true, name: true, licensingMode: true },
+    // clientId lives on ApplicationClient; name/licensingMode on the container.
+    const client = await this.prisma.applicationClient.findUnique({
+      where: { clientId },
+      select: {
+        clientId: true,
+        application: {
+          select: { id: true, name: true, licensingMode: true, isActive: true },
+        },
+      },
     });
 
-    if (!app) {
+    if (!client || !client.application.isActive) {
       throw new NotFoundException('Application not found');
     }
 
-    return { id: app.id, clientId: app.clientId, name: app.name, licensingMode: app.licensingMode };
+    return {
+      id: client.application.id,
+      clientId: client.clientId,
+      name: client.application.name,
+      licensingMode: client.application.licensingMode,
+    };
   }
 
   /**
@@ -164,10 +175,20 @@ export class SignupConfigController {
     if (pending.applicationId) {
       const app = await this.prisma.application.findUnique({
         where: { id: pending.applicationId, isActive: true },
-        select: { id: true, name: true, clientId: true, licensingMode: true },
+        select: {
+          id: true,
+          name: true,
+          licensingMode: true,
+          clients: {
+            where: { type: 'SPA' },
+            select: { clientId: true },
+            take: 1,
+          },
+        },
       });
       if (app) {
-        application = app;
+        const { clients, ...rest } = app;
+        application = { ...rest, clientId: clients[0]?.clientId ?? null };
       }
     }
 

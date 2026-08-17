@@ -14,42 +14,13 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { useToast } from '@/components/ui/Toast';
 import { InviteUserModal } from './InviteUserModal';
+// Single source of truth: the contract TenantMember matches the real getTenant
+// backend response. Alias to `Member` so existing usages keep working.
+import type { TenantMember as Member } from '@authvital/contracts';
 
 // =============================================================================
 // TYPES
 // =============================================================================
-
-interface Member {
-  id: string; // This IS the membership ID
-  status: 'ACTIVE' | 'SUSPENDED' | 'INVITED';
-  joinedAt: string | null;
-  createdAt: string;
-  user: {
-    id: string;
-    email: string;
-    givenName?: string;
-    familyName?: string;
-    profile?: Record<string, any>;
-  };
-  rolesByApplication: Array<{
-    appId: string;
-    appName: string;
-    roles: Array<{
-      id: string;
-      name: string;
-      slug: string;
-    }>;
-  }>;
-  totalRoles: number;
-  // Tenant roles
-  tenantRoles: Array<{
-    id: string;
-    name: string;
-    slug: string;
-    description?: string;
-    isSystem: boolean;
-  }>;
-}
 
 interface TenantRole {
   id: string;
@@ -241,9 +212,8 @@ export function MembersTab({ tenantId, onRefresh: _onRefresh }: MembersTabProps)
   // Get user display name
   const getUserName = (member: Member) => {
     const user = member.user;
-    // Check direct fields first, then profile
-    const givenName = user.givenName || (user.profile as any)?.givenName;
-    const familyName = user.familyName || (user.profile as any)?.familyName;
+    const givenName = user.givenName;
+    const familyName = user.familyName;
 
     if (givenName && familyName) {
       return `${givenName} ${familyName}`;

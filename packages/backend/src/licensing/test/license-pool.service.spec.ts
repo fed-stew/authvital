@@ -1,6 +1,7 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { LicensePoolService } from "../services/license-pool.service";
 import { PrismaService } from "../../prisma/prisma.service";
+import { AuditService } from "../../audit/audit.service";
 
 // Mock the services before importing them
 jest.mock("../../webhooks/system-webhook.service", () => ({
@@ -68,6 +69,10 @@ describe("LicensePoolService - checkMemberAccess", () => {
             decrementAssignedCount: jest.fn(),
             reconcileAssignedCount: jest.fn(),
           },
+        },
+        {
+          provide: AuditService,
+          useValue: { log: jest.fn().mockResolvedValue(undefined) },
         },
       ],
     }).compile();

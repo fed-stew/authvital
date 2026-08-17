@@ -67,13 +67,13 @@ describe("JwtAuthGuard", () => {
     await expect(guard.canActivate(context)).resolves.toBe(true);
   });
 
-  describe("split-token security - Authorization header only", () => {
-    it("should return 401 when Authorization header is missing", async () => {
+  describe("token extraction - Authorization header or idp_session cookie", () => {
+    it("should return 401 when neither header nor idp_session cookie is present", async () => {
       mockReflector.getAllAndOverride = jest.fn().mockReturnValue(false);
       const { context } = createContext();
 
       await expect(guard.canActivate(context)).rejects.toThrow(
-        new UnauthorizedException("No Authorization header provided"),
+        new UnauthorizedException("No authentication token provided"),
       );
     });
 
@@ -110,7 +110,7 @@ describe("JwtAuthGuard", () => {
       const { context } = createContext({ authorization: "test-token" });
 
       await expect(guard.canActivate(context)).rejects.toThrow(
-        new UnauthorizedException("No Authorization header provided"),
+        new UnauthorizedException("No authentication token provided"),
       );
       expect(mockKeyService.verifyJwt).not.toHaveBeenCalled();
     });
@@ -121,7 +121,7 @@ describe("JwtAuthGuard", () => {
       const { context } = createContext({ authorization: "Basic dXNlcjpwYXNz" });
 
       await expect(guard.canActivate(context)).rejects.toThrow(
-        new UnauthorizedException("No Authorization header provided"),
+        new UnauthorizedException("No authentication token provided"),
       );
       expect(mockKeyService.verifyJwt).not.toHaveBeenCalled();
     });
@@ -132,15 +132,24 @@ describe("JwtAuthGuard", () => {
       const { context } = createContext({ authorization: "Bearer " });
 
       await expect(guard.canActivate(context)).rejects.toThrow(
-        new UnauthorizedException("No Authorization header provided"),
+        new UnauthorizedException("No authentication token provided"),
       );
       expect(mockKeyService.verifyJwt).not.toHaveBeenCalled();
     });
 
-    it("should NOT extract JWT from cookies (split-token security)", async () => {
+    it("should authenticate via the idp_session cookie when no header is present", async () => {
       mockReflector.getAllAndOverride = jest.fn().mockReturnValue(false);
+      mockKeyService.verifyJwt.mockResolvedValue({
+        sub: "user-1",
+        email: "cookie@example.com",
+      });
+      mockAuthService.validateUser.mockResolvedValue({
+        id: "db-user-1",
+        email: "db@example.com",
+      });
 
-      // Simulate a request with cookie but NO Authorization header
+      // The console keeps its access token in the httpOnly idp_session cookie;
+      // after a full page reload that cookie is the only credential available.
       const request: any = {
         cookies: { idp_session: "cookie-token" },
         headers: {},
@@ -156,16 +165,23 @@ describe("JwtAuthGuard", () => {
         getClass: () => clazz,
       } as any;
 
-      await expect(guard.canActivate(context)).rejects.toThrow(
-        new UnauthorizedException("No Authorization header provided"),
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+      expect(mockKeyService.verifyJwt).toHaveBeenCalledWith(
+        "cookie-token",
+        "https://issuer.example.com",
       );
-      expect(mockKeyService.verifyJwt).not.toHaveBeenCalled();
+      expect(request.user).toMatchObject({
+        id: "db-user-1",
+        sub: "user-1",
+        email: "cookie@example.com",
+      });
     });
 
-    it("should NOT extract JWT from super_admin_session cookie (split-token security)", async () => {
+    it("should NOT extract JWT from super_admin_session cookie", async () => {
       mockReflector.getAllAndOverride = jest.fn().mockReturnValue(false);
 
-      // Simulate a request with super_admin_session cookie but NO Authorization header
+      // Simulate a request with super_admin_session cookie but NO Authorization
+      // header and NO idp_session cookie. Only idp_session is trusted here.
       const request: any = {
         cookies: { super_admin_session: "admin-cookie-token" },
         headers: {},
@@ -182,7 +198,7 @@ describe("JwtAuthGuard", () => {
       } as any;
 
       await expect(guard.canActivate(context)).rejects.toThrow(
-        new UnauthorizedException("No Authorization header provided"),
+        new UnauthorizedException("No authentication token provided"),
       );
       expect(mockKeyService.verifyJwt).not.toHaveBeenCalled();
     });

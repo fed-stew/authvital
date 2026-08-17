@@ -15,6 +15,29 @@ AuthVital implements the following OAuth 2.0 / OIDC standards:
 | Token Refresh | ✅ With rotation |
 | Client Credentials | ✅ For M2M |
 
+## One app, one-or-more credentials
+
+Before diving into flows, it helps to know **what issues the tokens**. In
+AuthVital an **Application is a container** (a product) — much like a Microsoft
+Entra *app registration*. `SPA` and `MACHINE` are **not two kinds of app**; they
+are two kinds of **credential** you add to an app:
+
+- A **SPA credential** drives the [Authorization Code + PKCE](#authorization-code-flow-with-pkce)
+  flow for browser user login.
+- A **MACHINE credential** drives the [Client Credentials](#client-credentials-flow-m2m)
+  flow for server-to-server calls.
+
+An app may hold **at most one of each** (≤1 SPA + ≤1 MACHINE). When it holds
+both, you have the canonical **BFF (Backend-for-Frontend)**: **one app** with a
+**SPA login credential** *and* a **MACHINE integration credential**. Both
+credentials sit under the same container — same roles, licensing, and branding —
+but each issues tokens for its own flow (the user token carries the SPA
+`client_id`; the M2M token carries the MACHINE `client_id`).
+
+See [Data Models: ApplicationClient](../reference/data-models.md#applicationclient-credential)
+and [Application Setup](../admin/application-setup.md#the-canonical-example-a-bff-full-stack-app)
+for the full model.
+
 ## Authorization Code Flow with PKCE
 
 This is the recommended flow for Single Page Applications (SPAs) and mobile apps.
@@ -52,12 +75,21 @@ sequenceDiagram
 
 ### Step-by-Step Implementation
 
+!!! info "The SDK wraps this in `OAuthFlow`"
+    The step-by-step code below shows the raw mechanics for understanding. In
+    practice, use the real `OAuthFlow` class from `@authvital/server`
+    (`startFlow` / `handleCallback` / `refreshTokens`) — see
+    [Server SDK: OAuth Flow](../sdk/server-sdk/oauth-flow.md). The free functions
+    `generatePKCE` / `buildAuthorizeUrl` / `exchangeCodeForTokens` /
+    `refreshAccessToken` / `decodeJwt` shown here are **illustrative**, not SDK
+    exports.
+
 #### 1. Generate PKCE Challenge
 
 ```typescript
-import { generatePKCE } from '@authvital/sdk/server';
+import crypto from 'crypto';
 
-// Or implement manually:
+// Illustrative manual implementation:
 function generatePKCE() {
   // Generate random verifier (43-128 characters)
   const verifier = crypto.randomBytes(32).toString('base64url');
@@ -79,7 +111,7 @@ sessionStorage.setItem('pkce_verifier', codeVerifier);
 #### 2. Build Authorization URL
 
 ```typescript
-import { buildAuthorizeUrl } from '@authvital/sdk/server';
+// Illustrative: build the authorize URL by hand (OAuthFlow.startFlow does this)
 
 // Generate both state (CSRF) and nonce (replay protection)
 const state = crypto.randomUUID();
@@ -145,11 +177,12 @@ const codeVerifier = sessionStorage.getItem('pkce_verifier');
 #### Validate Nonce from ID Token
 
 ```typescript
-// In your callback handler, validate the nonce from the ID token
-import { decodeJwt } from '@authvital/sdk/server';
+// In your callback handler, validate the nonce from the ID token.
+// The SDK exports `decodeToken` (unverified decode) from '@authvital/server'.
+import { decodeToken } from '@authvital/server';
 
 const idToken = tokens.id_token;
-const claims = decodeJwt(idToken);
+const claims = decodeToken(idToken);
 
 const storedNonce = sessionStorage.getItem('oauth_nonce');
 if (claims.nonce !== storedNonce) {
@@ -161,15 +194,18 @@ sessionStorage.removeItem('oauth_nonce');
 #### 4. Exchange Code for Tokens
 
 ```typescript
-import { exchangeCodeForTokens } from '@authvital/sdk/server';
-
-const tokens = await exchangeCodeForTokens({
-  authVitalHost: 'https://auth.yourapp.com',
-  clientId: 'your-client-id',
-  code,
-  codeVerifier,
-  redirectUri: 'https://yourapp.com/callback',
-});
+// Illustrative token exchange (OAuthFlow.handleCallback does this for you):
+const tokens = await fetch('https://auth.yourapp.com/oauth/token', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  body: new URLSearchParams({
+    grant_type: 'authorization_code',
+    code,
+    code_verifier: codeVerifier,
+    client_id: 'your-client-id',
+    redirect_uri: 'https://yourapp.com/callback',
+  }),
+}).then((r) => r.json());
 
 // tokens contains:
 // - access_token: JWT for API calls
@@ -210,23 +246,25 @@ const authorizeUrl = buildAuthorizeUrl({
 
 The resulting token will include:
 - `tenant_id`: The tenant UUID
-- `tenant_slug`: The tenant's URL-safe identifier
-- `tenant_role`: User's role within that tenant
-- `app_roles`: Application-specific roles for this tenant
-- `app_permissions`: Granted permissions
+- `tenant_subdomain`: The tenant's subdomain
+- `tenant_roles`: The user's tenant roles (array of slugs)
+- `tenant_permissions`: Effective permissions for the tenant
+- `app_roles`: Application-specific roles for this tenant (when present)
 
 ## Token Refresh
 
 Access tokens expire (default: 1 hour). Use the SDK to refresh tokens:
 
 ```typescript
-import { refreshAccessToken } from '@authvital/sdk/server';
+import { OAuthFlow } from '@authvital/server';
 
-const newTokens = await refreshAccessToken({
+const flow = new OAuthFlow({
   authVitalHost: process.env.AV_HOST!,
   clientId: process.env.AV_CLIENT_ID!,
-  refreshToken: storedRefreshToken,
+  redirectUri: process.env.AV_REDIRECT_URI!,
 });
+
+const newTokens = await flow.refreshTokens(storedRefreshToken);
 
 // IMPORTANT: AuthVital rotates refresh tokens - always store the new one!
 storeRefreshToken(newTokens.refresh_token);
@@ -238,30 +276,23 @@ storeAccessToken(newTokens.access_token);
 For machine-to-machine authentication (backend services, cron jobs), the SDK handles this automatically:
 
 ```typescript
-import { createAuthVital } from '@authvital/sdk/server';
+import { createServerClient } from '@authvital/server';
 
 // Configure with client secret for M2M
-const authvital = createAuthVital({
+const client = createServerClient({
   authVitalHost: process.env.AV_HOST!,
   clientId: process.env.AV_CLIENT_ID!,
   clientSecret: process.env.AV_CLIENT_SECRET!,
 });
 
-// The SDK automatically uses client_credentials for M2M API calls
-// For M2M, pass null for request and specify tenantId explicitly:
-const members = await authvital.memberships.listForTenant(null, {
-  tenantId: 'tenant-123',
-});
-const licenses = await authvital.licenses.getTenantOverview(null, {
-  tenantId: 'tenant-123',
-});
-
-const { access_token } = await response.json();
+// client.integration.* obtains and caches a client_credentials token automatically:
+const { memberships } = await client.integration.listTenantMembers({ tenantId: 'tenant-123' });
+const overview = await client.integration.getUsageOverview({ tenantId: 'tenant-123' });
 ```
 
 **Requirements:**
-- Application must be type `MACHINE` (not `SPA`)
-- `client_secret` is required
+- Use the app's **MACHINE credential** (a SPA credential can't do this grant)
+- `client_secret` is required (the MACHINE credential's secret)
 - Tokens are not user-scoped
 
 ## OIDC Discovery
@@ -438,7 +469,7 @@ Token endpoint returns JSON errors:
 The SDK handles most of this automatically:
 
 ```tsx
-import { AuthVitalProvider, useAuth } from '@authvital/sdk/client';
+import { AuthVitalProvider, useAuth } from '@authvital/browser/react';
 
 // Provider handles PKCE, token storage, refresh automatically
 <AuthVitalProvider

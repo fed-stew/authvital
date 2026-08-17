@@ -20,6 +20,11 @@ import {
   IntegrationRolesService,
   IntegrationInvitationsService,
 } from './services';
+import {
+  M2mTenantAuthService,
+  M2mScopeGuard,
+  M2mTenantGuard,
+} from './m2m-authz';
 
 @Module({
   imports: [
@@ -43,6 +48,9 @@ import {
     IntegrationTenantsService,
     IntegrationRolesService,
     IntegrationInvitationsService,
+    M2mTenantAuthService,
+    M2mScopeGuard,
+    M2mTenantGuard,
   ],
   exports: [
     IntegrationPermissionsService,
@@ -51,6 +59,7 @@ import {
     IntegrationTenantsService,
     IntegrationRolesService,
     IntegrationInvitationsService,
+    M2mTenantAuthService,
   ],
 })
 export class IntegrationModule {}

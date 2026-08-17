@@ -2,7 +2,6 @@ import {
   Injectable,
   BadRequestException,
   UnauthorizedException,
-  NotFoundException,
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -12,9 +11,12 @@ import { OAuthSessionService } from './oauth-session.service';
 import { OAuthTokenService, TokenParams, TokenResponse } from './oauth-token.service';
 import { OAuthIntrospectionService } from './oauth-introspection.service';
 import { RedirectUriValidatorService } from './redirect-uri-validator.service';
-import * as crypto from 'crypto';
-import * as bcrypt from 'bcrypt';
+import { MfaService } from '../auth/mfa/mfa.service';
+import { MfaEnrollmentRequiredException } from '../auth/mfa/mfa-enrollment-required.exception';
+import { AuditService } from '../audit/audit.service';
+import { AUDIT_ACTIONS, AUDIT_TARGET_TYPES } from '../audit/audit-actions';
 import { v4 as uuidv4 } from 'uuid';
+import * as crypto from 'crypto';
 import { ApplicationType, CodeChallengeMethod } from '@prisma/client';
 
 export interface AuthorizeParams {
@@ -47,6 +49,7 @@ export { TokenParams, TokenResponse } from './oauth-token.service';
 @Injectable()
 export class OAuthService {
   private readonly logger = new Logger(OAuthService.name);
+  private readonly issuer: string;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -56,7 +59,11 @@ export class OAuthService {
     private readonly tokenService: OAuthTokenService,
     private readonly introspectionService: OAuthIntrospectionService,
     private readonly redirectUriValidator: RedirectUriValidatorService,
-  ) {}
+    private readonly mfaService: MfaService,
+    private readonly auditService: AuditService,
+  ) {
+    this.issuer = this.configService.getOrThrow<string>('BASE_URL');
+  }
 
   // ===========================================================================
   // AUTHORIZATION ENDPOINT
@@ -84,12 +91,13 @@ export class OAuthService {
       );
     }
 
-    // Find application by client_id
-    const app = await this.prisma.application.findUnique({
+    // Find the client credential by client_id (credentials live on ApplicationClient)
+    const app = await this.prisma.applicationClient.findUnique({
       where: { clientId: params.clientId },
+      include: { application: true },
     });
 
-    if (!app || !app.isActive) {
+    if (!app || !app.isActive || !app.application.isActive) {
       throw new BadRequestException('Invalid client_id');
     }
 
@@ -120,6 +128,41 @@ export class OAuthService {
       }
     }
 
+    // MFA-at-mint enforcement: a full tenant-scoped code may only be issued
+    // when the tenant's MFA policy is satisfied or a grace period applies.
+    // Org-less (no tenantId) flows are unaffected.
+    if (params.tenantId) {
+      const compliance = await this.mfaService.checkUserMfaCompliance(
+        userId,
+        params.tenantId,
+      );
+
+      if (!compliance.compliant && !compliance.withinGrace) {
+        // Audit (non-fatal): authorize flow interrupted for MFA enrollment.
+        await this.auditService.log({
+          tenantId: params.tenantId,
+          actorUserId: userId,
+          action: AUDIT_ACTIONS.MFA_ENROLLMENT_INTERRUPT,
+          targetType: AUDIT_TARGET_TYPES.USER,
+          targetId: userId,
+          metadata: {
+            clientId: params.clientId,
+            tenantPolicy: compliance.tenantPolicy,
+            gracePeriodEndsAt: compliance.gracePeriodEndsAt?.toISOString(),
+          },
+        });
+
+        throw new MfaEnrollmentRequiredException({
+          tenantId: params.tenantId,
+          requiresSetup: compliance.requiresSetup,
+          gracePeriodEndsAt: compliance.gracePeriodEndsAt,
+        });
+      }
+      // Within grace (or fully compliant): mint normally. The token service
+      // re-checks compliance at exchange time and stamps amr / grace claims,
+      // so nothing extra needs to be persisted on the authorization code.
+    }
+
     // Generate authorization code
     const code = uuidv4();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
@@ -138,13 +181,61 @@ export class OAuthService {
           : null,
         expiresAt,
         userId,
-        applicationId: app.id,
+        applicationClientId: app.id,
         tenantId: params.tenantId,
         tenantSubdomain: params.tenantSubdomain,
       },
     });
 
     return code;
+  }
+
+  /**
+   * Issue a short-lived resume token for the MFA enrollment interrupt flow.
+   *
+   * After the user finishes enrolling (Phase 2 frontend), this token lets the
+   * authorize request be replayed exactly as originally issued. Follows the
+   * same signed-JWT pattern as AuthService.issueMfaChallengeToken.
+   */
+  async issueMfaEnrollmentResumeToken(
+    userId: string,
+    params: AuthorizeParams,
+  ): Promise<string> {
+    return this.keyService.signJwt(
+      {
+        type: 'mfa_enrollment_resume',
+        userType: 'user',
+        // Single-use guarantee: redemption atomically records this jti in the
+        // ConsumedJti ledger (see MfaEnrollmentService.consumeResumeJti).
+        jti: crypto.randomUUID(),
+        tenant_id: params.tenantId,
+        authorize_params: this.sanitizeAuthorizeParams(params),
+      },
+      {
+        subject: userId,
+        issuer: this.issuer,
+        expiresIn: 5 * 60, // 5 minutes - short lived
+      },
+    );
+  }
+
+  /**
+   * Whitelist the AuthorizeParams fields that may round-trip through the
+   * resume token. Anything else (headers, cookies, future fields) is dropped.
+   */
+  private sanitizeAuthorizeParams(params: AuthorizeParams): AuthorizeParams {
+    return {
+      clientId: params.clientId,
+      redirectUri: params.redirectUri,
+      responseType: params.responseType,
+      scope: params.scope,
+      state: params.state,
+      nonce: params.nonce,
+      codeChallenge: params.codeChallenge,
+      codeChallengeMethod: params.codeChallengeMethod,
+      tenantId: params.tenantId,
+      tenantSubdomain: params.tenantSubdomain,
+    };
   }
 
   // ===========================================================================
@@ -244,9 +335,26 @@ export class OAuthService {
    * Get application by client_id
    */
   async getApplicationByClientId(clientId: string) {
-    return this.prisma.application.findUnique({
+    // clientId now lives on ApplicationClient; flatten the container fields plus
+    // the credential fields so existing callers keep the same shape.
+    const client = await this.prisma.applicationClient.findUnique({
       where: { clientId },
+      include: { application: true },
     });
+
+    if (!client) {
+      return null;
+    }
+
+    return {
+      ...client.application,
+      type: client.type,
+      clientId: client.clientId,
+      redirectUris: client.redirectUris,
+      postLogoutRedirectUris: client.postLogoutRedirectUris,
+      allowedWebOrigins: client.allowedWebOrigins,
+      initiateLoginUri: client.initiateLoginUri,
+    };
   }
 
   /**
@@ -256,7 +364,7 @@ export class OAuthService {
     clientId: string,
     redirectUri: string,
   ): Promise<{ valid: boolean; reason?: string }> {
-    const app = await this.prisma.application.findUnique({
+    const app = await this.prisma.applicationClient.findUnique({
       where: { clientId },
       select: { redirectUris: true },
     });
@@ -278,65 +386,39 @@ export class OAuthService {
    * Get application for branding
    */
   async getApplicationForBranding(clientId: string) {
-    return this.prisma.application.findUnique({
+    // Branding lives on the container, initiateLoginUri on the credential.
+    const client = await this.prisma.applicationClient.findUnique({
       where: { clientId },
       select: {
-        id: true,
         clientId: true,
-        name: true,
-        isActive: true,
-        brandingName: true,
-        brandingLogoUrl: true,
-        brandingIconUrl: true,
-        brandingPrimaryColor: true,
-        brandingBackgroundColor: true,
-        brandingAccentColor: true,
-        brandingSupportUrl: true,
-        brandingPrivacyUrl: true,
-        brandingTermsUrl: true,
         initiateLoginUri: true,
+        application: {
+          select: {
+            id: true,
+            name: true,
+            isActive: true,
+            brandingName: true,
+            brandingLogoUrl: true,
+            brandingIconUrl: true,
+            brandingPrimaryColor: true,
+            brandingBackgroundColor: true,
+            brandingAccentColor: true,
+            brandingSupportUrl: true,
+            brandingPrivacyUrl: true,
+            brandingTermsUrl: true,
+          },
+        },
       },
     });
-  }
 
-  /**
-   * Generate client secret for any application
-   */
-  async generateClientSecret(applicationId: string): Promise<string> {
-    const app = await this.prisma.application.findUnique({
-      where: { id: applicationId },
-    });
-
-    if (!app) {
-      throw new NotFoundException('Application not found');
+    if (!client) {
+      return null;
     }
 
-    const secret = crypto.randomBytes(32).toString('hex');
-    const hashedSecret = await bcrypt.hash(secret, 12);
-
-    await this.prisma.application.update({
-      where: { id: applicationId },
-      data: { clientSecret: hashedSecret },
-    });
-
-    return secret;
-  }
-
-  /**
-   * Revoke (delete) the client secret for an application
-   */
-  async revokeClientSecret(applicationId: string): Promise<void> {
-    const app = await this.prisma.application.findUnique({
-      where: { id: applicationId },
-    });
-
-    if (!app) {
-      throw new NotFoundException('Application not found');
-    }
-
-    await this.prisma.application.update({
-      where: { id: applicationId },
-      data: { clientSecret: null },
-    });
+    return {
+      ...client.application,
+      clientId: client.clientId,
+      initiateLoginUri: client.initiateLoginUri,
+    };
   }
 }

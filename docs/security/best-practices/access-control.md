@@ -44,17 +44,11 @@ app.get('/api/tenant/:tenantId/data', async (req, res) => {
 
 ## MFA for Privileged Accounts
 
-```typescript
-// ✅ Require MFA for admins
-await authvital.admin.updateInstanceSettings({
-  superAdminMfaRequired: true,
-});
-
-// ✅ Require MFA for tenant admins
-await authvital.tenants.update(tenantId, {
-  mfaPolicy: 'REQUIRED',
-});
-```
+!!! note "MFA policy is configured via Admin Console / REST"
+    Requiring MFA for super admins (`superAdminMfaRequired`) or for a tenant
+    (`mfaPolicy: 'REQUIRED'`) is **not** exposed on the Server SDK. Configure it
+    in the **AuthVital Admin Console**, or via the instance-settings /
+    `/api/tenants/*` REST endpoints. See [MFA](../mfa.md).
 
 ---
 

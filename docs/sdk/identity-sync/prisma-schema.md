@@ -1,8 +1,23 @@
 # Identity Sync Prisma Schema
 
-> Full OIDC-compliant Prisma schema for identity synchronization.
+> A suggested Prisma schema for mirroring AuthVital identities.
 
-The SDK expects this schema structure. Add it to your `schema.prisma`:
+!!! info "This schema is a template you own — not an SDK requirement"
+    There is no SDK code that reads or enforces these models; you write the
+    [dispatcher](./sync-handler.md) that fills them. Table/column names are your
+    choice (the `av_` prefix is just a convention).
+
+!!! warning "Webhooks only populate a subset of these columns"
+    Identity-sync **events** carry a small payload — for a subject that's just
+    `sub`, `email`, `given_name`, `family_name`, `subject_type` (see
+    [Event Details](./events.md)). Columns like `username`, `middleName`,
+    `nickname`, `pictureUrl`, `website`, `gender`, `birthdate`, `zoneinfo`,
+    `locale`, `phone`, `groups` will **not** be set from webhooks. Populate those
+    (if you need them) from the ID token at login or `client.getCurrentUser()`.
+    The full model below is kept as a superset for apps that also backfill from
+    those sources.
+
+Add the models to your `schema.prisma`:
 
 ## Identity Model
 

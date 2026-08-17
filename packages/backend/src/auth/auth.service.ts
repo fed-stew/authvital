@@ -2,16 +2,20 @@ import {
   Injectable,
   UnauthorizedException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { KeyService } from '../oauth/key.service';
 import { MfaService } from './mfa/mfa.service';
+import { PasswordBreachCheckService } from './password-breach-check.service';
 
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtPayload, AuthResponse } from './interfaces/auth.interface';
+import { CONSOLE_SESSION_TTL_SECONDS } from './constants/token-ttl';
 
 @Injectable()
 export class AuthService {
@@ -23,6 +27,7 @@ export class AuthService {
     private readonly keyService: KeyService,
     private readonly configService: ConfigService,
     private readonly mfaService: MfaService,
+    private readonly breachCheckService: PasswordBreachCheckService,
   ) {
     this.issuer = this.configService.getOrThrow<string>("BASE_URL");
   }
@@ -40,6 +45,14 @@ export class AuthService {
 
     if (existingUser) {
       throw new ConflictException("Email already registered");
+    }
+
+    // Reject passwords known from public breach corpuses (fails open if HIBP is down)
+    const breachResult = await this.breachCheckService.checkPassword(dto.password);
+    if (breachResult.isBreached) {
+      throw new BadRequestException(
+        'This password has appeared in a known data breach; please choose a different password.',
+      );
     }
 
     // Hash password
@@ -247,35 +260,66 @@ export class AuthService {
   }
 
   /**
+   * The projection returned by the self-service profile read/update endpoints.
+   * Single source of truth so `getProfile` and `updateProfile` never drift.
+   */
+  private static readonly PROFILE_SELECT = {
+    id: true,
+    email: true,
+    mfaEnabled: true,
+    givenName: true,
+    familyName: true,
+    displayName: true,
+    pictureUrl: true,
+    createdAt: true,
+    memberships: {
+      select: {
+        id: true,
+        status: true,
+        joinedAt: true,
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+          },
+        },
+      },
+    },
+  } as const;
+
+  /**
    * Get user profile with memberships
    */
   async getProfile(userId: string) {
     return this.prisma.user.findUnique({
       where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        mfaEnabled: true,
-        givenName: true,
-        familyName: true,
-        displayName: true,
-        pictureUrl: true,
-        createdAt: true,
-        memberships: {
-          select: {
-            id: true,
-            status: true,
-            joinedAt: true,
-            tenant: {
-              select: {
-                id: true,
-                name: true,
-                slug: true,
-              },
-            },
-          },
-        },
-      },
+      select: AuthService.PROFILE_SELECT,
+    });
+  }
+
+  /**
+   * Update the authenticated user's OWN editable profile fields.
+   *
+   * Only the whitelisted name/display fields on {@link UpdateProfileDto} are
+   * ever written; email/role/tenant/MFA/machine flags are untouchable here.
+   * Undefined fields are left as-is (partial update).
+   */
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const data: {
+      givenName?: string;
+      familyName?: string;
+      displayName?: string;
+    } = {};
+
+    if (dto.givenName !== undefined) data.givenName = dto.givenName;
+    if (dto.familyName !== undefined) data.familyName = dto.familyName;
+    if (dto.displayName !== undefined) data.displayName = dto.displayName;
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data,
+      select: AuthService.PROFILE_SELECT,
     });
   }
 
@@ -307,7 +351,9 @@ export class AuthService {
       {
         subject: userId,
         issuer: this.issuer,
-        expiresIn: 7 * 24 * 60 * 60, // 7 days in seconds
+        // 7 days. Shared constant — key-manager's passive-key lifetime
+        // assertion depends on this value (see constants/token-ttl.ts).
+        expiresIn: CONSOLE_SESSION_TTL_SECONDS,
       },
     );
   }

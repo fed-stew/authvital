@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { InstanceService } from '../instance/instance.service';
 import { SignUpLicenseService } from './signup-license.service';
 import { SignUpAnonymousService } from './signup-anonymous.service';
+import { PasswordBreachCheckService } from './password-breach-check.service';
 import { SyncEventService, SYNC_EVENT_TYPES } from '../sync';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
@@ -29,6 +30,7 @@ export class SignUpService {
     private readonly licenseService: SignUpLicenseService,
     private readonly anonymousService: SignUpAnonymousService,
     private readonly syncEventService: SyncEventService,
+    private readonly breachCheckService: PasswordBreachCheckService,
   ) {}
 
   /**
@@ -72,6 +74,14 @@ export class SignUpService {
 
     if (existingUser) {
       throw new ConflictException('A user with this email already exists');
+    }
+
+    // Reject passwords known from public breach corpuses (fails open if HIBP is down)
+    const breachResult = await this.breachCheckService.checkPassword(dto.password);
+    if (breachResult.isBreached) {
+      throw new BadRequestException(
+        'This password has appeared in a known data breach; please choose a different password.',
+      );
     }
 
     const verifiedDomain = await this.prisma.domain.findFirst({
@@ -285,6 +295,8 @@ export class SignUpService {
 
     if (!dto.password || dto.password.length < 8) {
       errors.push('Password must be at least 8 characters');
+    } else if (dto.password.length > 128) {
+      errors.push('Password must be at most 128 characters');
     }
 
     for (const field of requiredFields) {

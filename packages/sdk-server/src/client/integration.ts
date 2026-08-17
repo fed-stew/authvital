@@ -319,16 +319,37 @@ export class IntegrationClient {
 
   /**
    * Set a member's role.
+   *
+   * Maps to `POST /api/integration/set-member-role` (M2MAuthGuard). The
+   * controller requires the body fields `{ membershipId, roleId, applicationId }`
+   * (all three, else it 400s), so this method sends exactly those. Previously
+   * it sent `roleSlug`/`tenantId`, which the controller ignores - every call
+   * 400'd on the missing `roleId`/`applicationId`.
+   *
+   * ⚠️ KNOWN BACKEND WIRING BUG (Phase 4 follow-up, backend not touched here):
+   * the controller forwards the body positionally to
+   * `rolesService.setMemberRole(membershipId, roleId, applicationId)`, but the
+   * service signature is `(membershipId, roleSlug, callerUserId)`. So today the
+   * service looks up the role by **slug** using the value we pass as `roleId`,
+   * and treats `applicationId` as the **caller's userId** for the role-hierarchy
+   * check. Until the backend is fixed, callers must effectively pass a role
+   * *slug* in `roleId` and an acting *userId* in `applicationId` for the call to
+   * succeed. This method matches the documented controller contract; the
+   * backend positional mismatch is flagged for Phase 4.
    */
   async setMemberRole(params: {
     membershipId: string;
-    roleSlug: string;
-    tenantId?: string;
-  }): Promise<unknown> {
+    roleId: string;
+    applicationId: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    role: { id: string; name: string; slug: string };
+  }> {
     return this.m2mPost('/api/integration/set-member-role', {
       membershipId: params.membershipId,
-      roleSlug: params.roleSlug,
-      tenantId: params.tenantId,
+      roleId: params.roleId,
+      applicationId: params.applicationId,
     });
   }
 
@@ -371,15 +392,27 @@ export class IntegrationClient {
   }
 
   /**
-   * Check if a user has a specific feature enabled.
+   * Check whether a TENANT has access to a feature (tenant-level entitlement).
+   *
+   * Maps to the M2M endpoint `GET /api/integration/check-feature`, which reads
+   * `tenantId` + `feature` (+ optional `applicationId`) from the query.
+   *
+   * This is a tenant-wide entitlement check, NOT per-user, so no `userId` is
+   * sent (the endpoint does not accept one). Previously this method sent
+   * `featureKey`/`userId` - the backend reads neither, so the required `feature`
+   * check failed and every call 400'd. Return shape also corrected to match the
+   * controller (`hasAccess`, not `allowed`).
    */
   async checkFeature(params: {
-    userId: string;
     tenantId: string;
-    featureKey: string;
+    feature: string;
     applicationId?: string;
-  }): Promise<{ allowed: boolean }> {
-    return this.m2mGet('/api/integration/check-feature', params);
+  }): Promise<{ hasAccess: boolean; licenseType: string | null; reason?: string }> {
+    return this.m2mGet('/api/integration/check-feature', {
+      tenantId: params.tenantId,
+      feature: params.feature,
+      applicationId: params.applicationId,
+    });
   }
 
   /**
@@ -408,11 +441,27 @@ export class IntegrationClient {
 
   /**
    * Send an invitation to join a tenant.
+   *
+   * Maps to `POST /api/integration/invite` (M2MAuthGuard). The invitation
+   * SERVICE consumes `{ email, tenantId, roleId, expiresInDays?, clientId?,
+   * givenName?, familyName? }` and REQUIRES a singular `roleId` (a TenantRole
+   * id - it 400s without one). This method therefore sends `roleId` (singular),
+   * which is what actually reaches the service.
+   *
+   * ⚠️ NOTE (Phase 4 backend cleanup): the controller's inline body *type*
+   * advertises `{ tenantId, email, roleIds?: string[], applicationId?,
+   * invitedById? }`, but that annotation has no runtime effect (it is a plain
+   * TS type, not a validated class DTO), so the raw body is forwarded verbatim
+   * to the service which reads `roleId`/`clientId`. Matching the service (the
+   * real runtime contract) is what makes the call succeed; the controller
+   * type/service drift is flagged for a backend fix.
    */
   async sendInvitation(params: {
     tenantId: string;
     email: string;
-    roleId?: string;
+    roleId: string;
+    clientId?: string;
+    expiresInDays?: number;
     givenName?: string;
     familyName?: string;
   }): Promise<{ sub: string; expiresAt: string }> {
@@ -428,15 +477,24 @@ export class IntegrationClient {
 
   /**
    * Delete/revoke an invitation.
+   *
+   * Maps to `DELETE /api/integration/invitation/:invitationId` (M2MAuthGuard).
+   * The service returns `{ success, message }` - return type corrected (was
+   * `{ success }`).
    */
-  async revokeInvitation(params: { invitationId: string }): Promise<{ success: boolean }> {
+  async revokeInvitation(params: { invitationId: string }): Promise<{ success: boolean; message: string }> {
     return this.m2mDelete(`/api/integration/invitation/${params.invitationId}`);
   }
 
   /**
    * Resend an invitation email.
+   *
+   * Maps to `POST /api/integration/invitation/:invitationId/resend`
+   * (M2MAuthGuard). The service returns only `{ expiresAt }` (a fresh token is
+   * generated server-side, never returned) - return type corrected (was the
+   * non-existent `{ success }`).
    */
-  async resendInvitation(params: { invitationId: string }): Promise<{ success: boolean }> {
+  async resendInvitation(params: { invitationId: string }): Promise<{ expiresAt: string }> {
     return this.m2mPost(`/api/integration/invitation/${params.invitationId}/resend`);
   }
 
@@ -446,6 +504,9 @@ export class IntegrationClient {
 
   /**
    * Grant a license to a user.
+   *
+   * Verified against `POST /api/integration/grant-license` (M2MAuthGuard):
+   * body `{ userId, tenantId, applicationId, licenseTypeId }` - all required.
    */
   async grantLicense(params: {
     userId: string;
@@ -458,6 +519,9 @@ export class IntegrationClient {
 
   /**
    * Revoke a license from a user.
+   *
+   * Verified against `POST /api/integration/revoke-license` (M2MAuthGuard):
+   * body `{ userId, tenantId, applicationId }` - all required.
    */
   async revokeLicense(params: {
     userId: string;
@@ -469,6 +533,9 @@ export class IntegrationClient {
 
   /**
    * Change a user's license type.
+   *
+   * Verified against `POST /api/integration/change-license-type`
+   * (M2MAuthGuard): body `{ userId, tenantId, applicationId, newLicenseTypeId }`.
    */
   async changeLicenseType(params: {
     userId: string;
@@ -508,52 +575,14 @@ export class IntegrationClient {
     return this.m2mGet('/api/integration/usage-overview', params);
   }
 
-  /**
-   * Check a user's license for an application.
-   */
-  async checkLicense(params: {
-    userId: string;
-    tenantId: string;
-    applicationId: string;
-  }): Promise<{ hasLicense: boolean; licenseType?: string }> {
-    return this.m2mGet('/api/integration/licenses/check', params);
-  }
-
-  /**
-   * Check if a user has a specific feature via their license.
-   */
-  async checkLicenseFeature(params: {
-    userId: string;
-    tenantId: string;
-    applicationId: string;
-    featureKey: string;
-  }): Promise<{ hasFeature: boolean }> {
-    return this.m2mGet('/api/integration/licenses/feature', params);
-  }
-
-  /**
-   * Get licensed users for an application.
-   */
-  async getAppLicensedUsers(params: {
-    tenantId: string;
-    applicationId: string;
-  }): Promise<{ users: unknown[] }> {
-    return this.m2mGet(`/api/integration/licenses/apps/${params.applicationId}/users`, {
-      tenantId: params.tenantId,
-    });
-  }
-
-  /**
-   * Count licensed users for an application.
-   */
-  async countLicensedUsers(params: {
-    tenantId: string;
-    applicationId: string;
-  }): Promise<{ count: number }> {
-    return this.m2mGet(`/api/integration/licenses/apps/${params.applicationId}/count`, {
-      tenantId: params.tenantId,
-    });
-  }
+  // NOTE: The per-user entitlement READS (checkLicense, checkLicenseFeature,
+  // getAppLicensedUsers, countLicensedUsers) used to live here but were broken
+  // over M2M: their endpoints (`/api/integration/licenses/*`) are guarded by
+  // `JwtAuthGuard + TenantPermissionGuard(licenses:view)` and derive `tenantId`
+  // from the USER JWT (`@JwtTenantId`), so an M2M client-credentials token is
+  // rejected. They have been rehomed to `ServerClient` (see checkLicense /
+  // checkLicenseFeature / getAppLicensedUsers / countLicensedUsers there),
+  // which sends the end user's access token. There is one correct home.
 
   // ===========================================================================
   // MFA

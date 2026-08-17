@@ -1,0 +1,40 @@
+// =============================================================================
+// License / Seat Usage Trends
+// =============================================================================
+// Daily point-in-time snapshots of seat inventory vs. consumption, per
+// (tenant, application, licenseType). Populated by the existing license
+// lifecycle sweep (src/jobs/license-lifecycle.job.ts, run by the external
+// scheduler) so the API can serve a cheap time-series for charts without
+// recomputing history on every request.
+//
+// Snapshots are additive history; one row per key per calendar day. Writing is
+// idempotent via the unique constraint below (upsert on re-run of the sweep).
+// =============================================================================
+
+/// TenantLicenseUsageSnapshot: a daily seats-owned vs seats-assigned datapoint.
+model TenantLicenseUsageSnapshot {
+  id String @id @default(cuid())
+
+  tenantId      String @map("tenant_id")
+  applicationId String @map("application_id")
+  licenseTypeId String @map("license_type_id")
+
+  // Denormalized for chart labels without extra joins.
+  applicationName String @map("application_name")
+  licenseTypeName String @map("license_type_name")
+
+  totalSeats     Int @map("total_seats") // quantityPurchased at snapshot time
+  seatsAssigned  Int @map("seats_assigned") // quantityAssigned at snapshot time
+
+  // Calendar day (UTC midnight) this snapshot represents.
+  date      DateTime @map("date")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // One snapshot per key per day — makes the sweep idempotent (upsert).
+  // Explicit index names (map:) keep them well under Postgres' 63-char limit
+  // and deterministic between schema and migration.
+  @@unique([tenantId, applicationId, licenseTypeId, date], map: "usage_snapshot_unique_day")
+  @@index([tenantId, date], map: "usage_snapshot_tenant_date_idx")
+  @@index([tenantId, applicationId], map: "usage_snapshot_tenant_app_idx")
+  @@map("tenant_license_usage_snapshots")
+}

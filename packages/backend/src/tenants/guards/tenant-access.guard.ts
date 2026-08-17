@@ -6,6 +6,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma';
+import {
+  resolveEffectiveTenantPermissions,
+  membershipIsOwner,
+} from '../../authorization/utils/tenant-permissions.util';
 
 /**
  * TenantAccessGuard - Verifies user has access to the requested tenant
@@ -71,14 +75,14 @@ export class TenantAccessGuard implements CanActivate {
     }
 
     // Attach tenant and membership to request for use in controllers/services
+    const roles = membership.membershipTenantRoles.map(
+      (mtr: { tenantRole: { slug: string; permissions: string[] } }) =>
+        mtr.tenantRole,
+    );
     request.tenant = tenant;
     request.membership = membership;
-    request.tenantPermissions = membership.membershipTenantRoles.flatMap(
-      (mtr: { tenantRole: { permissions: string[] } }) => mtr.tenantRole.permissions,
-    );
-    request.isOwner = membership.membershipTenantRoles.some(
-      (mtr: { tenantRole: { slug: string } }) => mtr.tenantRole.slug === 'owner',
-    );
+    request.tenantPermissions = resolveEffectiveTenantPermissions(roles);
+    request.isOwner = membershipIsOwner(roles);
 
     return true;
   }

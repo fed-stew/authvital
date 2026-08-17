@@ -19,14 +19,24 @@
 export interface User {
   /** Unique user identifier (sub claim in JWT) */
   id: string;
-  /** User's email address */
-  email: string;
+  /** Email address (OIDC email). Nullable: phone-only / machine users may lack one. */
+  email: string | null;
+  /** Whether the email has been verified */
+  emailVerified?: boolean;
+  /** Unique handle (e.g. @janesmith) */
+  username?: string | null;
+  /** Full display name (OIDC: name) */
+  displayName?: string | null;
+  /** First name (OIDC: given_name) */
+  givenName?: string | null;
+  /** Last name (OIDC: family_name) */
+  familyName?: string | null;
+  /** Profile picture URL (OIDC: picture) */
+  pictureUrl?: string | null;
   /** Whether MFA is enabled for this user */
-  mfaEnabled: boolean;
-  /** User profile data (custom claims) */
-  profile: Record<string, unknown>;
+  mfaEnabled?: boolean;
   /** When the user was created (ISO 8601 date string) */
-  createdAt: string;
+  createdAt?: string;
 }
 
 /**
@@ -140,6 +150,12 @@ export interface EnhancedJwtPayload {
   iat: number;
   /** Expiration (unix timestamp) */
   exp: number;
+  /**
+   * Authentication Method References (RFC 8176).
+   * ['pwd'] for password-only logins; ['pwd', 'otp'] when the login satisfied
+   * TOTP-based MFA.
+   */
+  amr?: string[];
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PROFILE SCOPE (OIDC Standard)
@@ -194,6 +210,12 @@ export interface EnhancedJwtPayload {
   tenant_id?: string;
   /** Tenant subdomain */
   tenant_subdomain?: string;
+  /**
+   * Present when the token was minted under a tenant MFA grace period
+   * (policy REQUIRED, user not yet enrolled). Unix seconds at which the
+   * grace window closes and minting will be refused.
+   */
+  mfa_grace_expires_at?: number;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // AUTHORIZATION (AuthVital-specific)

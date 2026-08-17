@@ -1,168 +1,69 @@
-# Tenants Namespace
+# Tenants
 
-> Tenant CRUD operations and SSO configuration.
+> Listing a user's tenants and working with tenant data.
 
-## Overview
+!!! info "There is no fluent `authvital.tenants.*` CRUD namespace"
+    Earlier drafts described `authvital.tenants.get()`, `.create()`, `.update()`,
+    `.delete()`, `.configureSso()`, etc. **The server SDK does not expose tenant
+    CRUD.** The integration client provides membership/tenant *lookups*; creating
+    and administering tenants is done through AuthVital's admin UI and the backend
+    REST API ([API Reference → Tenant API](../../../api/tenant-api.md)).
 
-The tenants namespace provides methods for managing tenant organizations and their SSO settings.
+## What the SDK provides (M2M integration client)
 
-```typescript
-const tenants = authvital.tenants;
-```
+Verified against `packages/sdk-server/src/client/integration.ts`:
 
----
-
-## Methods
-
-### get()
-
-Get tenant details by ID.
-
-```typescript
-const tenant = await authvital.tenants.get('tenant-123');
-
-console.log(tenant);
-// {
-//   id: 'tenant-123',
-//   name: 'Acme Corporation',
-//   slug: 'acme-corp',
-//   mfaPolicy: 'OPTIONAL',
-//   memberCount: 25,
-//   createdAt: '2024-01-01T00:00:00Z',
-//   ...
-// }
-```
-
----
-
-### create()
-
-Create a new tenant. The authenticated user becomes the owner.
+| Method | Params | Returns |
+|--------|--------|---------|
+| `client.integration.listUserTenants` | `{ userId }` | tenants the user belongs to |
+| `client.integration.validateMembership` | `{ userId, tenantId }` | `{ valid, membership? }` |
+| `client.integration.listTenantMembers` | `{ tenantId, status?, includeRoles? }` | `{ memberships }` |
+| `client.integration.listUserMemberships` | `{ userId?, tenantId?, clientId?, status?, includeRoles? }` | `{ memberships }` |
 
 ```typescript
-const tenant = await authvital.tenants.create(request, {
-  name: 'Acme Corporation',
-  slug: 'acme-corp', // Optional: auto-generated if not provided
+import { createServerClient } from '@authvital/server';
+
+const client = createServerClient({
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
+});
+
+// Which tenants does this user belong to? (great for an org picker)
+const tenants = await client.integration.listUserTenants({ userId: 'user-123' });
+
+// Is this user actually a member of this tenant?
+const { valid, membership } = await client.integration.validateMembership({
+  userId: 'user-123',
+  tenantId: 'tenant-abc',
 });
 ```
 
----
+## The current user's tenant
 
-### update()
-
-Update tenant settings. Requires admin or owner role.
+The active tenant is carried in the access-token claim `tenant_id`. Read it from
+the verified JWT rather than making a call:
 
 ```typescript
-await authvital.tenants.update('tenant-123', {
-  name: 'Acme Corp Inc.',
-  mfaPolicy: 'REQUIRED',
-  mfaGracePeriodDays: 14, // Only with ENFORCED_AFTER_GRACE
-  settings: { customField: 'value' },
+import { verifyToken } from '@authvital/server';
+
+const { valid, payload } = await verifyToken(tokens.accessToken, {
+  jwksUri: `${process.env.AV_HOST}/.well-known/jwks.json`,
+  issuer: process.env.AV_HOST,
+  audience: process.env.AV_CLIENT_ID,
 });
+const tenantId = payload.tenant_id;
 ```
 
-**MFA Policies:**
+## Creating / updating / deleting tenants & SSO config
 
-| Policy | Description |
-|--------|-------------|
-| `OPTIONAL` | MFA is optional for all users |
-| `REQUIRED` | MFA is required immediately |
-| `ENFORCED_AFTER_GRACE` | MFA required after grace period |
+Not part of the SDK. Use AuthVital's admin surfaces or call the backend REST
+endpoints directly with `client.get()/post()/patch()/delete()`:
 
----
+- [API Reference → Tenant API](../../../api/tenant-api.md)
+- [Administration → Tenant Admin](../../../admin/tenant-admin.md)
+- [Security → SSO](../../../security/sso.md)
 
-### delete()
+## See also
 
-Delete a tenant. Requires owner role. **This is destructive!**
-
-```typescript
-await authvital.tenants.delete('tenant-123');
-```
-
----
-
-## SSO Configuration
-
-### configureSso()
-
-Configure SSO for a tenant.
-
-```typescript
-const ssoConfig = await authvital.tenants.configureSso('tenant-123', {
-  provider: 'MICROSOFT',
-  enabled: true,
-  clientId: 'azure-app-id',
-  clientSecret: 'azure-secret',
-  enforced: true,          // Optional: force SSO-only login
-  allowedDomains: ['acme.com'], // Optional: restrict by email domain
-  autoCreateUser: true,    // Optional: auto-provision users
-  autoLinkExisting: true,  // Optional: link existing users
-  scopes: ['openid', 'email', 'profile'], // Optional
-});
-```
-
----
-
-### getSsoConfig()
-
-Get SSO configuration for a tenant. Returns `null` if not configured.
-
-```typescript
-const ssoConfig = await authvital.tenants.getSsoConfig('tenant-123', 'MICROSOFT');
-
-if (ssoConfig?.enforced) {
-  // Hide password login, show SSO only
-}
-```
-
----
-
-### disableSso()
-
-Disable SSO for a tenant.
-
-```typescript
-await authvital.tenants.disableSso('tenant-123', 'GOOGLE');
-```
-
----
-
-## Complete Example
-
-```typescript
-import { createAuthVital } from '@authvital/sdk/server';
-import express from 'express';
-
-const authvital = createAuthVital({ /* config */ });
-const app = express();
-
-// Get tenant details
-app.get('/api/tenant', async (req, res) => {
-  const claims = await authvital.validateRequest(req);
-  const tenant = await authvital.tenants.get(claims.tenantId);
-  res.json(tenant);
-});
-
-// Update tenant settings
-app.patch('/api/tenant', async (req, res) => {
-  const claims = await authvital.validateRequest(req);
-  const tenant = await authvital.tenants.update(claims.tenantId, req.body);
-  res.json(tenant);
-});
-
-// Configure Microsoft SSO
-app.put('/api/tenant/sso/microsoft', async (req, res) => {
-  const claims = await authvital.validateRequest(req);
-  
-  const ssoConfig = await authvital.tenants.configureSso(claims.tenantId, {
-    provider: 'MICROSOFT',
-    enabled: true,
-    clientId: req.body.clientId,
-    clientSecret: req.body.clientSecret,
-    enforced: req.body.enforced || false,
-    allowedDomains: req.body.allowedDomains || [],
-  });
-  
-  res.json(ssoConfig);
-});
-```
+- [Memberships](./memberships.md) · [Integration API (overview)](./overview.md)

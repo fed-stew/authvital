@@ -4,6 +4,21 @@
 
 **See also:** [Webhooks Guide](./webhooks.md) | [Event Handler Reference](./webhooks-handler.md)
 
+!!! warning "No `WebhookRouter`, `AuthVitalEventHandler`, or `@authvital/sdk/webhooks`"
+    None of those exist. This page uses two things you provide yourself:
+
+    - **`verifyWebhook(...)`** — the RSA-SHA256/JWKS helper you copy from
+      [Manual Verification](./webhooks-verification.md) (verifies over
+      `${timestamp}.${rawBody}`). It's identical to how `examples/bff-express`
+      verifies webhooks.
+    - **`AuthVitalEventHandler`** — *your own* abstract base class + `dispatch()`
+      switch from the [Event Handler Pattern](./webhooks-handler.md), imported
+      from a local file (e.g. `./authvital-event-handler`). Event **types** are
+      real and come from **`@authvital/shared`**.
+
+    There is no SDK-provided router, no `skipVerification` flag, and no
+    `onEvent`/`on*` dispatch machinery shipped for you — you wire it up.
+
 ---
 
 ## Error Handling & Retries
@@ -52,6 +67,8 @@ res.status(503).json({ error: 'Service temporarily unavailable' });
 ### Error Handling in Event Handlers
 
 ```typescript
+import { AuthVitalEventHandler } from './authvital-event-handler'; // YOUR base class
+
 class MyEventHandler extends AuthVitalEventHandler {
   async onSubjectCreated(event: SubjectCreatedEvent): Promise<void> {
     try {
@@ -220,7 +237,7 @@ https://abc123.ngrok.io/webhooks/authvital
 ```typescript
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MyEventHandler } from './event-handler';
-import type { SubjectCreatedEvent, MemberRoleChangedEvent } from '@authvital/sdk/webhooks';
+import type { SubjectCreatedEvent, MemberRoleChangedEvent } from '@authvital/shared';
 import { prisma } from './lib/prisma';
 
 vi.mock('./lib/prisma');
@@ -354,21 +371,45 @@ export async function sendTestWebhook(params: TestWebhookParams) {
 }
 ```
 
-### Testing with Signature Verification Disabled
+!!! note "Mock signatures won't pass real verification"
+    The mock `X-AuthVital-Signature` above will fail the real `verifyWebhook`
+    check. For it to reach your handler, your endpoint must skip verification in
+    the test env (see the env-flag pattern below), or you must sign the payload
+    with a test key you control.
 
-For local testing, you can create a test-mode router:
+### Testing Without Live Signatures
+
+There is no `WebhookRouter` and no built-in `skipVerification` flag — *you* own
+the endpoint, so *you* decide whether to run `verifyWebhook` (see
+[Manual Verification](./webhooks-verification.md)). A clean pattern is to gate
+verification behind an env flag and hand the parsed event straight to your
+handler's `dispatch()`:
 
 ```typescript
-// test/test-webhook-router.ts
-import { WebhookRouter, AuthVitalEventHandler } from '@authvital/sdk/webhooks';
+// test/dispatch-test-event.ts
+import type { WebhookEvent } from '@authvital/shared';
+import { verifyWebhook } from '../src/verify-webhook'; // the copied helper
+import { MyEventHandler } from '../src/event-handler';  // your class
 
-export function createTestRouter(handler: AuthVitalEventHandler) {
-  return new WebhookRouter({
-    authVitalHost: 'http://localhost:9999', // Fake host
-    handler,
-    // In test mode, skip signature verification
-    skipVerification: process.env.NODE_ENV === 'test',
-  });
+const handler = new MyEventHandler();
+
+/**
+ * Verify (unless explicitly skipped for tests) then dispatch.
+ * NEVER set SKIP_WEBHOOK_VERIFICATION outside of tests.
+ */
+export async function handleRawWebhook(raw: string, headers: Record<string, string>) {
+  if (process.env.SKIP_WEBHOOK_VERIFICATION !== 'true') {
+    const ok = await verifyWebhook({
+      body: raw,
+      signature: headers['x-authvital-signature'],
+      keyId: headers['x-authvital-key-id'],
+      timestamp: headers['x-authvital-timestamp'],
+      authVitalHost: process.env.AV_HOST!,
+    });
+    if (!ok) throw new Error('invalid signature');
+  }
+
+  await handler.dispatch(JSON.parse(raw) as WebhookEvent);
 }
 ```
 
@@ -468,7 +509,7 @@ describe('Webhook E2E', () => {
 ### Logging Best Practices
 
 ```typescript
-import { AuthVitalEventHandler } from '@authvital/sdk/webhooks';
+import { AuthVitalEventHandler } from './authvital-event-handler'; // YOUR base class
 
 class MyEventHandler extends AuthVitalEventHandler {
   async onEvent(event) {
@@ -515,6 +556,7 @@ class MyEventHandler extends AuthVitalEventHandler {
 
 ```typescript
 import { Counter, Histogram } from 'prom-client';
+import { AuthVitalEventHandler } from './authvital-event-handler'; // YOUR base class
 
 const webhookCounter = new Counter({
   name: 'webhooks_received_total',
@@ -548,19 +590,34 @@ class MetricsEventHandler extends AuthVitalEventHandler {
 
 ### Always Verify Signatures
 
-Never skip signature verification in production:
+Because there's no SDK router doing it for you, verifying every request is *your*
+responsibility. Run `verifyWebhook` (RSA-SHA256 over `${timestamp}.${rawBody}`
+against the IdP's JWKS) against the **raw** body before you trust a single byte:
 
 ```typescript
-// ❌ NEVER do this in production
-const router = new WebhookRouter({
-  handler: new MyEventHandler(),
-  skipVerification: true, // DON'T!
+import type { WebhookEvent } from '@authvital/shared';
+import { verifyWebhook } from './verify-webhook'; // see Manual Verification
+
+// ❌ NEVER do this in production — trusting the body without verification
+app.post('/webhooks/authvital', express.json(), async (req, res) => {
+  await handler.dispatch(req.body); // no signature check! DON'T!
+  res.sendStatus(200);
 });
 
-// ✅ Always verify
-const router = new WebhookRouter({
-  authVitalHost: process.env.AV_HOST!,
-  handler: new MyEventHandler(),
+// ✅ Always verify against the raw body first
+app.post('/webhooks/authvital', express.raw({ type: 'application/json' }), async (req, res) => {
+  const raw = req.body.toString('utf-8');
+  const ok = await verifyWebhook({
+    body: raw,
+    signature: req.headers['x-authvital-signature'] as string,
+    keyId: req.headers['x-authvital-key-id'] as string,
+    timestamp: req.headers['x-authvital-timestamp'] as string,
+    authVitalHost: process.env.AV_HOST!,
+  });
+  if (!ok) return res.status(401).json({ error: 'invalid signature' });
+
+  await handler.dispatch(JSON.parse(raw) as WebhookEvent);
+  res.status(200).json({ received: true });
 });
 ```
 
@@ -594,6 +651,6 @@ async onSubjectCreated(event: SubjectCreatedEvent) {
 
 - [Webhooks Guide](./webhooks.md) - Overview and quick start
 - [Event Types & Payloads](./webhooks-events.md) - All event types
-- [Event Handler Reference](./webhooks-handler.md) - AuthVitalEventHandler class
+- [Event Handler Reference](./webhooks-handler.md) - webhook verification & your own handler
 - [Framework Integration](./webhooks-frameworks.md) - Express, Next.js, NestJS
 - [Manual Verification](./webhooks-verification.md) - Low-level API

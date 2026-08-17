@@ -16,28 +16,45 @@ export const TenantSchema = z.object({
 });
 export type Tenant = z.infer<typeof TenantSchema>;
 
-export const TenantDetailSchema = TenantSchema.extend({
-  _count: z.object({
-    memberships: z.number(),
-  }).optional(),
-  memberships: z.array(z.object({
+export const TenantMemberSchema = z.object({
+  id: z.string(), // membership id
+  status: z.string(),
+  joinedAt: z.string().nullable(),
+  createdAt: z.string(),
+  user: z.object({
     id: z.string(),
-    status: z.string(),
-    joinedAt: z.string().nullable(),
-    user: z.object({
+    email: z.string().nullable(),
+    givenName: z.string().nullable(),
+    familyName: z.string().nullable(),
+    displayName: z.string().nullable().optional(),
+  }),
+  tenantRoles: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    slug: z.string(),
+    description: z.string().nullable(),
+    isSystem: z.boolean(),
+  })),
+  rolesByApplication: z.array(z.object({
+    appId: z.string(),
+    appName: z.string(),
+    roles: z.array(z.object({
       id: z.string(),
-      email: z.string().nullable(),
-      givenName: z.string().nullable(),
-      familyName: z.string().nullable(),
-    }),
-    tenantRoles: z.array(z.object({
-      tenantRole: z.object({
-        id: z.string(),
-        name: z.string(),
-        slug: z.string(),
-      }),
+      name: z.string(),
+      slug: z.string(),
     })),
-  })).optional(),
+  })),
+  totalRoles: z.number(),
+});
+export type TenantMember = z.infer<typeof TenantMemberSchema>;
+
+export const TenantDetailSchema = TenantSchema.extend({
+  memberCount: z.number(),
+  members: z.array(TenantMemberSchema),
+  availableRoles: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+  })),
 });
 export type TenantDetail = z.infer<typeof TenantDetailSchema>;
 

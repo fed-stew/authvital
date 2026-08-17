@@ -10,6 +10,7 @@ import {
   HttpStatus,
   BadRequestException,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { MfaService } from './mfa.service';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { AuthenticatedRequest } from '../interfaces/auth.interface';
@@ -57,6 +58,7 @@ export class MfaController {
    * This enables MFA for the user
    */
   @Post('enable')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } }) // verifies a TOTP code
   @HttpCode(HttpStatus.OK)
   async enable(
     @Req() req: AuthenticatedRequest,
@@ -75,6 +77,7 @@ export class MfaController {
    * Disable MFA for the user (requires valid TOTP code)
    */
   @Delete('disable')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } }) // verifies a TOTP code
   @HttpCode(HttpStatus.OK)
   async disable(
     @Req() req: AuthenticatedRequest,
@@ -92,6 +95,7 @@ export class MfaController {
    * Returns new backup codes - store them safely!
    */
   @Post('backup-codes')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } }) // verifies a TOTP code
   @HttpCode(HttpStatus.OK)
   async regenerateBackupCodes(
     @Req() req: AuthenticatedRequest,
@@ -109,6 +113,7 @@ export class MfaController {
    * This endpoint is typically called with a challenge token, not full auth
    */
   @Post('verify')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } }) // TOTP brute-force target
   @HttpCode(HttpStatus.OK)
   async verify(
     @Req() req: AuthenticatedRequest,

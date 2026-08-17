@@ -483,6 +483,27 @@ Fires when a user's application role changes. Includes previous role info.
 
 ---
 
+## App access vs. license events — which do I listen to?
+
+AuthVital models **access** ("can this user use the app?") and **licensing** ("does this user occupy a paid seat, and at what tier?") as two independent axes. They map to two different event families:
+
+- **`app_access.*`** — the universal access signal. Fires for **every** app regardless of licensing mode (`FREE`, `PER_SEAT`, `TENANT_WIDE`). Subscribe to these if you provision / de-provision users in your app.
+- **`license.*`** — a billing/seat overlay that only applies to **`PER_SEAT`** apps. Fires when a seat is consumed (`license.assigned`), released (`license.revoked`), or re-tiered (`license.changed`). Subscribe to these additionally if you reconcile seats, billing, or feature tiers.
+
+They overlap only for the `PER_SEAT` grant/revoke case (a seat grant *is* an access grant), so `app_access.granted` may carry `license_type_id` / `license_type_name` for context. Elsewhere they diverge:
+
+| Scenario | `app_access.*` | `license.*` |
+| --- | :---: | :---: |
+| Grant on a `FREE` app | ✅ | — (no seat) |
+| Grant on a `TENANT_WIDE` app | ✅ | — (license is tenant-level) |
+| Grant a seat on a `PER_SEAT` app | ✅ `granted` | ✅ `assigned` |
+| Upgrade tier (basic → pro) | — | ✅ `changed` |
+| Change an app role (editor → admin) | ✅ `role_changed` | — |
+
+**Rule of thumb:** if you only sync user access, subscribe to `app_access.*`. If you also track seats/billing/tiers, add `license.*`.
+
+---
+
 ## License Events
 
 License events fire when licenses are assigned, revoked, or changed.
@@ -1059,6 +1080,6 @@ Fires when an SSO provider is disconnected from a tenant.
 ## Related Documentation
 
 - [Webhooks Guide](./webhooks.md) - Overview and quick start
-- [Event Handler Reference](./webhooks-handler.md) - AuthVitalEventHandler class
+- [Event Handler Reference](./webhooks-handler.md) - event handler pattern (your own class)
 - [Framework Integration](./webhooks-frameworks.md) - Express, Next.js, NestJS examples
 - [Organization Sync](./organization-sync/index.md) - Sync tenant, app, and SSO config locally

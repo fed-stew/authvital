@@ -4,6 +4,10 @@ import { Cron, CronExpression } from "@nestjs/schedule";
 import { PrismaService } from "../prisma/prisma.service";
 import { KeyEncryptionService } from "./key-encryption.service";
 import { SigningKeyStatus } from "@prisma/client";
+import {
+  CONSOLE_SESSION_TTL_SECONDS,
+  MIN_PASSIVE_KEY_LIFETIME_SECONDS,
+} from "../auth/constants/token-ttl";
 import * as crypto from "crypto";
 import * as jose from "jose";
 
@@ -37,8 +41,17 @@ export class KeyManagerService implements OnModuleInit {
   private cacheExpiresAt = 0;
   private readonly CACHE_TTL_MS = 60 * 1000; // 1 minute cache
 
-  // How long passive keys are kept before archiving (must be > max token lifetime)
-  private readonly PASSIVE_KEY_LIFETIME_HOURS = 24;
+  // How long passive keys are kept before archiving, configurable via the
+  // PASSIVE_KEY_LIFETIME_HOURS env var. Default: 192h (8 days).
+  //
+  // INVARIANT: PASSIVE_KEY_LIFETIME_HOURS must exceed the longest-lived token
+  // TTL — currently the 7-day console session JWT minted by
+  // AuthService.generateJwt (CONSOLE_SESSION_TTL_SECONDS). Otherwise tokens
+  // signed just before a rotation become unverifiable while still valid.
+  // The default is max token TTL (7d) + 24h margin = 8 days.
+  private readonly DEFAULT_PASSIVE_KEY_LIFETIME_HOURS =
+    MIN_PASSIVE_KEY_LIFETIME_SECONDS / 3600; // 192 hours
+  private readonly passiveKeyLifetimeHours: number;
 
   // Key rotation interval in seconds (default: 30 days)
   private readonly DEFAULT_ROTATION_INTERVAL_SECONDS = 30 * 24 * 60 * 60; // 30 days
@@ -56,6 +69,32 @@ export class KeyManagerService implements OnModuleInit {
     this.rotationIntervalSeconds = envInterval
       ? parseInt(envInterval, 10)
       : this.DEFAULT_ROTATION_INTERVAL_SECONDS;
+
+    // Load passive-key lifetime from env or use default (192h = 8 days)
+    const envPassiveLifetime = this.configService.get<string>(
+      "PASSIVE_KEY_LIFETIME_HOURS",
+    );
+    const parsedPassiveLifetime = envPassiveLifetime
+      ? parseInt(envPassiveLifetime, 10)
+      : NaN;
+    this.passiveKeyLifetimeHours = Number.isFinite(parsedPassiveLifetime)
+      ? parsedPassiveLifetime
+      : this.DEFAULT_PASSIVE_KEY_LIFETIME_HOURS;
+
+    // Startup assertion: passive keys must outlive the longest-lived token,
+    // or tokens signed right before a rotation die early. Log loudly; do not
+    // crash — an operator can still fix the env and redeploy.
+    const passiveLifetimeSeconds = this.passiveKeyLifetimeHours * 3600;
+    if (passiveLifetimeSeconds < CONSOLE_SESSION_TTL_SECONDS) {
+      this.logger.error(
+        `PASSIVE_KEY_LIFETIME_HOURS=${this.passiveKeyLifetimeHours}h ` +
+          `(${passiveLifetimeSeconds}s) is SHORTER than the max token TTL of ` +
+          `${CONSOLE_SESSION_TTL_SECONDS}s (7-day console session JWT). ` +
+          `Tokens signed just before a key rotation will become unverifiable ` +
+          `before they expire. Set PASSIVE_KEY_LIFETIME_HOURS to at least ` +
+          `${MIN_PASSIVE_KEY_LIFETIME_SECONDS / 3600} hours.`,
+      );
+    }
 
     this.logger.log(
       `Key rotation interval: ${this.rotationIntervalSeconds} seconds ` +
@@ -350,14 +389,12 @@ export class KeyManagerService implements OnModuleInit {
   }
 
   /**
-   * Cleanup old PASSIVE keys (older than PASSIVE_KEY_LIFETIME_HOURS)
+   * Cleanup old PASSIVE keys (older than the configured passive lifetime)
    * Moves them to ARCHIVED status
    */
   async cleanup(): Promise<{ archivedCount: number }> {
     const cutoffDate = new Date();
-    cutoffDate.setHours(
-      cutoffDate.getHours() - this.PASSIVE_KEY_LIFETIME_HOURS,
-    );
+    cutoffDate.setHours(cutoffDate.getHours() - this.passiveKeyLifetimeHours);
 
     const result = await this.prisma.signingKey.updateMany({
       where: {

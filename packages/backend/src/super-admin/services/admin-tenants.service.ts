@@ -85,7 +85,11 @@ export class AdminTenantsService {
           include: {
             user: { select: { id: true, email: true, givenName: true, familyName: true, displayName: true } },
             membershipTenantRoles: { include: { tenantRole: true } },
-            membershipRoles: { include: { role: true } },
+            membershipRoles: {
+              include: {
+                role: { include: { application: { select: { id: true, name: true } } } },
+              },
+            },
           },
           orderBy: { createdAt: 'asc' },
         },
@@ -101,7 +105,56 @@ export class AdminTenantsService {
     });
 
     if (!tenant) throw new NotFoundException('Tenant not found');
-    return tenant;
+
+    // Reshape into the contract the admin UI consumes: `members` (not the raw
+    // Prisma `memberships`), a top-level `memberCount`, and flattened roles.
+    // Keeping this mapping server-side means Overview, the detail header, and
+    // the Members tab all read from one authoritative shape.
+    const { memberships, ...tenantScalars } = tenant;
+
+    const members = memberships.map((m) => {
+      const appRoles = new Map<
+        string,
+        { appId: string; appName: string; roles: Array<{ id: string; name: string; slug: string }> }
+      >();
+      for (const mr of m.membershipRoles) {
+        const app = mr.role.application;
+        if (!appRoles.has(app.id)) {
+          appRoles.set(app.id, { appId: app.id, appName: app.name, roles: [] });
+        }
+        appRoles.get(app.id)!.roles.push({ id: mr.role.id, name: mr.role.name, slug: mr.role.slug });
+      }
+
+      return {
+        id: m.id,
+        status: m.status,
+        joinedAt: m.joinedAt,
+        createdAt: m.createdAt,
+        user: {
+          id: m.user.id,
+          email: m.user.email,
+          givenName: m.user.givenName,
+          familyName: m.user.familyName,
+          displayName: m.user.displayName,
+        },
+        tenantRoles: m.membershipTenantRoles.map((mtr) => ({
+          id: mtr.tenantRole.id,
+          name: mtr.tenantRole.name,
+          slug: mtr.tenantRole.slug,
+          description: mtr.tenantRole.description,
+          isSystem: mtr.tenantRole.isSystem,
+        })),
+        rolesByApplication: Array.from(appRoles.values()),
+        totalRoles: m.membershipRoles.length,
+      };
+    });
+
+    return {
+      ...tenantScalars,
+      memberCount: members.length,
+      members,
+      availableRoles: [] as Array<{ id: string; name: string }>,
+    };
   }
 
   async createTenant(data: { name: string; slug: string; ownerEmail?: string }) {

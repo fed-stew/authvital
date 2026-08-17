@@ -11,10 +11,13 @@ describe("default-tenant-roles helpers", () => {
       OWNER: "owner",
       ADMIN: "admin",
       MEMBER: "member",
+      BILLING_ADMIN: "billing-admin",
     });
 
     const slugs = DEFAULT_TENANT_ROLES.map((r) => r.slug);
-    expect(slugs).toEqual(expect.arrayContaining(["owner", "admin", "member"]));
+    expect(slugs).toEqual(
+      expect.arrayContaining(["owner", "admin", "member", "billing-admin"]),
+    );
   });
 
   it("matches explicit wildcard namespaces", () => {

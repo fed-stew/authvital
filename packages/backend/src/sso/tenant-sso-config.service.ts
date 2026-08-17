@@ -7,6 +7,8 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { SsoEncryptionService } from './sso-encryption.service';
 import { SsoProviderType } from '@prisma/client';
+import { AuditService } from '../audit/audit.service';
+import { AUDIT_ACTIONS, AUDIT_TARGET_TYPES } from '../audit/audit-actions';
 
 export interface TenantSsoConfigDto {
   provider: SsoProviderType;
@@ -35,6 +37,7 @@ export class TenantSsoConfigService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: SsoEncryptionService,
+    private readonly auditService: AuditService,
   ) {}
 
   /**
@@ -176,7 +179,11 @@ export class TenantSsoConfigService {
   /**
    * Upsert tenant SSO config
    */
-  async upsertTenantSsoConfig(tenantId: string, dto: TenantSsoConfigDto) {
+  async upsertTenantSsoConfig(
+    tenantId: string,
+    dto: TenantSsoConfigDto,
+    actorUserId?: string,
+  ) {
     // Verify instance-level provider exists and is enabled
     const instanceConfig = await this.prisma.ssoProvider.findUnique({
       where: { provider: dto.provider },
@@ -216,6 +223,21 @@ export class TenantSsoConfigService {
 
     this.logger.log(`Tenant ${tenantId} SSO config updated for ${dto.provider}`);
 
+    // Audit (non-fatal): never log the secret, only the fact/metadata.
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actorUserId ?? null,
+      action: AUDIT_ACTIONS.SSO_CONFIG_UPDATED,
+      targetType: AUDIT_TARGET_TYPES.SSO_CONFIG,
+      targetId: config.id,
+      metadata: {
+        provider: config.provider,
+        enabled: config.enabled,
+        enforced: config.enforced,
+        credentialsChanged: !!dto.clientSecret,
+      },
+    });
+
     return {
       id: config.id,
       provider: config.provider,
@@ -229,7 +251,11 @@ export class TenantSsoConfigService {
   /**
    * Delete tenant SSO config (revert to instance defaults)
    */
-  async deleteTenantSsoConfig(tenantId: string, provider: SsoProviderType) {
+  async deleteTenantSsoConfig(
+    tenantId: string,
+    provider: SsoProviderType,
+    actorUserId?: string,
+  ) {
     const existing = await this.prisma.tenantSsoConfig.findUnique({
       where: { tenantId_provider: { tenantId, provider } },
     });
@@ -243,6 +269,16 @@ export class TenantSsoConfigService {
     });
 
     this.logger.log(`Tenant ${tenantId} SSO config deleted for ${provider}`);
+
+    // Audit (non-fatal): tenant reverted to instance SSO defaults.
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actorUserId ?? null,
+      action: AUDIT_ACTIONS.SSO_CONFIG_REMOVED,
+      targetType: AUDIT_TARGET_TYPES.SSO_CONFIG,
+      targetId: existing.id,
+      metadata: { provider },
+    });
 
     return { success: true, message: `Tenant SSO config for ${provider} removed` };
   }

@@ -7,10 +7,10 @@ import { useToast } from '@/components/ui/Toast';
 
 interface UserInfo {
   id: string;
-  email: string;
-  givenName?: string;
-  familyName?: string;
-  phone?: string;
+  email: string | null;
+  givenName?: string | null;
+  familyName?: string | null;
+  phone?: string | null;
 }
 
 interface EditUserModalProps {

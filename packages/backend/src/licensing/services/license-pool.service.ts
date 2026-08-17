@@ -8,7 +8,9 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemWebhookService } from '../../webhooks/system-webhook.service';
 import { LicenseCapacityService } from './license-capacity.service';
-import { SubscriptionStatus, LicenseTypeStatus, AccessMode } from '@prisma/client';
+import { AuditService } from '../../audit/audit.service';
+import { AUDIT_ACTIONS, AUDIT_TARGET_TYPES } from '../../audit/audit-actions';
+import { SubscriptionStatus, LicenseTypeStatus, AccessMode, AccessStatus } from '@prisma/client';
 import {
   CreateSubscriptionInput,
   SubscriptionSummaryInternal,
@@ -32,6 +34,7 @@ export class LicensePoolService {
     private readonly prisma: PrismaService,
     private readonly systemWebhookService: SystemWebhookService,
     private readonly capacityService: LicenseCapacityService,
+    private readonly auditService: AuditService,
   ) {}
 
   // ===========================================================================
@@ -79,6 +82,25 @@ export class LicensePoolService {
 
     const periodEnd = input.currentPeriodEnd || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
 
+    // Guard: provisioning sets (not adds) quantityPurchased. Never let the new
+    // ceiling drop below seats already handed out, or the wallet goes negative.
+    const existingForType = await this.prisma.appSubscription.findUnique({
+      where: {
+        tenantId_applicationId_licenseTypeId: {
+          tenantId: input.tenantId,
+          applicationId: input.applicationId,
+          licenseTypeId: input.licenseTypeId,
+        },
+      },
+      select: { quantityAssigned: true },
+    });
+
+    if (existingForType && input.quantityPurchased < existingForType.quantityAssigned) {
+      throw new BadRequestException(
+        `Cannot set quantity to ${input.quantityPurchased}: ${existingForType.quantityAssigned} seat(s) are already assigned. Revoke seats first.`,
+      );
+    }
+
     const subscription = await this.prisma.appSubscription.upsert({
       where: {
         tenantId_applicationId_licenseTypeId: {
@@ -123,10 +145,29 @@ export class LicensePoolService {
         .catch((err) => this.logger.warn(`Failed to dispatch tenant.app.granted: ${err.message}`));
     }
 
+    // Audit (non-fatal): a tenant provisioned/updated its license inventory.
+    await this.auditService.log({
+      tenantId: input.tenantId,
+      actorUserId: input.actorUserId ?? null,
+      action: AUDIT_ACTIONS.SUBSCRIPTION_PROVISIONED,
+      targetType: AUDIT_TARGET_TYPES.SUBSCRIPTION,
+      targetId: subscription.id,
+      metadata: {
+        applicationId: input.applicationId,
+        licenseTypeId: input.licenseTypeId,
+        quantityPurchased: input.quantityPurchased,
+        isNew: !existingSubscription,
+      },
+    });
+
     return subscription;
   }
 
-  async updateQuantity(subscriptionId: string, quantityPurchased: number) {
+  async updateQuantity(
+    subscriptionId: string,
+    quantityPurchased: number,
+    actorUserId?: string,
+  ) {
     const subscription = await this.prisma.appSubscription.findUnique({
       where: { id: subscriptionId },
     });
@@ -141,10 +182,27 @@ export class LicensePoolService {
       );
     }
 
-    return this.prisma.appSubscription.update({
+    const updated = await this.prisma.appSubscription.update({
       where: { id: subscriptionId },
       data: { quantityPurchased },
     });
+
+    // Audit (non-fatal): seat inventory resized.
+    await this.auditService.log({
+      tenantId: subscription.tenantId,
+      actorUserId: actorUserId ?? null,
+      action: AUDIT_ACTIONS.SUBSCRIPTION_RESIZED,
+      targetType: AUDIT_TARGET_TYPES.SUBSCRIPTION,
+      targetId: subscriptionId,
+      metadata: {
+        applicationId: subscription.applicationId,
+        licenseTypeId: subscription.licenseTypeId,
+        previousQuantity: subscription.quantityPurchased,
+        quantityPurchased,
+      },
+    });
+
+    return updated;
   }
 
   async findById(subscriptionId: string) {
@@ -186,8 +244,9 @@ export class LicensePoolService {
       licenseTypeSlug: sub.licenseType.slug,
       quantityPurchased: sub.quantityPurchased,
       quantityAssigned: sub.quantityAssigned,
-      quantityAvailable: sub.quantityPurchased - sub.quantityAssigned,
+            quantityAvailable: sub.quantityPurchased - sub.quantityAssigned,
       status: sub.status,
+      displayPrice: sub.licenseType.displayPrice,
       currentPeriodEnd: sub.currentPeriodEnd,
       features: (sub.licenseType.features as LicenseTypeFeatures) || {},
       licensingMode: sub.application.licensingMode as 'FREE' | 'PER_SEAT' | 'TENANT_WIDE',
@@ -289,16 +348,53 @@ export class LicensePoolService {
   // SUBSCRIPTION LIFECYCLE
   // ===========================================================================
 
-  async cancelSubscription(subscriptionId: string) {
-    return this.prisma.appSubscription.update({
+  async cancelSubscription(subscriptionId: string, actorUserId?: string) {
+    const canceled = await this.prisma.appSubscription.update({
       where: { id: subscriptionId },
       data: { status: SubscriptionStatus.CANCELED, autoRenew: false, canceledAt: new Date() },
     });
+
+    // Audit (non-fatal): subscription canceled.
+    await this.auditService.log({
+      tenantId: canceled.tenantId,
+      actorUserId: actorUserId ?? null,
+      action: AUDIT_ACTIONS.SUBSCRIPTION_CANCELED,
+      targetType: AUDIT_TARGET_TYPES.SUBSCRIPTION,
+      targetId: canceled.id,
+      metadata: {
+        applicationId: canceled.applicationId,
+        licenseTypeId: canceled.licenseTypeId,
+      },
+    });
+
+    return canceled;
   }
 
   async expireSubscription(subscriptionId: string) {
     return this.prisma.$transaction(async (tx) => {
-      await tx.licenseAssignment.deleteMany({ where: { subscriptionId } });
+      // Revoke the entitlements tied to these seats BEFORE deleting the
+      // assignments — otherwise onDelete: SetNull orphans the AppAccess rows,
+      // leaving them ACTIVE (ghost access + inflated licensed-user counts).
+      // PER_SEAT assignments carry the AppAccess link; FREE/TENANT_WIDE access
+      // is gated at read-time by an active, non-expired subscription, so those
+      // rows intentionally have no link here and are left untouched.
+      const assignments = await tx.licenseAssignment.findMany({
+        where: { subscriptionId },
+        select: { id: true },
+      });
+      const assignmentIds = assignments.map((a) => a.id);
+
+      if (assignmentIds.length > 0) {
+        await tx.appAccess.updateMany({
+          where: {
+            licenseAssignmentId: { in: assignmentIds },
+            status: AccessStatus.ACTIVE,
+          },
+          data: { status: AccessStatus.REVOKED, revokedAt: new Date() },
+        });
+        await tx.licenseAssignment.deleteMany({ where: { subscriptionId } });
+      }
+
       return tx.appSubscription.update({
         where: { id: subscriptionId },
         data: { status: SubscriptionStatus.EXPIRED, quantityAssigned: 0 },

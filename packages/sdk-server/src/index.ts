@@ -131,6 +131,8 @@ export {
   type TokenRefreshHandler,
   type M2MTokenResponse,
   type IntrospectionResponse,
+  type LicenseCheckResult,
+  type LicensedUser,
   IntegrationClient,
   type Membership,
   type ApplicationRole,
@@ -144,6 +146,15 @@ export {
   type PermissionCheckResult,
   type BulkPermissionCheckResult,
 } from './client/index.js';
+
+// =============================================================================
+// ERRORS
+// =============================================================================
+
+export {
+  InteractionRequiredError,
+  parseInteractionRequired,
+} from './errors.js';
 
 // =============================================================================
 // OAUTH FLOW MODULE

@@ -6,20 +6,39 @@
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/tenants` | GET | List user's tenants |
+| `/api/tenants/mine` | GET | List the current user's tenants |
 | `/api/tenants` | POST | Create tenant |
-| `/api/tenants/:id` | GET | Get tenant details |
-| `/api/tenants/:id` | PATCH | Update tenant |
-| `/api/tenants/:id` | DELETE | Delete tenant |
-| `/api/tenants/:id/members` | GET | List members |
-| `/api/tenants/:id/invitations` | GET | List invitations |
-| `/api/tenants/:id/invitations` | POST | Send invitation |
+| `/api/tenants/:tenantId` | GET | Get tenant details |
+| `/api/tenants/:tenantId` | PATCH | Update tenant |
+| `/api/tenants/:tenantId` | DELETE | Delete tenant |
+| `/api/tenants/:tenantId/members` | GET | List members |
+| `/api/tenants/:tenantId/members/:membershipId` | PATCH | Update member |
+| `/api/tenants/:tenantId/members/:membershipId` | DELETE | Remove member |
+| `/api/tenants/:tenantId/members/:membershipId/role` | POST | Set member role |
+| `/api/tenants/:tenantId/members/invite` | POST | Invite a member |
+| `/api/tenants/:tenantId/app-access-matrix` | GET | Members × applications access grid (`app-access:view`) |
+| `/api/tenants/:tenantId/audit` | GET | Tenant audit log, paginated/filterable (`audit:view`) |
+| `/api/tenants/:tenantId/audit/export` | GET | CSV export of the audit log (`audit:export`) |
+| `/api/invitations` | POST | Create an invitation |
+| `/api/invitations/tenant/:tenantId` | GET | List a tenant's invitations |
+| `/api/invitations/:id/resend` | POST | Resend invitation |
+| `/api/invitations/:id` | PATCH/DELETE | Update / revoke invitation |
+| `/api/invitations/accept` | POST | Accept invitation (body: token) |
+| `/api/invitations/token/:token` | GET | Look up invitation by token |
+
+!!! note "Verified against the backend controllers"
+    Corrections vs earlier drafts: listing tenants is `GET /api/tenants/mine`
+    (there is no `GET /api/tenants`); invitations live on the **invitations**
+    controller (`/api/invitations/*`) and the **members** controller
+    (`/api/tenants/:tenantId/members/invite`) — not under
+    `/api/tenants/:id/invitations`. Member role changes are
+    `POST .../members/:membershipId/role`.
 
 ---
 
 ## List User's Tenants
 
-### GET /api/tenants
+### GET /api/tenants/mine
 
 Get tenants the current user is a member of.
 
@@ -123,8 +142,7 @@ Update tenant settings. Requires admin/owner role.
   "name": "Acme Corporation Inc.",
   "settings": {
     "timezone": "America/New_York"
-  },
-  "mfaPolicy": "REQUIRED"
+  }
 }
 ```
 
@@ -138,8 +156,65 @@ Update tenant settings. Requires admin/owner role.
   "settings": {
     "timezone": "America/New_York"
   },
-  "mfaPolicy": "REQUIRED",
   "updatedAt": "2024-01-20T16:00:00Z"
+}
+```
+
+!!! note "MFA policy has its own endpoint"
+    The MFA policy is not updated via this endpoint — use
+    `PATCH /api/tenants/:id/mfa-policy` (below).
+
+---
+
+## MFA Policy
+
+### GET /api/tenants/:id/mfa-policy
+
+Get the tenant's MFA policy. Requires the `tenant:view` permission.
+
+**Response (200 OK):**
+
+```json
+{
+  "policy": "REQUIRED",
+  "gracePeriodDays": 14
+}
+```
+
+### PATCH /api/tenants/:id/mfa-policy
+
+Update the tenant's MFA policy. Requires the `tenant:manage` permission.
+
+`policy` must be one of `DISABLED`, `OPTIONAL`, `ENCOURAGED`, or `REQUIRED`.
+There is no separate "enforced after grace" value — use `REQUIRED` with
+`gracePeriodDays > 0` to give members a grace window, or `0` to enforce
+immediately.
+
+**Request:**
+
+```json
+{
+  "policy": "REQUIRED",
+  "gracePeriodDays": 14
+}
+```
+
+### GET /api/tenants/:id/mfa-stats
+
+MFA compliance statistics for the tenant. Requires the `tenant:view`
+permission. `unenrolledActiveMemberCount` counts ACTIVE human members
+(service accounts excluded) without MFA — useful before switching the policy
+to `REQUIRED`.
+
+**Response (200 OK):**
+
+```json
+{
+  "totalMembers": 15,
+  "mfaEnabled": 11,
+  "mfaDisabled": 4,
+  "complianceRate": 73,
+  "unenrolledActiveMemberCount": 4
 }
 ```
 
@@ -259,9 +334,9 @@ Remove a member from the tenant.
 
 ## List Invitations
 
-### GET /api/tenants/:id/invitations
+### GET /api/invitations/tenant/:tenantId
 
-List pending invitations.
+List a tenant's invitations.
 
 **Query Parameters:**
 
@@ -294,9 +369,10 @@ List pending invitations.
 
 ## Send Invitation
 
-### POST /api/tenants/:id/invitations
+### POST /api/tenants/:tenantId/members/invite
 
-Invite someone to join the tenant.
+Invite someone to join the tenant. (An alternative `POST /api/invitations`
+endpoint also exists on the invitations controller.)
 
 **Request:**
 
@@ -337,7 +413,7 @@ Invite someone to join the tenant.
 
 ## Resend Invitation
 
-### POST /api/tenants/:id/invitations/:invitationId/resend
+### POST /api/invitations/:id/resend
 
 Resend invitation email.
 
@@ -354,9 +430,9 @@ Resend invitation email.
 
 ## Revoke Invitation
 
-### DELETE /api/tenants/:id/invitations/:invitationId
+### DELETE /api/invitations/:id
 
-Cancel a pending invitation.
+Cancel a pending invitation. (Use `PATCH /api/invitations/:id` to modify one.)
 
 **Response (200 OK):**
 
@@ -371,27 +447,24 @@ Cancel a pending invitation.
 
 ## Accept Invitation
 
-### POST /api/invitations/:token/accept
+### POST /api/invitations/accept
 
-Accept an invitation (user endpoint).
+Accept an invitation (user endpoint). The token is sent in the request **body**
+(look one up first with `GET /api/invitations/token/:token`). Existing users can
+also accept via `POST /api/tenants/:tenantId/members/:membershipId/accept`.
 
-**Request (for new users):**
+**Request:**
 
 ```json
 {
+  "token": "invitation-token",
   "password": "securePassword123",
   "givenName": "John",
   "familyName": "Doe"
 }
 ```
 
-**Request (for existing users):**
-
-```json
-{}
-```
-
-Requires authentication for existing users.
+Existing (authenticated) users send just `{ "token": "..." }`.
 
 **Response (200 OK):**
 
@@ -405,126 +478,103 @@ Requires authentication for existing users.
 
 ---
 
-## SDK Examples
+## Access Matrix
 
-```bash
-npm install @authvital/sdk
-```
+### GET /api/tenants/:tenantId/app-access-matrix
 
-### List User's Tenants
+Returns the whole **members × applications** access grid in a single call (built
+for the console's Access Matrix page so it doesn't fan out N per-app requests).
+
+**Guards:** `JwtAuthGuard + TenantIdentifierGuard + TenantAccessGuard + PermissionGuard`
+· **Permission:** `app-access:view` · `tenantId` from the URL.
+
+---
+
+## Audit Log
+
+### GET /api/tenants/:tenantId/audit
+
+Paginated, filterable tenant audit log (read-only).
+
+**Guards:** `JwtAuthGuard + TenantIdentifierGuard + TenantAccessGuard + PermissionGuard`
+· **Permission:** `audit:view` (Owner + Admin by default) · `tenantId` from the URL.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `action` | string | Filter by action token (e.g. `member.role_changed`) |
+| `actor` | string | Filter by actor (user id / email) |
+| `from` | string (ISO) | Start of the time window |
+| `to` | string (ISO) | End of the time window |
+| `page` | number | Page number |
+| `pageSize` | number | Items per page |
+
+> Instrumented actions today: `member.*`, `invite.*`, `app_access.*`,
+> `license.*` (see `audit-actions.ts`). Subscription / SSO / domain /
+> tenant-settings mutations are **not** yet instrumented — see the
+> [authorization model gap appendix](../sdk/authorization-model.md#6-gap-remediation-appendix).
+
+### GET /api/tenants/:tenantId/audit/export
+
+CSV export of the (filtered) audit log. Same query params as above.
+
+**Guards:** same stack · **Permission:** `audit:export` (Owner only by default —
+export is a heavier, exfil-adjacent capability, so it is **not** granted to Admin
+automatically). Responds with `Content-Type: text/csv`.
+
+---
+
+## Using the SDK (M2M integration)
+
+!!! warning "No `authvital.tenants` / `authvital.memberships` / `authvital.invitations` fluent API"
+    The server SDK exposes these via **`createServerClient(...).integration.*`**
+    (M2M / client-credentials), not a request-scoped fluent namespace. Also note:
+    the integration client has **no tenant create/update/delete** — tenant CRUD is
+    only available through the user-context REST endpoints on this page.
 
 ```typescript
-import { createAuthVital } from '@authvital/sdk/server';
+import { createServerClient } from '@authvital/server';
 
-const authvital = createAuthVital({
+const client = createServerClient({
   authVitalHost: process.env.AV_HOST!,
   clientId: process.env.AV_CLIENT_ID!,
   clientSecret: process.env.AV_CLIENT_SECRET!,
 });
 
-app.get('/api/my-tenants', async (req, res) => {
-  const result = await authvital.memberships.listTenantsForUser(req, {
-    status: 'ACTIVE',
-    appendClientId: true, // Adds client_id to login URIs
-  });
-  res.json(result.memberships);
+// A user's tenants
+const { tenants } = await client.integration.listUserTenants({ userId });
+
+// Tenant members (optionally include roles)
+const { memberships } = await client.integration.listTenantMembers({
+  tenantId,
+  status: 'ACTIVE',
+  includeRoles: true,
 });
+
+// Roles available in a tenant
+const roles = await client.integration.getTenantRoles({ tenantId });
+
+// Set a member's APPLICATION role (roleId = an app Role id + applicationId)
+await client.integration.setMemberRole({ membershipId, roleId, applicationId });
+
+// Invitations (roleId is a required TenantRole id; clientId drives the redirect)
+const { sub, expiresAt } = await client.integration.sendInvitation({
+  tenantId,
+  email: 'newuser@example.com',
+  roleId,                          // required (a TenantRole id)
+  clientId: process.env.AV_CLIENT_ID!, // optional
+  expiresInDays: 7,                // optional
+  givenName: 'John',               // optional
+  familyName: 'Doe',               // optional
+});
+const invites = await client.integration.listInvitations({ tenantId });
+await client.integration.resendInvitation({ invitationId });
+await client.integration.revokeInvitation({ invitationId });
 ```
 
-### Create Tenant
-
-```typescript
-app.post('/api/tenants', async (req, res) => {
-  const tenant = await authvital.tenants.create(req, {
-    name: req.body.name,
-    slug: req.body.slug,
-  });
-  res.json(tenant);
-});
-```
-
-### Update Tenant Settings
-
-```typescript
-app.patch('/api/tenants/:id', async (req, res) => {
-  const tenant = await authvital.tenants.update(req.params.id, {
-    name: req.body.name,
-    mfaPolicy: req.body.mfaPolicy,
-  });
-  res.json(tenant);
-});
-```
-
-### Send Invitation
-
-```typescript
-app.post('/api/invitations', async (req, res) => {
-  // Get available roles first
-  const { roles } = await authvital.memberships.getTenantRoles();
-  const adminRole = roles.find(r => r.slug === 'admin');
-
-  // Send invitation (tenantId extracted from JWT automatically)
-  const invitation = await authvital.invitations.send(req, {
-    email: req.body.email,
-    roleId: adminRole?.id,
-    givenName: req.body.givenName,
-    familyName: req.body.familyName,
-  });
-  res.json(invitation);
-});
-```
-
-### List Pending Invitations
-
-```typescript
-app.get('/api/invitations/pending', async (req, res) => {
-  const { invitations, totalCount } = await authvital.invitations.listPending(req);
-  res.json({ invitations, totalCount });
-});
-```
-
-### Resend/Revoke Invitation
-
-```typescript
-// Resend
-app.post('/api/invitations/:id/resend', async (req, res) => {
-  const { expiresAt } = await authvital.invitations.resend(req, {
-    invitationId: req.params.id,
-    expiresInDays: 7,
-  });
-  res.json({ expiresAt });
-});
-
-// Revoke
-app.delete('/api/invitations/:id', async (req, res) => {
-  await authvital.invitations.revoke(req, req.params.id);
-  res.json({ success: true });
-});
-```
-
-### List Tenant Members
-
-```typescript
-app.get('/api/team', async (req, res) => {
-  const members = await authvital.memberships.listForTenant(req, {
-    status: 'ACTIVE',
-  });
-  res.json(members);
-});
-```
-
-### Change Member Role
-
-```typescript
-app.put('/api/team/:membershipId/role', async (req, res) => {
-  const result = await authvital.memberships.setMemberRole(
-    req,
-    req.params.membershipId,
-    req.body.role, // 'admin', 'member', etc.
-  );
-  res.json(result.role);
-});
-```
+See the [integration namespace overview](../sdk/server-sdk/namespaces/overview.md)
+for exact signatures and return shapes.
 
 ---
 

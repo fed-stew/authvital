@@ -1,4 +1,4 @@
-import { extractJwt } from "./extract-jwt";
+import { extractJwt, extractSessionJwt } from "./extract-jwt";
 
 describe("extractJwt", () => {
   it("returns null when idp_session cookie is present (split-token security)", () => {
@@ -62,5 +62,52 @@ describe("extractJwt", () => {
     };
 
     expect(extractJwt(req)).toBeNull();
+  });
+});
+
+describe("extractSessionJwt", () => {
+  it("prefers the Authorization: Bearer header over the cookie", () => {
+    const req: any = {
+      cookies: { idp_session: "idp-token" },
+      headers: { authorization: "Bearer header-token" },
+    };
+
+    expect(extractSessionJwt(req)).toBe("header-token");
+  });
+
+  it("falls back to the idp_session cookie when no header is present", () => {
+    const req: any = {
+      cookies: { idp_session: "idp-token" },
+      headers: {},
+    };
+
+    expect(extractSessionJwt(req)).toBe("idp-token");
+  });
+
+  it("ignores non-idp_session cookies (e.g. super_admin_session)", () => {
+    const req: any = {
+      cookies: { super_admin_session: "admin-token" },
+      headers: {},
+    };
+
+    expect(extractSessionJwt(req)).toBeNull();
+  });
+
+  it("returns null when neither header nor idp_session cookie exist", () => {
+    const req: any = {
+      cookies: {},
+      headers: {},
+    };
+
+    expect(extractSessionJwt(req)).toBeNull();
+  });
+
+  it("is safe when cookies are undefined", () => {
+    const req: any = {
+      cookies: undefined,
+      headers: {},
+    };
+
+    expect(extractSessionJwt(req)).toBeNull();
   });
 });

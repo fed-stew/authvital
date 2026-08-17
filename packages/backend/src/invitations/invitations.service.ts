@@ -322,7 +322,7 @@ export class InvitationsService {
 
     // Look up application for redirect URL
     const application = invitation.clientId
-      ? await this.prisma.application.findUnique({
+      ? await this.prisma.applicationClient.findUnique({
           where: { clientId: invitation.clientId },
           select: { clientId: true, initiateLoginUri: true },
         })
@@ -387,16 +387,30 @@ export class InvitationsService {
     return this.invitationManagementService.listTenantInvitations(tenantId);
   }
 
-  async revokeInvitation(invitationId: string) {
-    return this.invitationManagementService.revokeInvitation(invitationId);
+  async revokeInvitation(invitationId: string, tenantId: string) {
+    return this.invitationManagementService.revokeInvitation(
+      invitationId,
+      tenantId,
+    );
   }
 
-  async resendInvitationEmail(invitationId: string) {
-    return this.invitationManagementService.resendInvitationEmail(invitationId);
+  async resendInvitationEmail(invitationId: string, tenantId: string) {
+    return this.invitationManagementService.resendInvitationEmail(
+      invitationId,
+      tenantId,
+    );
   }
 
-  async updateInvitation(invitationId: string, data: { roleId?: string }) {
-    return this.invitationManagementService.updateInvitation(invitationId, data);
+  async updateInvitation(
+    invitationId: string,
+    data: { roleId?: string },
+    tenantId: string,
+  ) {
+    return this.invitationManagementService.updateInvitation(
+      invitationId,
+      data,
+      tenantId,
+    );
   }
 
   // ===========================================================================
@@ -409,15 +423,37 @@ export class InvitationsService {
     tenantId?: string,
     clientId?: string,
   ) {
-    let application: { id: string; name: string; licensingMode: string; clientId: string } | null = null;
+    let application: {
+      id: string;
+      name: string;
+      licensingMode: string;
+      clientId: string | null;
+    } | null = null;
 
     if (applicationId) {
-      application = await this.prisma.application.findUnique({
+      // clientId now lives on the (SPA) ApplicationClient; flatten it in.
+      const app = await this.prisma.application.findUnique({
         where: { id: applicationId },
-        select: { id: true, name: true, licensingMode: true, clientId: true },
+        select: {
+          id: true,
+          name: true,
+          licensingMode: true,
+          clients: {
+            where: { type: 'SPA' },
+            select: { clientId: true },
+            take: 1,
+          },
+        },
       });
 
-      if (!application) throw new NotFoundException('Application not found');
+      if (!app) throw new NotFoundException('Application not found');
+
+      application = {
+        id: app.id,
+        name: app.name,
+        licensingMode: app.licensingMode,
+        clientId: app.clients[0]?.clientId ?? null,
+      };
 
       const accessCheck = await this.licensePoolService.checkMemberAccess(tenantId!, application.id);
       if (!accessCheck.allowed) {
@@ -449,11 +485,20 @@ export class InvitationsService {
     }
 
     if (clientId && !application) {
-      application = await this.prisma.application.findUnique({
+      const client = await this.prisma.applicationClient.findUnique({
         where: { clientId },
-        select: { id: true, name: true, licensingMode: true, clientId: true },
+        select: {
+          clientId: true,
+          application: { select: { id: true, name: true, licensingMode: true } },
+        },
       });
-      if (!application) throw new NotFoundException('Application not found');
+      if (!client) throw new NotFoundException('Application not found');
+      application = {
+        id: client.application.id,
+        name: client.application.name,
+        licensingMode: client.application.licensingMode,
+        clientId: client.clientId,
+      };
     }
 
     return application;

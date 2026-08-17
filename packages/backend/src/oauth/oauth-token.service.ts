@@ -9,7 +9,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { KeyService } from './key.service';
 import { OAuthSessionService } from './oauth-session.service';
 import { OAuthLicenseService } from './oauth-license.service';
-import { OWNER_PERMISSIONS } from '../authorization';
+import { MfaService, MfaComplianceResult } from '../auth/mfa/mfa.service';
+import { resolveEffectiveTenantPermissions } from '../authorization/utils/tenant-permissions.util';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { CodeChallengeMethod, Prisma } from '@prisma/client';
@@ -47,13 +48,20 @@ interface UserWithMemberships {
   memberships: { tenant: { id: string; slug: string; name: string } }[];
 }
 
-interface ApplicationConfig {
-  id: string;
+/**
+ * Credential-side config used to mint tokens. Token TTLs + clientId live on the
+ * ApplicationClient; the owning Application (container) carries id + licensing.
+ */
+interface ApplicationClientConfig {
+  id: string; // ApplicationClient PK
   clientId: string;
   accessTokenTtl: number;
   refreshTokenTtl: number;
-  licensingMode?: string | null;
-  [key: string]: unknown;
+  application: {
+    id: string;
+    licensingMode?: string | null;
+    [key: string]: unknown;
+  };
 }
 
 interface MembershipRoleData {
@@ -113,6 +121,7 @@ export class OAuthTokenService {
     private readonly configService: ConfigService,
     private readonly sessionService: OAuthSessionService,
     private readonly licenseService: OAuthLicenseService,
+    private readonly mfaService: MfaService,
   ) {
     this.issuer = this.configService.getOrThrow<string>('BASE_URL');
   }
@@ -159,7 +168,7 @@ export class OAuthTokenService {
             },
           },
         },
-        application: true,
+        applicationClient: { include: { application: true } },
       },
     });
 
@@ -175,8 +184,12 @@ export class OAuthTokenService {
       await this.prisma.authorizationCode.delete({
         where: { id: authCode.id },
       });
+      // RFC 6749 §5.2: keep client-facing errors generic; details go to logs.
+      this.logger.debug(
+        `[OAuth Token] Authorization code expired at ${authCode.expiresAt.toISOString()}`,
+      );
       throw new UnauthorizedException(
-        `Authorization code expired (expired at ${authCode.expiresAt.toISOString()})`,
+        'Invalid grant: authorization code expired',
       );
     }
 
@@ -185,31 +198,33 @@ export class OAuthTokenService {
       // Potential replay attack - revoke all tokens for this user/app
       await this.sessionService.revokeUserAppTokens(
         authCode.userId,
-        authCode.applicationId,
+        authCode.applicationClientId,
       );
       throw new UnauthorizedException('Authorization code already used');
     }
 
-    // Check if application is still active
-    if (!authCode.application.isActive) {
+    // Check if the owning application (container) is still active
+    if (!authCode.applicationClient.application.isActive) {
       await this.prisma.authorizationCode.delete({ where: { id: authCode.id } });
       throw new UnauthorizedException('Application is disabled');
     }
 
     // Verify client_id matches
-    if (authCode.application.clientId !== params.clientId) {
+    if (authCode.applicationClient.clientId !== params.clientId) {
       throw new UnauthorizedException('Client ID mismatch');
     }
 
     // Verify redirect_uri matches exactly
     if (params.redirectUri && params.redirectUri !== authCode.redirectUri) {
-      throw new UnauthorizedException(
-        `Redirect URI mismatch: got "${params.redirectUri}" but expected "${authCode.redirectUri}"`,
+      // RFC 6749 §5.2: keep client-facing errors generic; details go to logs.
+      this.logger.debug(
+        `[OAuth Token] Redirect URI mismatch: got "${params.redirectUri}" but expected "${authCode.redirectUri}"`,
       );
+      throw new UnauthorizedException('Invalid grant: redirect_uri mismatch');
     }
 
-    // If application has a client secret configured, it MUST be provided
-    if (authCode.application.clientSecret) {
+    // If the client has a client secret configured, it MUST be provided
+    if (authCode.applicationClient.clientSecret) {
       if (!params.clientSecret) {
         throw new UnauthorizedException(
           'Client secret is required for this application',
@@ -217,7 +232,7 @@ export class OAuthTokenService {
       }
       const secretValid = await bcrypt.compare(
         params.clientSecret,
-        authCode.application.clientSecret,
+        authCode.applicationClient.clientSecret,
       );
       if (!secretValid) {
         throw new UnauthorizedException('Invalid client secret');
@@ -241,16 +256,42 @@ export class OAuthTokenService {
       }
     }
 
-    // Mark code as used
-    await this.prisma.authorizationCode.update({
-      where: { id: authCode.id },
+    // Atomically claim the code BEFORE minting tokens. The conditional
+    // updateMany (usedAt: null) guarantees only ONE concurrent exchange wins;
+    // the earlier findUnique → usedAt check alone is racy.
+    const claimed = await this.prisma.authorizationCode.updateMany({
+      where: { id: authCode.id, usedAt: null },
       data: { usedAt: new Date() },
     });
+
+    if (claimed.count !== 1) {
+      // Lost the race — treat exactly like a replay: revoke everything for
+      // this user/client pair.
+      this.logger.warn(
+        `[OAuth Token] Concurrent authorization code exchange detected for user ${authCode.userId} — revoking all sessions for this user/client`,
+      );
+      await this.sessionService.revokeUserAppTokens(
+        authCode.userId,
+        authCode.applicationClientId,
+      );
+      throw new UnauthorizedException('Authorization code already used');
+    }
+
+    // MFA-at-mint backstop (primary enforcement lives in the authorize path).
+    // Deliberately placed AFTER the atomic claim: the code is legitimately
+    // consumed either way — this is a POLICY failure, not theft, so it must
+    // not look like a replay. Rejecting post-claim also means the same code
+    // can't be retried to probe policy state; the client must re-run
+    // /oauth/authorize, which performs the enrollment interrupt properly.
+    const mfaCompliance = await this.enforceMfaPolicyAtMint(
+      authCode.userId,
+      authCode.tenantId,
+    );
 
     // Generate tokens with optional tenant scope
     return this.generateTokens(
       authCode.user,
-      authCode.application,
+      authCode.applicationClient,
       authCode.scope || 'openid profile email',
       authCode.nonce,
       authCode.tenantId && authCode.tenantSubdomain
@@ -259,6 +300,7 @@ export class OAuthTokenService {
             tenantSubdomain: authCode.tenantSubdomain,
           }
         : null,
+      mfaCompliance,
     );
   }
 
@@ -316,7 +358,7 @@ export class OAuthTokenService {
           },
         },
       },
-      application: true,
+      applicationClient: { include: { application: true } },
     } satisfies Prisma.RefreshTokenInclude;
 
     const refreshToken = await this.prisma.refreshToken.findUnique({
@@ -330,8 +372,15 @@ export class OAuthTokenService {
 
     // Step 3: Validate session state (Token Ghosting "ghost check")
     if (refreshToken.revoked || refreshToken.revokedAt) {
+      // A previously-rotated (revoked) refresh token is being replayed —
+      // standard rotation-theft response: revoke the whole token family so a
+      // thief holding ANY token from this lineage is cut off.
       this.logger.warn(
-        `[Token Ghosting] Session ${refreshToken.id} has been revoked`,
+        `[Token Ghosting] Revoked refresh token ${refreshToken.id} presented — suspected token theft, revoking ALL sessions for user ${refreshToken.userId} on this client`,
+      );
+      await this.sessionService.revokeUserAppTokens(
+        refreshToken.userId,
+        refreshToken.applicationClientId,
       );
       throw new UnauthorizedException('Session has been revoked');
     }
@@ -340,26 +389,50 @@ export class OAuthTokenService {
       throw new UnauthorizedException('Session expired');
     }
 
-    if (!refreshToken.application.isActive) {
+    if (!refreshToken.applicationClient.application.isActive) {
       this.logger.warn(
-        `[Token Ghosting] Refresh rejected — application ${refreshToken.application.clientId} is disabled`,
+        `[Token Ghosting] Refresh rejected — application ${refreshToken.applicationClient.clientId} is disabled`,
       );
       throw new UnauthorizedException('Application is disabled');
     }
 
-    // Step 4: Rotate refresh token (revoke old, generate new)
-    await this.prisma.refreshToken.update({
-      where: { id: refreshToken.id },
+    // Step 4: Atomically rotate the refresh token (revoke old, generate new).
+    // The conditional updateMany (revoked: false) guarantees only ONE
+    // concurrent rotation wins — losing means replay/theft is in progress.
+    const rotated = await this.prisma.refreshToken.updateMany({
+      where: { id: refreshToken.id, revoked: false },
       data: {
         revoked: true,
         revokedAt: new Date(),
       },
     });
 
+    if (rotated.count !== 1) {
+      this.logger.warn(
+        `[Token Ghosting] Concurrent rotation of refresh token ${refreshToken.id} — suspected token theft, revoking ALL sessions for user ${refreshToken.userId} on this client`,
+      );
+      await this.sessionService.revokeUserAppTokens(
+        refreshToken.userId,
+        refreshToken.applicationClientId,
+      );
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    // MFA-at-mint backstop — e.g. the grace period expired between refreshes.
+    // Runs AFTER the atomic rotation on purpose: the presented token is
+    // legitimately consumed (rotated) either way, and a policy failure must
+    // NOT trigger the token-family revocation above — that response is for
+    // suspected theft only. With no new token issued, this session lineage
+    // simply ends; the user must re-authorize and enroll in MFA.
+    const mfaCompliance = await this.enforceMfaPolicyAtMint(
+      refreshToken.userId,
+      refreshToken.tenantId,
+    );
+
     // Maintain tenant scope when refreshing tokens
     return this.generateTokens(
       refreshToken.user,
-      refreshToken.application,
+      refreshToken.applicationClient,
       refreshToken.scope || 'openid profile email',
       null, // nonce not needed for refresh token grant
       refreshToken.tenantId && refreshToken.tenantSubdomain
@@ -368,7 +441,43 @@ export class OAuthTokenService {
             tenantSubdomain: refreshToken.tenantSubdomain,
           }
         : null,
+      mfaCompliance,
     );
+  }
+
+  /**
+   * Backstop enforcement of the tenant MFA policy at token mint time.
+   *
+   * Returns the compliance result (used for amr / grace claims) for
+   * tenant-scoped mints, or null for org-less mints (unaffected by policy).
+   * Throws 401 interaction_required when policy requires MFA, the user is not
+   * enrolled, and no grace period applies. NEVER revokes token families —
+   * callers must invoke this only after their atomic claim/rotation succeeded.
+   */
+  private async enforceMfaPolicyAtMint(
+    userId: string,
+    tenantId: string | null | undefined,
+  ): Promise<MfaComplianceResult | null> {
+    if (!tenantId) {
+      return null;
+    }
+
+    const compliance = await this.mfaService.checkUserMfaCompliance(
+      userId,
+      tenantId,
+    );
+
+    if (!compliance.compliant && !compliance.withinGrace) {
+      this.logger.debug(
+        `[OAuth Token] Mint blocked by tenant MFA policy for user ${userId} on tenant ${tenantId}`,
+      );
+      throw new UnauthorizedException({
+        error: 'interaction_required',
+        error_description: 'MFA enrollment required by tenant policy',
+      });
+    }
+
+    return compliance;
   }
 
   /**
@@ -384,12 +493,13 @@ export class OAuthTokenService {
       );
     }
 
-    // Find application by client_id
-    const app = await this.prisma.application.findUnique({
+    // Find the client credential by client_id (M2M lives on ApplicationClient)
+    const app = await this.prisma.applicationClient.findUnique({
       where: { clientId: params.clientId },
+      include: { application: true },
     });
 
-    if (!app || !app.isActive) {
+    if (!app || !app.isActive || !app.application.isActive) {
       throw new UnauthorizedException('Invalid client_id');
     }
 
@@ -408,8 +518,25 @@ export class OAuthTokenService {
       throw new UnauthorizedException('Invalid client_secret');
     }
 
+    // Deny-by-default scope validation: an M2M client may only receive scopes
+    // it has been explicitly granted via `m2mAllowedScopes`.
+    const allowed = app.m2mAllowedScopes ?? [];
+    let granted: string[];
+    if (params.scope && params.scope.trim().length > 0) {
+      const requested = params.scope.trim().split(/\s+/);
+      const invalid = requested.filter((s) => !allowed.includes(s));
+      if (invalid.length > 0) {
+        throw new BadRequestException(
+          `invalid_scope: requested scope(s) not permitted for this client: ${invalid.join(', ')}`,
+        );
+      }
+      granted = requested;
+    } else {
+      granted = allowed;
+    }
+
     // Generate M2M access token (no user, no refresh token)
-    return this.generateM2MTokens(app, params.scope || 'system:admin');
+    return this.generateM2MTokens(app, granted.join(' '));
   }
 
   /**
@@ -450,15 +577,37 @@ export class OAuthTokenService {
    *
    * @param tenantScope - Optional tenant scope. If provided, token ONLY includes this tenant.
    *                      This enables "separate token per tenant" pattern for strict isolation.
+   * @param mfaCompliance - Tenant MFA compliance at mint time (null for org-less mints).
+   *                        Drives the amr and mfa_grace_expires_at claims.
    */
   async generateTokens(
     user: UserWithMemberships,
-    application: ApplicationConfig,
+    application: ApplicationClientConfig,
     scope: string,
     nonce?: string | null,
     tenantScope?: TenantScope | null,
+    mfaCompliance?: MfaComplianceResult | null,
   ): Promise<TokenResponse> {
     const scopes = scope.split(' ');
+
+    // AMR (Authentication Method References, RFC 8176).
+    // APPROXIMATION / TODO(session-amr): the IdP session does not yet record
+    // whether THIS login actually verified a TOTP code, so we include 'otp'
+    // when the user has MFA enabled AND the tenant policy check confirmed it
+    // (mfaCompliance.mfaEnabled). True session-level amr tracking (stamping
+    // the verification method onto the idp_session at login) is future work.
+    const amr = ['pwd'];
+    if (mfaCompliance?.mfaEnabled) {
+      amr.push('otp');
+    }
+
+    // Minted under grace: policy requires MFA, user not enrolled, window open.
+    const mfaGraceExpiresAt =
+      mfaCompliance?.withinGrace &&
+      !mfaCompliance.mfaEnabled &&
+      mfaCompliance.gracePeriodEndsAt
+        ? Math.floor(mfaCompliance.gracePeriodEndsAt.getTime() / 1000)
+        : undefined;
 
     // Determine which tenants to include in the token
     let orgId: string | undefined;
@@ -482,9 +631,14 @@ export class OAuthTokenService {
       tenantSubdomain = selectedTenant.tenant.slug;
     }
 
-    // Fetch roles and permissions when scoped to a single tenant
+    // Fetch roles and permissions when scoped to a single tenant.
+    // Roles belong to the Application container, not the client credential.
     const roleData = tenantScope
-      ? await this.fetchMembershipRoles(user.id, tenantScope.tenantId, application.id)
+      ? await this.fetchMembershipRoles(
+          user.id,
+          tenantScope.tenantId,
+          application.application.id,
+        )
       : null;
 
     // Build access token payload
@@ -498,6 +652,11 @@ export class OAuthTokenService {
       roleData,
       scope,
     });
+
+    accessTokenPayload.amr = amr;
+    if (mfaGraceExpiresAt !== undefined) {
+      accessTokenPayload.mfa_grace_expires_at = mfaGraceExpiresAt;
+    }
 
     // Sign access token
     const accessToken = await this.keyService.signJwt(accessTokenPayload, {
@@ -513,7 +672,7 @@ export class OAuthTokenService {
         scope,
         expiresAt: new Date(Date.now() + application.refreshTokenTtl * 1000),
         userId: user.id,
-        applicationId: application.id,
+        applicationClientId: application.id,
         revoked: false,
         tenantId: tenantScope?.tenantId,
         tenantSubdomain: tenantScope?.tenantSubdomain,
@@ -545,7 +704,12 @@ export class OAuthTokenService {
         email: user.email,
         given_name: user.givenName,
         family_name: user.familyName,
+        amr,
       };
+
+      if (mfaGraceExpiresAt !== undefined) {
+        idTokenPayload.mfa_grace_expires_at = mfaGraceExpiresAt;
+      }
 
       if (nonce) {
         idTokenPayload.nonce = nonce;
@@ -601,7 +765,7 @@ export class OAuthTokenService {
    */
   private async buildAccessTokenPayload(params: {
     user: UserWithMemberships;
-    application: ApplicationConfig;
+    application: ApplicationClientConfig;
     scopes: string[];
     orgId?: string;
     tenantSubdomain?: string;
@@ -640,37 +804,24 @@ export class OAuthTokenService {
       const tenantRoles = roleData.membershipTenantRoles.map(
         (mtr) => mtr.tenantRole.slug,
       );
-      const tenantPermissions = [
-        ...new Set(
-          roleData.membershipTenantRoles.flatMap(
-            (mtr) => mtr.tenantRole.permissions,
-          ),
-        ),
-      ];
-
       const appRoles = roleData.membershipRoles.map((mr) => mr.role.slug);
 
-      // Check if user has owner role
-      const hasOwnerRole = tenantRoles.includes('owner');
-      if (hasOwnerRole) {
-        accessTokenPayload.tenant_roles = tenantRoles;
-        accessTokenPayload.tenant_permissions = [
-          ...new Set([...OWNER_PERMISSIONS, ...tenantPermissions]),
-        ];
-      } else {
-        accessTokenPayload.tenant_roles = tenantRoles;
-        accessTokenPayload.tenant_permissions = tenantPermissions;
-      }
+      // Single source of truth: owner is expanded to the full permission set
+      // here exactly as the live-DB guard path does.
+      accessTokenPayload.tenant_roles = tenantRoles;
+      accessTokenPayload.tenant_permissions = resolveEffectiveTenantPermissions(
+        roleData.membershipTenantRoles.map((mtr) => mtr.tenantRole),
+      );
 
       if (appRoles.length > 0) {
         accessTokenPayload.app_roles = appRoles;
       }
 
-      // Add license info if applicable
+      // Add license info if applicable (licensing lives on the container)
       const licenseInfo = await this.licenseService.fetchLicenseInfo(
         user.id,
         tenantScope.tenantId,
-        application,
+        application.application,
       );
       if (licenseInfo) {
         accessTokenPayload.license = licenseInfo;

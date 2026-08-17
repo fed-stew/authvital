@@ -7,9 +7,9 @@
  * the application's login URL with the tenant slug.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Loader2, LayoutGrid, ChevronRight, LogOut, AlertCircle } from 'lucide-react';
+import { Loader2, LayoutGrid, ChevronRight, LogOut, AlertCircle, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 
 const API_URL = import.meta.env.VITE_API_URL || window.location.origin;
@@ -33,18 +33,25 @@ export function AppPicker() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectingApp, setSelectingApp] = useState<string | null>(null);
+  // Guard so we auto-launch a lone app at most once (belt-and-suspenders
+  // against redirect loops even though window.location.href unloads the page).
+  const autoLaunchedRef = useRef(false);
 
-  // Get tenant slug from query params (passed from invitation accept)
+  // Get tenant slug from query params (tenant-first flow or invitation accept)
   const tenantSlug = searchParams.get('tenant') || '';
   const tenantName = searchParams.get('tenant_name') || tenantSlug;
 
   // Fetch available applications on mount
   useEffect(() => {
     const fetchApplications = async () => {
-      console.log('[AppPicker] Fetching available applications...');
-      
+      // Scope apps to the chosen tenant when we arrived via the tenant-first flow.
+      const appsUrl = tenantSlug
+        ? `${API_URL}/api/auth/apps?tenant=${encodeURIComponent(tenantSlug)}`
+        : `${API_URL}/api/auth/apps`;
+      console.log('[AppPicker] Fetching available applications...', appsUrl);
+
       try {
-        const response = await fetch(`${API_URL}/api/auth/apps`, {
+        const response = await fetch(appsUrl, {
           credentials: 'include',
         });
 
@@ -73,7 +80,18 @@ export function AppPicker() {
         }
 
         console.log('[AppPicker] Applications:', data.applications?.map((a: Application) => a.name));
-        setApplications(data.applications || []);
+        const apps: Application[] = data.applications || [];
+
+        // Auto-launch: single app in a tenant-scoped flow → skip the one-item list.
+        if (tenantSlug && apps.length === 1 && apps[0].initiateLoginUri && !autoLaunchedRef.current) {
+          autoLaunchedRef.current = true;
+          const redirectUrl = apps[0].initiateLoginUri.replace('{tenant}', tenantSlug);
+          console.log('[AppPicker] Single app + tenant → auto-launching:', redirectUrl);
+          window.location.href = redirectUrl;
+          return; // keep the spinner up while the browser navigates away
+        }
+
+        setApplications(apps);
       } catch (err) {
         console.error('[AppPicker] Error fetching applications:', err);
         setError(err instanceof Error ? err.message : 'Failed to load applications');
@@ -83,7 +101,7 @@ export function AppPicker() {
     };
 
     fetchApplications();
-  }, [navigate]);
+  }, [navigate, tenantSlug]);
 
   // Handle app selection - redirect to org-picker with this app's client_id
   const handleSelectApp = (app: Application) => {
@@ -166,7 +184,7 @@ export function AppPicker() {
           {applications.length === 0 ? (
             <div className="p-8 text-center">
               <p className="text-muted-foreground">
-                No applications available.
+                {tenantSlug ? 'No apps available in this tenant.' : 'No applications available.'}
               </p>
             </div>
           ) : (
@@ -220,15 +238,29 @@ export function AppPicker() {
           )}
         </div>
 
-        {/* Logout */}
-        <div className="mt-6 text-center">
-          <button
-            onClick={handleLogout}
-            className="text-sm text-muted-foreground hover:text-white transition-colors inline-flex items-center gap-2"
-          >
-            <LogOut className="w-4 h-4" />
-            Sign in with a different account
-          </button>
+        {/* Navigation */}
+        <div className="mt-6 text-center space-y-3">
+          {/* Only relevant when the user arrived via the tenant-first flow. */}
+          {tenantSlug && (
+            <div>
+              <button
+                onClick={() => navigate('/auth/org-picker')}
+                className="text-sm text-muted-foreground hover:text-white transition-colors inline-flex items-center gap-2"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back to tenant selection
+              </button>
+            </div>
+          )}
+          <div>
+            <button
+              onClick={handleLogout}
+              className="text-sm text-muted-foreground hover:text-white transition-colors inline-flex items-center gap-2"
+            >
+              <LogOut className="w-4 h-4" />
+              Sign in with a different account
+            </button>
+          </div>
         </div>
 
         {/* Security note */}

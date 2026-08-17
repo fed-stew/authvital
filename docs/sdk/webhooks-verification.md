@@ -1,93 +1,23 @@
-# Manual Webhook Verification
+# Webhook Verification
 
-> Low-level API for manual RSA-SHA256 signature verification.
+> RSA-SHA256 signature verification via JWKS — the real, intended approach.
 
 **See also:** [Webhooks Guide](./webhooks.md) | [Framework Integration](./webhooks-frameworks.md)
 
----
-
-## AuthVitalWebhooks Class
-
-For more control over webhook handling, use the `AuthVitalWebhooks` class directly.
-
-```typescript
-import { AuthVitalWebhooks } from '@authvital/sdk/webhooks';
-
-const webhooks = new AuthVitalWebhooks({
-  authVitalHost: process.env.AV_HOST!,
-  maxTimestampAge: 300,    // Optional: 5 min replay protection
-  keysCacheTtl: 3600000,   // Optional: 1 hour JWKS cache
-});
-```
+!!! warning "No `AuthVitalWebhooks` / `WebhookVerificationError` class in the SDK"
+    Earlier drafts referenced an `AuthVitalWebhooks` class (with `verifyAndParse`)
+    imported from `@authvital/sdk/webhooks`. **That does not exist.** Verification
+    is done with the standard-library code shown below, which matches how the
+    `examples/bff-express` app verifies webhooks. If you prefer, the same RSA/JWKS
+    check can be performed with `verifyToken` / `JWKSClient` from
+    `@authvital/server`.
 
 ---
 
-## Verifying a Webhook Signature
+## RSA-SHA256 Verification (Node standard library)
 
-```typescript
-import express from 'express';
-import { AuthVitalWebhooks, WebhookVerificationError } from '@authvital/sdk/webhooks';
-
-const app = express();
-const webhooks = new AuthVitalWebhooks({
-  authVitalHost: process.env.AV_HOST!,
-});
-
-app.post(
-  '/webhooks/authvital',
-  express.raw({ type: 'application/json' }),
-  async (req, res) => {
-    try {
-      // Extract headers
-      const signature = req.headers['x-authvital-signature'] as string;
-      const keyId = req.headers['x-authvital-key-id'] as string;
-      const timestamp = req.headers['x-authvital-timestamp'] as string;
-      const eventId = req.headers['x-authvital-event-id'] as string;
-      const eventType = req.headers['x-authvital-event-type'] as string;
-
-      // Get raw body as string
-      const body = req.body.toString('utf-8');
-
-      // Verify signature (throws on failure)
-      const event = await webhooks.verifyAndParse({
-        body,
-        signature,
-        keyId,
-        timestamp,
-      });
-
-      console.log('Verified event:', event.type, event.id);
-
-      // Handle the event based on type
-      switch (event.type) {
-        case 'subject.created':
-          console.log('New user:', event.data.email);
-          break;
-        case 'member.joined':
-          console.log('Member joined:', event.data.membership_id);
-          break;
-        // ... handle other events
-      }
-
-      res.status(200).json({ received: true });
-    } catch (error) {
-      if (error instanceof WebhookVerificationError) {
-        console.error('Webhook verification failed:', error.message);
-        return res.status(401).json({ error: error.message });
-      }
-      
-      console.error('Webhook processing error:', error);
-      return res.status(500).json({ error: 'Internal error' });
-    }
-  }
-);
-```
-
----
-
-## Manual RSA-SHA256 Verification (Without SDK)
-
-If you can't use the SDK, here's how to verify webhooks manually:
+This is the canonical `verifyWebhook` helper referenced throughout the webhook
+docs. Copy it into your project:
 
 ```typescript
 import crypto from 'crypto';

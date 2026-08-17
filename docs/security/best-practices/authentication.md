@@ -35,15 +35,19 @@ localStorage.setItem('token', accessToken); // XSS risk!
 **Always use PKCE** for browser-based applications:
 
 ```typescript
-import { generatePKCE, buildAuthorizeUrl } from '@authvital/sdk/server';
+import { generatePKCE, buildAuthorizeUrl } from '@authvital/core/oauth';
 
-// ✅ Required for SPAs
+// ✅ Required for SPAs (buildAuthorizeUrl always uses S256 automatically)
 const { codeVerifier, codeChallenge } = await generatePKCE();
 const authorizeUrl = buildAuthorizeUrl({
-  // ...
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  redirectUri: 'https://app.example.com/auth/callback',
+  state,        // your CSRF/state value
   codeChallenge,
-  codeChallengeMethod: 'S256',
 });
+
+// Tip: the OAuthFlow helper (@authvital/server) wraps all of this for you.
 ```
 
 PKCE (Proof Key for Code Exchange) prevents authorization code interception attacks:
@@ -72,15 +76,13 @@ PKCE (Proof Key for Code Exchange) prevents authorization code interception atta
 **Never trust client-side checks alone:**
 
 ```typescript
-// ✅ Server validates JWT and permissions
-app.get('/api/admin', async (req, res) => {
-  const { authenticated, user } = await authvital.getCurrentUser(req);
-  if (!authenticated) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  
-  // Use SDK's wildcard-aware permission check
-  if (!await authvital.hasAppPermission(req, 'admin:*')) {
+import { requireAuth } from '@authvital/server/middleware/express';
+
+// ✅ Server validates the session (JWT) and permissions
+app.get('/api/admin', requireAuth(), async (req, res) => {
+  // requireAuth() guarantees a valid session -> req.authVital is present.
+  // Permission check via the M2M integration endpoint:
+  if (!(await req.authVital!.client.hasPermission('admin:*'))) {
     return res.status(403).json({ error: 'Forbidden' });
   }
   // ...

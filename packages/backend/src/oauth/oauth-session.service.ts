@@ -1,11 +1,13 @@
 import {
   Injectable,
   UnauthorizedException,
+  NotFoundException,
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { KeyService } from './key.service';
+import { Prisma } from '@prisma/client';
 
 /**
  * Manages OAuth sessions using the Token Ghosting pattern.
@@ -143,15 +145,16 @@ export class OAuthSessionService {
     userId: string,
     applicationId?: string,
   ): Promise<{ success: boolean; count: number }> {
-    const where: { userId: string; revoked: boolean; applicationId?: string } =
-      {
-        userId,
-        revoked: false,
-      };
+    // Sessions FK to ApplicationClient now; scope by the owning application
+    // (covers all of that application's clients) via a relation filter.
+    const where: Prisma.RefreshTokenWhereInput = {
+      userId,
+      revoked: false,
+    };
 
     // Optionally scope to a specific application
     if (applicationId) {
-      where.applicationId = applicationId;
+      where.applicationClient = { is: { applicationId } };
     }
 
     const result = await this.prisma.refreshToken.updateMany({
@@ -166,14 +169,14 @@ export class OAuthSessionService {
   }
 
   /**
-   * Revoke all tokens for a user/application pair
+   * Revoke all tokens for a user/application-client pair
    * Used for security events (e.g., authorization code replay attack)
    */
-  async revokeUserAppTokens(userId: string, applicationId: string) {
+  async revokeUserAppTokens(userId: string, applicationClientId: string) {
     await this.prisma.refreshToken.updateMany({
       where: {
         userId,
-        applicationId,
+        applicationClientId,
         revoked: false,
       },
       data: {
@@ -199,19 +202,14 @@ export class OAuthSessionService {
       tenantSubdomain: string | null;
     }>
   > {
-    const where: {
-      userId: string;
-      revoked: boolean;
-      expiresAt: { gt: Date };
-      applicationId?: string;
-    } = {
+    const where: Prisma.RefreshTokenWhereInput = {
       userId,
       revoked: false,
       expiresAt: { gt: new Date() },
     };
 
     if (applicationId) {
-      where.applicationId = applicationId;
+      where.applicationClient = { is: { applicationId } };
     }
 
     return this.prisma.refreshToken.findMany({
@@ -226,6 +224,64 @@ export class OAuthSessionService {
       },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  /**
+   * List a user's active sessions in API-response shape (ISO strings).
+   *
+   * Thin presentation wrapper over {@link getUserSessions} so both the OAuth
+   * (RS256) and console (JwtAuthGuard) surfaces render the same session shape
+   * without duplicating the mapping.
+   */
+  async listSessions(
+    userId: string,
+    applicationId?: string,
+  ): Promise<{
+    sessions: Array<{
+      id: string;
+      createdAt: string;
+      expiresAt: string;
+      userAgent: string | null;
+      ipAddress: string | null;
+      tenant: string | null;
+    }>;
+    count: number;
+  }> {
+    const sessions = await this.getUserSessions(userId, applicationId);
+    return {
+      sessions: sessions.map((s) => ({
+        id: s.id,
+        createdAt: s.createdAt.toISOString(),
+        expiresAt: s.expiresAt.toISOString(),
+        userAgent: s.userAgent,
+        ipAddress: s.ipAddress,
+        tenant: s.tenantSubdomain,
+      })),
+      count: sessions.length,
+    };
+  }
+
+  /**
+   * Revoke a single session, enforcing OWNERSHIP.
+   *
+   * A caller may only revoke sessions belonging to their own user id. To avoid
+   * leaking the existence of another user's session we treat both "missing"
+   * and "not yours" as a 404. Reuses {@link revokeSession} for the actual write.
+   */
+  async revokeUserSession(
+    userId: string,
+    sessionId: string,
+  ): Promise<{ success: boolean; message: string }> {
+    const session = await this.prisma.refreshToken.findUnique({
+      where: { id: sessionId },
+      select: { userId: true },
+    });
+
+    if (!session || session.userId !== userId) {
+      throw new NotFoundException('Session not found');
+    }
+
+    return this.revokeSession(sessionId);
   }
 
   /**

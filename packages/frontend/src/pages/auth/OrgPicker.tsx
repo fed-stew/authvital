@@ -120,25 +120,53 @@ export function OrgPicker() {
     fetchMemberships();
   }, [navigate, redirectUri]);
 
-  // Handle org selection - redirect to tenant's auth endpoint
+  // Handle org selection.
   const handleSelectOrg = async (tenant: Tenant) => {
     console.log('[OrgPicker] User selected tenant:', tenant.name, tenant.slug);
-    
+
     setSelectingOrg(tenant.id);
 
-    let redirectUrl: string;
-    
-    // Use initiateLoginUri for redirect
-    if (initiateLoginUri) {
-      redirectUrl = initiateLoginUri.replace('{tenant}', tenant.slug);
-      console.log('[OrgPicker] Using initiateLoginUri:', initiateLoginUri);
-    } else {
-      // Fallback to localhost (development) - just go to root
-      const port = window.location.port ? `:${window.location.port}` : '';
-      redirectUrl = `${window.location.protocol}//${tenant.slug}.localhost${port}/`;
-      console.log('[OrgPicker] No initiateLoginUri, using localhost fallback');
+    // Tenant-first flow (no client_id): the user picks a tenant, then chooses an
+    // app scoped to it. No initiateLoginUri is needed in this branch.
+    if (!clientId) {
+      const params = new URLSearchParams();
+      params.set('tenant', tenant.slug);
+      params.set('tenant_name', tenant.name);
+      const appPickerUrl = `/auth/app-picker?${params.toString()}`;
+      console.log('[OrgPicker] No client_id → tenant-first, going to app-picker:', appPickerUrl);
+      navigate(appPickerUrl);
+      return;
     }
-    
+
+    // App-first / OAuth continuation (client_id present): launch the chosen
+    // tenant's app. Prefer the already-fetched value; if the branding fetch hasn't resolved
+    // yet (fast click), fetch it on demand so we don't false-negative.
+    let loginUri = initiateLoginUri;
+    if (!loginUri && clientId) {
+      try {
+        const resp = await fetch(`${API_URL}/api/branding/${clientId}`);
+        if (resp.ok) {
+          const data = await resp.json();
+          loginUri = data.initiateLoginUri || null;
+        }
+      } catch (err) {
+        console.warn('[OrgPicker] On-demand branding fetch failed:', err);
+      }
+    }
+
+    if (!loginUri) {
+      // No initiate-login URI configured for this app. Do NOT silently send the
+      // user to a bogus <tenant>.localhost URL — surface the misconfiguration.
+      console.error('[OrgPicker] Application has no initiateLoginUri configured');
+      setSelectingOrg(null);
+      setError(
+        "This application isn't configured for login yet (missing initiate login URI). " +
+          'Please ask an administrator to set the application\u2019s initiate login URI.',
+      );
+      return;
+    }
+
+    const redirectUrl = loginUri.replace('{tenant}', tenant.slug);
     console.log('[OrgPicker] Redirecting to:', redirectUrl);
     window.location.href = redirectUrl;
   };

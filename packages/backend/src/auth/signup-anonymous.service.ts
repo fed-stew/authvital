@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { InstanceService } from '../instance/instance.service';
+import { PasswordBreachCheckService } from './password-breach-check.service';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { isGenericDomain, extractDomain } from './constants/generic-domains';
@@ -25,6 +26,7 @@ export class SignUpAnonymousService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly instanceService: InstanceService,
+    private readonly breachCheckService: PasswordBreachCheckService,
   ) {}
 
   /**
@@ -101,6 +103,14 @@ export class SignUpAnonymousService {
 
     // Validate required fields
     this.validateRequiredFields(dto, config.requiredUserFields);
+
+    // Reject passwords known from public breach corpuses (fails open if HIBP is down)
+    const breachResult = await this.breachCheckService.checkPassword(dto.password);
+    if (breachResult.isBreached) {
+      throw new BadRequestException(
+        'This password has appeared in a known data breach; please choose a different password.',
+      );
+    }
 
     // Check for verified domain
     const verifiedDomain = await this.prisma.domain.findFirst({
@@ -294,6 +304,8 @@ export class SignUpAnonymousService {
 
     if (!dto.password || dto.password.length < 8) {
       errors.push('Password must be at least 8 characters');
+    } else if (dto.password.length > 128) {
+      errors.push('Password must be at most 128 characters');
     }
 
     for (const field of requiredFields) {

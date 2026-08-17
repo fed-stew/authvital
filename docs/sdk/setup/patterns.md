@@ -8,45 +8,60 @@
 
 ### Basic Auth Middleware
 
+!!! note "This builds your own guard on top of the real `verifyToken`"
+    There is no `authvital.getCurrentUser(req)` returning
+    `{ authenticated, user, error }`. The real primitive is `verifyToken()`
+    (re-exported from `@authvital/server`). If you use the session middleware
+    (`authVitalMiddleware` + `requireAuth()` from `@authvital/server/middleware`),
+    the token is on `req.authVital.accessToken`. Below we verify it ourselves and
+    stash the decoded claims on `req.user`.
+
 ```typescript
 // middleware/auth.ts
 import { Request, Response, NextFunction } from 'express';
-import { authvital } from '../lib/authvital';
+import { verifyToken } from '@authvital/server';
+import type { EnhancedJwtPayload } from '@authvital/shared';
 
 declare global {
   namespace Express {
     interface Request {
-      user?: {
-        sub: string;
-        email?: string;
-        tenant_id?: string;
-        tenant_roles?: string[];
-        app_permissions?: string[];
-        license?: { type: string; features: string[] };
-        [key: string]: any;
-      };
+      // Verified JWT claims (see server-sdk/jwt-validation.md)
+      user?: EnhancedJwtPayload;
     }
   }
 }
 
 /**
- * Require authenticated user
+ * Require an authenticated user.
+ *
+ * Grab the access token however your app stores it (a cookie set at login, the
+ * `Authorization: Bearer` header, or `req.authVital.accessToken` if you use the
+ * session middleware), then verify it cryptographically against the JWKS.
  */
 export const requireAuth = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  const { authenticated, user, error } = await authvital.getCurrentUser(req);
+  const token =
+    req.cookies?.access_token ??
+    req.headers.authorization?.replace(/^Bearer /, '');
 
-  if (!authenticated) {
-    return res.status(401).json({ 
-      error: error || 'Unauthorized',
-      code: 'UNAUTHORIZED' 
-    });
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
   }
 
-  req.user = user;
+  const result = await verifyToken(token, {
+    jwksUri: `${process.env.AV_HOST}/.well-known/jwks.json`,
+    issuer: process.env.AV_HOST,
+    audience: process.env.AV_CLIENT_ID,
+  });
+
+  if (!result.valid) {
+    return res.status(401).json({ error: result.error, code: 'UNAUTHORIZED' });
+  }
+
+  req.user = result.payload as EnhancedJwtPayload;
   next();
 };
 ```
@@ -213,37 +228,47 @@ router.get(
 
 ---
 
-## Using SDK Permission Helpers
+## Claim-Based Permission Checks (write these yourself)
 
-The SDK provides zero-API-call permission checks that read from the JWT:
+!!! warning "There are no `authvital.hasTenantPermission(req, …)` / `hasAppPermission` / `hasFeatureFromJwt` / `getLicenseTypeFromJwt` methods"
+    The SDK does **not** ship request-scoped, wildcard-aware permission helpers.
+    These are one-liners you write against the verified claims on `req.user`
+    (see [JWT Validation](../server-sdk/jwt-validation.md)). For an authoritative,
+    live check that isn't bound to a token snapshot, call the M2M integration
+    client instead: `client.integration.checkPermission(...)` / `checkFeature(...)`.
 
 ```typescript
-// Check tenant permission (supports wildcards!)
-if (await authvital.hasTenantPermission(req, 'members:invite')) {
+import type { EnhancedJwtPayload } from '@authvital/shared';
+
+// Plain includes() checks against the verified claims (req.user).
+const can = (claims: EnhancedJwtPayload | undefined, perm: string) =>
+  Boolean(claims?.tenant_permissions?.includes(perm));
+
+if (can(req.user, 'members:invite')) {
   // User can invite members
 }
 
-// Wildcard matching
-if (await authvital.hasTenantPermission(req, 'licenses:*')) {
-  // User has any license permission
-}
-
-// Check app permission
-if (await authvital.hasAppPermission(req, 'projects:create')) {
+// App permission
+if (req.user?.app_permissions?.includes('projects:create')) {
   // User can create projects
 }
 
-// Check license feature from JWT
-if (await authvital.hasFeatureFromJwt(req, 'sso')) {
+// License feature from JWT
+if (req.user?.license?.features?.includes('sso')) {
   // Tenant has SSO enabled
 }
 
-// Get license type
-const licenseType = await authvital.getLicenseTypeFromJwt(req);
-if (licenseType === 'enterprise') {
+// License type
+if (req.user?.license?.type === 'enterprise') {
   // Show enterprise features
 }
 ```
+
+> Want wildcard matching (`licenses:*`)? That's your own helper too — e.g. match
+> the prefix before `:` against the claim array. The SDK doesn't do it for you.
+>
+> Need a real-time check that ignores what's baked into the current token? Use
+> `client.integration.checkPermission({ userId, tenantId, permission })`.
 
 ---
 
@@ -269,20 +294,34 @@ router.get('/api/data', requireAuth, async (req, res) => {
 });
 ```
 
-### Using validateRequest for Guaranteed Tenant
+### Requiring a Tenant Context
+
+!!! warning "No `authvital.validateRequest(req)` and no `authvital.memberships.listForTenant(req)`"
+    Both are fictional. Verify the token yourself (or reuse `requireAuth` above),
+    read `tenant_id` from the claims, then list members via the **M2M integration
+    client**: `client.integration.listTenantMembers({ tenantId })`.
 
 ```typescript
-router.get('/api/members', async (req, res) => {
-  try {
-    // This THROWS if not authenticated or missing tenant_id
-    const claims = await authvital.validateRequest(req);
-    
-    // claims.tenantId is guaranteed to exist here
-    const members = await authvital.memberships.listForTenant(req);
-    res.json(members);
-  } catch (error) {
-    res.status(401).json({ error: error.message });
+import { createServerClient } from '@authvital/server';
+
+const client = createServerClient({
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
+});
+
+// requireAuth has already verified the token and populated req.user.
+router.get('/api/members', requireAuth, async (req, res) => {
+  const tenantId = req.user?.tenant_id;
+  if (!tenantId) {
+    return res.status(400).json({ error: 'No tenant context in token' });
   }
+
+  const { memberships } = await client.integration.listTenantMembers({
+    tenantId,
+    includeRoles: true,
+  });
+  res.json(memberships);
 });
 ```
 

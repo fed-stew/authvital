@@ -6,6 +6,8 @@ import * as crypto from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KeyEncryptionService } from '../../oauth/key-encryption.service';
+import { AuditService } from '../../audit/audit.service';
+import { AUDIT_ACTIONS, AUDIT_TARGET_TYPES } from '../../audit/audit-actions';
 
 export interface MfaSetupResponse {
   secret: string;
@@ -16,6 +18,26 @@ export interface MfaSetupResponse {
 export interface MfaVerifyResult {
   success: boolean;
   usedBackupCode?: boolean;
+}
+
+/**
+ * Result of a tenant MFA policy compliance check.
+ *
+ * `compliant` and `withinGrace` are DISTINCT:
+ * - compliant   = user actually has MFA enabled OR the policy doesn't require it.
+ * - withinGrace = policy requires MFA, user is NOT enrolled, but the tenant's
+ *                 grace window is still open (mint tokens, but flag them).
+ *
+ * Hard enforcement should block only when BOTH are false.
+ */
+export interface MfaComplianceResult {
+  compliant: boolean;
+  withinGrace: boolean;
+  mfaEnabled: boolean;
+  tenantPolicy: string;
+  requiresSetup: boolean;
+  gracePeriodEndsAt?: Date;
+  message?: string;
 }
 
 /**
@@ -34,6 +56,7 @@ export class MfaService {
     private readonly prisma: PrismaService,
     private readonly keyEncryption: KeyEncryptionService,
     private readonly configService: ConfigService,
+    private readonly auditService: AuditService,
   ) {
     this.issuerName = this.configService.get<string>('MFA_ISSUER_NAME', 'AuthVital');
     
@@ -470,15 +493,40 @@ export class MfaService {
     tenantId: string,
     policy: 'DISABLED' | 'OPTIONAL' | 'ENCOURAGED' | 'REQUIRED',
     gracePeriodDays?: number,
+    actorUserId?: string,
   ): Promise<{ success: boolean }> {
+    const existing = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { mfaPolicy: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Tenant not found');
+    }
+
+    const policyChanged = existing.mfaPolicy !== policy;
+
     await this.prisma.tenant.update({
       where: { id: tenantId },
       data: {
         mfaPolicy: policy,
+        // Anchor grace periods to the moment the policy actually changed —
+        // re-saving the same policy must NOT restart everyone's grace window.
+        ...(policyChanged && { mfaPolicyUpdatedAt: new Date() }),
         ...(gracePeriodDays !== undefined && { mfaGracePeriodDays: gracePeriodDays }),
       },
     });
-    
+
+    // Audit (non-fatal): tenant MFA policy changed.
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actorUserId ?? null,
+      action: AUDIT_ACTIONS.MFA_POLICY_UPDATED,
+      targetType: AUDIT_TARGET_TYPES.TENANT,
+      targetId: tenantId,
+      metadata: { policy, gracePeriodDays },
+    });
+
     return { success: true };
   }
 
@@ -489,14 +537,7 @@ export class MfaService {
   async checkUserMfaCompliance(
     userId: string,
     tenantId: string,
-  ): Promise<{
-    compliant: boolean;
-    mfaEnabled: boolean;
-    tenantPolicy: string;
-    requiresSetup: boolean;
-    gracePeriodEndsAt?: Date;
-    message?: string;
-  }> {
+  ): Promise<MfaComplianceResult> {
     const [user, tenant, membership] = await Promise.all([
       this.prisma.user.findUnique({
         where: { id: userId },
@@ -504,7 +545,12 @@ export class MfaService {
       }),
       this.prisma.tenant.findUnique({
         where: { id: tenantId },
-        select: { mfaPolicy: true, mfaGracePeriodDays: true },
+        select: {
+          mfaPolicy: true,
+          mfaGracePeriodDays: true,
+          mfaPolicyUpdatedAt: true,
+          createdAt: true,
+        },
       }),
       this.prisma.membership.findFirst({
         where: { userId, tenantId },
@@ -523,6 +569,7 @@ export class MfaService {
     if (policy === 'DISABLED' || policy === 'OPTIONAL') {
       return {
         compliant: true,
+        withinGrace: false,
         mfaEnabled,
         tenantPolicy: policy,
         requiresSetup: false,
@@ -533,6 +580,7 @@ export class MfaService {
     if (policy === 'ENCOURAGED') {
       return {
         compliant: true,
+        withinGrace: false,
         mfaEnabled,
         tenantPolicy: policy,
         requiresSetup: !mfaEnabled,
@@ -544,27 +592,38 @@ export class MfaService {
     if (mfaEnabled) {
       return {
         compliant: true,
+        withinGrace: false,
         mfaEnabled: true,
         tenantPolicy: policy,
         requiresSetup: false,
       };
     }
     
-    // Check grace period
-    const joinDate = membership?.joinedAt || membership?.createdAt || new Date();
-    const gracePeriodEnd = new Date(joinDate);
+    // Grace period anchors to the LATER of:
+    //  - when the member joined (new members get the full window), and
+    //  - when the policy last changed (existing members aren't retroactively
+    //    locked out the instant an admin flips the policy to REQUIRED).
+    // Tenants predating the mfaPolicyUpdatedAt column fall back to createdAt.
+    const joinDate =
+      membership?.joinedAt || membership?.createdAt || new Date();
+    const policyDate = tenant.mfaPolicyUpdatedAt ?? tenant.createdAt;
+    const anchor = joinDate > policyDate ? joinDate : policyDate;
+
+    const gracePeriodEnd = new Date(anchor);
     gracePeriodEnd.setDate(gracePeriodEnd.getDate() + tenant.mfaGracePeriodDays);
-    
+
+    // gracePeriodDays === 0 means strict immediate enforcement — no window.
     const now = new Date();
-    const withinGracePeriod = now < gracePeriodEnd;
-    
+    const withinGrace = tenant.mfaGracePeriodDays > 0 && now < gracePeriodEnd;
+
     return {
-      compliant: withinGracePeriod,
+      compliant: false,
+      withinGrace,
       mfaEnabled: false,
       tenantPolicy: policy,
       requiresSetup: true,
       gracePeriodEndsAt: gracePeriodEnd,
-      message: withinGracePeriod
+      message: withinGrace
         ? `MFA is required. Please set it up before ${gracePeriodEnd.toLocaleDateString()}.`
         : 'MFA is required to access this organization. Please enable MFA to continue.',
     };
@@ -572,21 +631,35 @@ export class MfaService {
 
   /**
    * Get MFA compliance stats for a tenant (admin view)
+   *
+   * `unenrolledActiveMemberCount` counts ACTIVE human members (machine/service
+   * accounts excluded) without MFA — the console uses it to warn admins how
+   * many members a switch to the REQUIRED policy would interrupt/lock out.
    */
   async getTenantMfaStats(tenantId: string): Promise<{
     totalMembers: number;
     mfaEnabled: number;
     mfaDisabled: number;
     complianceRate: number;
+    unenrolledActiveMemberCount: number;
   }> {
-    const members = await this.prisma.membership.findMany({
-      where: { tenantId, status: 'ACTIVE' },
-      include: {
-        user: {
-          select: { mfaEnabled: true },
+    const [members, unenrolledActiveMemberCount] = await Promise.all([
+      this.prisma.membership.findMany({
+        where: { tenantId, status: 'ACTIVE' },
+        include: {
+          user: {
+            select: { mfaEnabled: true },
+          },
         },
-      },
-    });
+      }),
+      this.prisma.membership.count({
+        where: {
+          tenantId,
+          status: 'ACTIVE',
+          user: { mfaEnabled: false, isMachine: false },
+        },
+      }),
+    ]);
     
     const totalMembers = members.length;
     const mfaEnabled = members.filter(m => m.user.mfaEnabled).length;
@@ -598,6 +671,7 @@ export class MfaService {
       mfaEnabled,
       mfaDisabled,
       complianceRate,
+      unenrolledActiveMemberCount,
     };
   }
 }

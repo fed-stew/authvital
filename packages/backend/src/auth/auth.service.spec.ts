@@ -7,7 +7,11 @@ jest.mock("../oauth/key.service", () => ({
   KeyService: class MockKeyService {},
 }));
 
-import { ConflictException, UnauthorizedException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import * as bcrypt from "bcrypt";
 import { AuthService } from "./auth.service";
@@ -35,15 +39,23 @@ describe("AuthService", () => {
     generateSetup: jest.fn(),
   };
 
+  const mockBreachCheckService = {
+    checkPassword: jest.fn(),
+  };
+
   let service: AuthService;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockBreachCheckService.checkPassword.mockResolvedValue({
+      isBreached: false,
+    });
     service = new AuthService(
       mockPrisma as any,
       mockKeyService as any,
       mockConfigService,
       mockMfaService as any,
+      mockBreachCheckService as any,
     );
   });
 
@@ -101,6 +113,29 @@ describe("AuthService", () => {
           password: "password123",
         }),
       ).rejects.toThrow(new ConflictException("Email already registered"));
+    });
+
+    it("rejects a password found in a known data breach", async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockBreachCheckService.checkPassword.mockResolvedValue({
+        isBreached: true,
+        breachCount: 42,
+      });
+
+      await expect(
+        service.register({
+          email: "user@example.com",
+          password: "password123",
+        }),
+      ).rejects.toThrow(
+        new BadRequestException(
+          "This password has appeared in a known data breach; please choose a different password.",
+        ),
+      );
+      expect(mockBreachCheckService.checkPassword).toHaveBeenCalledWith(
+        "password123",
+      );
+      expect(mockPrisma.user.create).not.toHaveBeenCalled();
     });
   });
 

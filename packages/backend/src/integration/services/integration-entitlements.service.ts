@@ -143,10 +143,14 @@ export class IntegrationEntitlementsService {
     let applicationLicensingMode: string | null = null;
     let resolvedApplicationId: string | undefined;
     if (clientId) {
-      const application = await this.prisma.application.findUnique({
+      // clientId identifies an ApplicationClient; licensing lives on the container.
+      const client = await this.prisma.applicationClient.findUnique({
         where: { clientId },
-        select: { id: true, licensingMode: true },
+        select: {
+          application: { select: { id: true, licensingMode: true } },
+        },
       });
+      const application = client?.application ?? null;
 
       if (!application) {
         throw new NotFoundException(`Application with clientId ${clientId} not found`);

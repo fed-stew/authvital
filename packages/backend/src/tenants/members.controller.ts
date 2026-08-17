@@ -21,7 +21,10 @@ import {
   ToggleAppAccessDto,
 } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { TenantAccessGuard } from './guards';
+import { TenantAccessGuard, TenantIdentifierGuard } from './guards';
+import { PermissionGuard } from '../authorization/guards/permission.guard';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
+import { TENANT_PERMISSIONS } from '../authorization/constants';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 /**
@@ -34,7 +37,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
  * Routes are prefixed with /api/tenants/:tenantId/members
  */
 @Controller('tenants/:tenantId/members')
-@UseGuards(JwtAuthGuard, TenantAccessGuard)
+@UseGuards(JwtAuthGuard, TenantIdentifierGuard, TenantAccessGuard, PermissionGuard)
 export class MembersController {
   constructor(
     private readonly membersService: MembersService,
@@ -50,6 +53,7 @@ export class MembersController {
    * List all members of the tenant
    */
   @Get()
+  @RequirePermission(TENANT_PERMISSIONS.MEMBERS_VIEW)
   async getMembers(@Param('tenantId') tenantId: string) {
     return this.membersService.getMembers(tenantId);
   }
@@ -59,6 +63,7 @@ export class MembersController {
    * Get detailed info about a specific member
    */
   @Get(':membershipId')
+  @RequirePermission(TENANT_PERMISSIONS.MEMBERS_VIEW)
   async getMemberDetail(
     @Param('tenantId') tenantId: string,
     @Param('membershipId') membershipId: string,
@@ -71,6 +76,7 @@ export class MembersController {
    * Invite a user to the tenant
    */
   @Post('invite')
+  @RequirePermission(TENANT_PERMISSIONS.MEMBERS_INVITE)
   async inviteMember(
     @Param('tenantId') tenantId: string,
     @Body() dto: Omit<InviteMemberDto, 'tenantId'>,
@@ -95,13 +101,20 @@ export class MembersController {
    * Update member status (suspend/activate)
    */
   @Patch(':membershipId')
+  @RequirePermission(TENANT_PERMISSIONS.MEMBERS_REMOVE)
   async updateMember(
     @Param('tenantId') tenantId: string,
     @Param('membershipId') membershipId: string,
     @Body() dto: UpdateMemberDto,
+    @CurrentUser('id') actorUserId: string,
   ) {
     if (dto.status) {
-      return this.membersService.updateMemberStatus(tenantId, membershipId, dto.status);
+      return this.membersService.updateMemberStatus(
+        tenantId,
+        membershipId,
+        dto.status,
+        actorUserId,
+      );
     }
     return { success: true };
   }
@@ -112,11 +125,13 @@ export class MembersController {
    */
   @Delete(':membershipId')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission(TENANT_PERMISSIONS.MEMBERS_REMOVE)
   async removeMember(
     @Param('tenantId') tenantId: string,
     @Param('membershipId') membershipId: string,
+    @CurrentUser('id') actorUserId: string,
   ) {
-    return this.membersService.removeMember(tenantId, membershipId);
+    return this.membersService.removeMember(tenantId, membershipId, actorUserId);
   }
 
   /**
@@ -124,12 +139,19 @@ export class MembersController {
    * Change a member's tenant role
    */
   @Post(':membershipId/role')
+  @RequirePermission(TENANT_PERMISSIONS.MEMBERS_MANAGE_ROLES)
   async changeMemberRole(
     @Param('tenantId') tenantId: string,
     @Param('membershipId') membershipId: string,
     @Body() dto: ChangeMemberRoleDto,
+    @CurrentUser('id') actorUserId: string,
   ) {
-    return this.membersService.changeMemberRole(tenantId, membershipId, dto.roleSlug);
+    return this.membersService.changeMemberRole(
+      tenantId,
+      membershipId,
+      dto.roleSlug,
+      actorUserId,
+    );
   }
 
   // ===========================================================================
@@ -141,6 +163,7 @@ export class MembersController {
    * Get all members with their access status for an application
    */
   @Get('apps/:appId')
+  @RequirePermission(TENANT_PERMISSIONS.APP_ACCESS_VIEW)
   async getAppUsers(
     @Param('tenantId') tenantId: string,
     @Param('appId') appId: string,
@@ -153,6 +176,7 @@ export class MembersController {
    * Get members who don't have access to this app yet
    */
   @Get('apps/:appId/available')
+  @RequirePermission(TENANT_PERMISSIONS.APP_ACCESS_VIEW)
   async getAvailableMembers(
     @Param('tenantId') tenantId: string,
     @Param('appId') appId: string,
@@ -165,6 +189,7 @@ export class MembersController {
    * Grant app access to one or more members
    */
   @Post('apps/:appId/access')
+  @RequirePermission(TENANT_PERMISSIONS.APP_ACCESS_MANAGE)
   async grantAccess(
     @Param('tenantId') tenantId: string,
     @Param('appId') appId: string,
@@ -183,6 +208,7 @@ export class MembersController {
    * Update a member's role in an application
    */
   @Patch('apps/:appId/access/:membershipId')
+  @RequirePermission(TENANT_PERMISSIONS.APP_ACCESS_MANAGE)
   async updateAccess(
     @Param('tenantId') tenantId: string,
     @Param('appId') appId: string,
@@ -198,6 +224,7 @@ export class MembersController {
    */
   @Delete('apps/:appId/access/:membershipId')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission(TENANT_PERMISSIONS.APP_ACCESS_MANAGE)
   async removeAccess(
     @Param('tenantId') tenantId: string,
     @Param('appId') appId: string,
@@ -211,6 +238,7 @@ export class MembersController {
    * Toggle app access for a user
    */
   @Post('apps/:appId/toggle')
+  @RequirePermission(TENANT_PERMISSIONS.APP_ACCESS_MANAGE)
   async toggleAppAccess(
     @Param('tenantId') tenantId: string,
     @Param('appId') appId: string,

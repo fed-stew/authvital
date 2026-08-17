@@ -11,6 +11,10 @@ import {
 } from '@nestjs/common';
 import { AppAccessService } from './app-access.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionGuard } from './guards/permission.guard';
+import { TenantIdentifierGuard } from '../tenants/guards/tenant-identifier.guard';
+import { RequirePermission } from './decorators/require-permission.decorator';
+import { TENANT_PERMISSIONS } from './constants';
 import { AccessType } from '@prisma/client';
 
 /**
@@ -20,7 +24,7 @@ import { AccessType } from '@prisma/client';
  * Separate from MembershipRoles (permissions) - this is about entitlement.
  */
 @Controller('tenants/:tenantId/access')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, TenantIdentifierGuard, PermissionGuard)
 export class AppAccessController {
   private readonly logger = new Logger(AppAccessController.name);
 
@@ -30,6 +34,7 @@ export class AppAccessController {
    * List all users who have access to an application
    */
   @Get('apps/:appId/users')
+  @RequirePermission(TENANT_PERMISSIONS.APP_ACCESS_VIEW)
   async listAppUsers(
     @Param('tenantId') tenantId: string,
     @Param('appId') appId: string,
@@ -65,6 +70,7 @@ export class AppAccessController {
    * List all apps a user has access to in a tenant
    */
   @Get('users/:userId/apps')
+  @RequirePermission(TENANT_PERMISSIONS.APP_ACCESS_VIEW)
   async listUserApps(
     @Param('tenantId') tenantId: string,
     @Param('userId') userId: string,
@@ -95,6 +101,7 @@ export class AppAccessController {
    * Check if a user has access to an application
    */
   @Get('check')
+  @RequirePermission(TENANT_PERMISSIONS.APP_ACCESS_VIEW)
   async checkAccess(
     @Param('tenantId') tenantId: string,
     @Query('userId') userId: string,
@@ -117,6 +124,7 @@ export class AppAccessController {
    * Grant access to an application for one or more users
    */
   @Post('apps/:appId/grant')
+  @RequirePermission(TENANT_PERMISSIONS.APP_ACCESS_MANAGE)
   async grantAccess(
     @Param('tenantId') tenantId: string,
     @Param('appId') appId: string,
@@ -144,6 +152,7 @@ export class AppAccessController {
    * Revoke access to an application for a user
    */
   @Delete('apps/:appId/users/:userId')
+  @RequirePermission(TENANT_PERMISSIONS.APP_ACCESS_MANAGE)
   async revokeAccess(
     @Param('tenantId') tenantId: string,
     @Param('appId') appId: string,
@@ -172,6 +181,7 @@ export class AppAccessController {
    * Count users with access to an application
    */
   @Get('apps/:appId/count')
+  @RequirePermission(TENANT_PERMISSIONS.APP_ACCESS_VIEW)
   async countAppUsers(
     @Param('tenantId') tenantId: string,
     @Param('appId') appId: string,

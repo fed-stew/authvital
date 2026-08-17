@@ -2,6 +2,22 @@
 
 > Secure accounts with TOTP-based two-factor authentication.
 
+!!! warning "Code samples: the `authvital.mfa.*` / `authvital.tenants.*` / `authvital.admin.*` API is not real"
+    The MFA concepts here are accurate, but the SDK snippets use a fluent API
+    that **does not exist**. MFA enrollment/verification and MFA policy
+    configuration are **not** part of the Server SDK:
+
+    - `authvital.mfa.setup / verifySetup / verifyChallenge / disable /
+      useBackupCode / regenerateBackupCodes / getStatus` -> these are user-facing
+      flows handled by AuthVital's hosted UI, or via the REST endpoints under
+      `/api/auth/mfa/*` and `/api/mfa/*`.
+    - `authvital.tenants.update(...)` (MFA policy) /
+      `authvital.admin.updateInstanceSettings(...)` -> use the **AuthVital Admin
+      Console**, or the REST endpoints under `/api/tenants/*` and the instance
+      settings API.
+
+    React hooks (`useAuth`) come from `@authvital/browser/react`.
+
 ## Overview
 
 AuthVital supports **TOTP-based MFA** (Time-based One-Time Passwords) compatible with:
@@ -27,6 +43,101 @@ AuthVital supports **TOTP-based MFA** (Time-based One-Time Passwords) compatible
 | `OPTIONAL` | MFA available but not required |
 | `ENCOURAGED` | MFA recommended, users see prompts to enable |
 | `REQUIRED` | All members must enable MFA (grace period configurable via `mfaGracePeriodDays`) |
+
+There is no separate "enforced after grace" policy value — that behavior is
+`REQUIRED` with `mfaGracePeriodDays > 0`. See
+[Enforcement at token mint](#enforcement-at-token-mint) for how the policy is
+applied.
+
+## Enforcement at token mint
+
+Tenant MFA policy is enforced primarily when tokens are **minted** (authorize
+and refresh), not per-request. Route-level checks (e.g. the backend's
+`MfaComplianceGuard`) remain only as defense-in-depth for requests carrying
+non-tenant-scoped or legacy tokens.
+
+### Authorize-time interrupt
+
+When a user requests a tenant-scoped token via `/oauth/authorize` and the
+tenant's policy is `REQUIRED`, the user is not enrolled, and no grace window
+applies, the flow is **interrupted**: the browser is redirected to the hosted
+`/auth/mfa/enroll` page with a short-lived resume token. After the user
+enrolls (TOTP setup + verification), the original authorize request resumes
+automatically and tokens are minted. Non-browser surfaces receive a `403`
+with the `interaction_required` body instead of a redirect.
+
+### Grace-period minting (`amr` + `mfa_grace_expires_at`)
+
+While a grace window is open (`REQUIRED` + `mfaGracePeriodDays > 0` and the
+window has not elapsed), tokens are still minted, stamped with claims that
+record the MFA state:
+
+```json
+{
+  "sub": "user-uuid",
+  "tenant_id": "tenant-uuid",
+  "amr": ["pwd"],
+  "mfa_grace_expires_at": 1735689600
+}
+```
+
+- `amr` (RFC 8176): `["pwd"]` for password-only logins, `["pwd", "otp"]`
+  when the login satisfied TOTP-based MFA.
+- `mfa_grace_expires_at`: Unix seconds when the grace window closes and
+  minting will be refused. Only present on tokens minted under grace.
+
+An enrolled user's token simply carries `"amr": ["pwd", "otp"]` and no grace
+claim. Grace windows anchor to the **later** of the member's join date and
+the last policy change, so flipping the policy never retroactively locks
+existing members out mid-window.
+
+### Refresh-time re-check (`interaction_required`)
+
+Every refresh re-evaluates the policy. Once the grace window has closed and
+the user is still not enrolled, the token endpoint rejects the refresh:
+
+```json
+{
+  "error": "interaction_required",
+  "reason": "mfa_enrollment_required",
+  "tenantId": "tenant-uuid",
+  "requiresSetup": true
+}
+```
+
+Retrying will never succeed — the session must go back through
+`/oauth/authorize` (which interrupts into enrollment and resumes). The
+`@authvital/server` SDK surfaces this as a typed error:
+
+```typescript
+import { InteractionRequiredError, OAuthFlow } from '@authvital/server';
+
+try {
+  const tokens = await oauth.refreshTokens(session.refreshToken);
+} catch (err) {
+  if (err instanceof InteractionRequiredError) {
+    // err.reason === 'mfa_enrollment_required'
+    // Clear the session and redirect to re-auth — do NOT retry.
+    return res.redirect('/auth/login');
+  }
+  throw err;
+}
+```
+
+### Rollout guidance for tenant admins
+
+1. **Check the blast radius first.** `GET /api/tenants/:id/mfa-stats` returns
+   `unenrolledActiveMemberCount` — the number of ACTIVE human members without
+   MFA. The admin console shows this warning inline when you select
+   `REQUIRED`.
+2. **Set a grace period.** Prefer `REQUIRED` with `mfaGracePeriodDays` of
+   7–30 days over immediate enforcement (`0`). Un-enrolled members are
+   interrupted at next sign-in to enroll, but keep access until the window
+   closes.
+3. **Nudge before you require.** Switching to `ENCOURAGED` first prompts
+   members without blocking anyone.
+4. **Watch compliance.** Re-check `mfa-stats` during the grace window and
+   chase stragglers before the lockout date.
 
 ## User MFA Flow
 
@@ -314,7 +425,7 @@ function MfaChallenge({ challengeToken, onSuccess }) {
 ### Login with MFA Handling
 
 ```tsx
-import { useAuth } from '@authvital/sdk/client';
+import { useAuth } from '@authvital/browser/react';
 
 function Login() {
   const { login } = useAuth();

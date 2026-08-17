@@ -75,6 +75,8 @@ export interface SubscriptionSummary {
   quantityAvailable: number;
   /** Current subscription status */
   status: SubscriptionStatusType;
+  /** Display price for UI (e.g., "$29/mo", "Contact Sales"); null when unset */
+  displayPrice?: string | null;
   /** When the current billing period ends (ISO 8601 date string) */
   currentPeriodEnd: string;
   /** Feature flags enabled by this license type */

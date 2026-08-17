@@ -1,200 +1,185 @@
 # OAuth Flow
 
-> PKCE utilities, URL builders, and token exchange helpers.
+> Server-side OAuth 2.0 PKCE via `OAuthFlow`, plus URL/PKCE/state helpers.
 
-## Overview
+!!! warning "Import locations & non-existent helpers"
+    - `OAuthFlow` is exported from **`@authvital/server`**.
+    - The URL builders (`getLoginUrl`, `getSignupUrl`, …), PKCE utilities
+      (`generatePKCE`, `buildAuthorizeUrl`, `buildTokenUrl`), and state helpers
+      (`encodeState`, `decodeState`, …) live in **`@authvital/core`** (or
+      `@authvital/core/oauth`) — they are **not** re-exported from
+      `@authvital/server`.
+    - There are **no** standalone `exchangeCodeForTokens()` or
+      `refreshAccessToken()` functions. Use `OAuthFlow.handleCallback()` and
+      `OAuthFlow.refreshTokens()`.
 
-The SDK provides comprehensive OAuth 2.0 utilities for implementing server-side authentication flows with PKCE.
+## OAuthFlow class (recommended)
 
----
-
-## OAuthFlow Class (Recommended)
-
-For complete server-side OAuth with PKCE:
+Complete server-side authorization-code + PKCE flow.
 
 ```typescript
-import { OAuthFlow } from '@authvital/sdk/server';
+import { OAuthFlow } from '@authvital/server';
 
 const oauth = new OAuthFlow({
   authVitalHost: process.env.AV_HOST!,
   clientId: process.env.AV_CLIENT_ID!,
-  clientSecret: process.env.AV_CLIENT_SECRET!,
+  clientSecret: process.env.AV_CLIENT_SECRET, // optional — omit for PUBLIC/PKCE clients
   redirectUri: 'https://myapp.com/api/auth/callback',
+  scope: 'openid profile email',              // optional (this is the default)
 });
 ```
 
 ### startFlow()
 
-Start the OAuth authorization flow.
+`async` — returns `{ authorizeUrl, state, codeVerifier }`. Store `state` and
+`codeVerifier` (e.g. in httpOnly cookies) for the callback.
 
 ```typescript
-app.get('/api/auth/login', (req, res) => {
-  const { authorizeUrl, state, codeVerifier } = oauth.startFlow({
-    appState: req.query.returnTo, // Optional - gets passed through OAuth
+app.get('/api/auth/login', async (req, res) => {
+  const { authorizeUrl, state, codeVerifier } = await oauth.startFlow({
+    appState: req.query.returnTo as string, // preserved through the flow
   });
-  
-  // Store for callback verification
+
   req.session.oauthState = state;
   req.session.codeVerifier = codeVerifier;
-  
+
   res.redirect(authorizeUrl);
 });
 ```
 
 ### handleCallback()
 
-Complete the OAuth flow by exchanging the authorization code for tokens.
+Verifies `state` and exchanges the code for tokens. Signature:
+`handleCallback(code, state, expectedState, codeVerifier)`.
 
 ```typescript
 app.get('/api/auth/callback', async (req, res) => {
   const tokens = await oauth.handleCallback(
     req.query.code as string,
     req.query.state as string,
-    req.session.oauthState,
-    req.session.codeVerifier
+    req.session.oauthState!,
+    req.session.codeVerifier!,
   );
-  
-  // tokens includes: access_token, refresh_token, id_token, appState
-  
-  // Set cookies
-  res.cookie('access_token', tokens.access_token, {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'lax',
-  });
-  
-  // Redirect to app state or dashboard
+  // tokens: { access_token, refresh_token?, expires_in, id_token?, token_type?, appState? }
   res.redirect(tokens.appState || '/dashboard');
 });
 ```
 
----
+### refreshTokens()
 
-## URL Builders
+```typescript
+const newTokens = await oauth.refreshTokens(refreshToken);
+```
+
+## URL builders (`@authvital/core`)
 
 For landing pages, emails, or simple redirects (no PKCE ceremony):
 
-### getLoginUrl()
-
 ```typescript
-import { getLoginUrl } from '@authvital/sdk/server';
+import {
+  getLoginUrl,
+  getSignupUrl,
+  getLogoutUrl,
+  getInviteAcceptUrl,
+  getPasswordResetUrl,
+  getAccountSettingsUrl,
+} from '@authvital/core';
 
 const loginUrl = getLoginUrl({
   authVitalHost: 'https://auth.myapp.com',
   clientId: 'my-app',
   redirectUri: 'https://app.myapp.com/dashboard',
-  tenantHint: 'acme-corp', // Optional
 });
-```
-
-### getSignupUrl()
-
-```typescript
-import { getSignupUrl } from '@authvital/sdk/server';
-
-const signupUrl = getSignupUrl({
-  authVitalHost: 'https://auth.myapp.com',
-  clientId: 'my-app',
-  redirectUri: 'https://app.myapp.com/onboarding',
-  email: 'user@example.com', // Optional - pre-fill
-});
-```
-
-### getLogoutUrl()
-
-```typescript
-import { getLogoutUrl } from '@authvital/sdk/server';
 
 const logoutUrl = getLogoutUrl({
   authVitalHost: 'https://auth.myapp.com',
   postLogoutRedirectUri: 'https://myapp.com',
 });
+
+// getAccountSettingsUrl takes the host string directly.
+// /account/settings is a real hosted-console route (verified in App.tsx).
+const settingsUrl = getAccountSettingsUrl('https://auth.myapp.com');
 ```
 
-### getInviteAcceptUrl()
+## Hosted-console deep-links (`@authvital/core`)
+
+AuthVital is **hosted-first**: the console at `/tenant/:tenantId/*` is the
+canonical place your customers manage users, app access, SSO, domains, billing
+and audit. Your app handles auth + gating and **deep-links into the console**
+for management — never hand-assemble these paths. Use the verified helpers
+(each maps to a real route in `packages/frontend/src/App.tsx`):
 
 ```typescript
-import { getInviteAcceptUrl } from '@authvital/sdk/server';
+import {
+  getManagementUrls,
+  getManagementUrl,
+  getOverviewUrl,
+  getMembersUrl,
+  getApplicationsUrl,
+  getApplicationUsersUrl,
+  getAccessMatrixUrl,
+  getLicensesUrl,
+  getBillingUrl,
+  getAuditUrl,
+  getSsoUrl,
+  getDomainsUrl,
+  getSettingsUrl,
+  getAppPickerUrl,
+  getOrgPickerUrl,
+  getAccountSettingsUrl,
+} from '@authvital/core';
 
-const inviteUrl = getInviteAcceptUrl({
-  authVitalHost: 'https://auth.myapp.com',
-  clientId: 'my-app',
-  inviteToken: 'abc123xyz',
-});
+// Build them all at once:
+const urls = getManagementUrls({ authVitalHost: 'https://auth.myapp.com', tenantId: 't_123' });
+// urls.members -> https://auth.myapp.com/tenant/t_123/members
 ```
 
-### getPasswordResetUrl()
+| Helper | Route |
+|--------|-------|
+| `getManagementUrl` / `getManagementUrls(...).root` | `/tenant/:tenantId` (→ overview) |
+| `getOverviewUrl` | `/tenant/:tenantId/overview` |
+| `getMembersUrl` | `/tenant/:tenantId/members` |
+| `getApplicationsUrl` | `/tenant/:tenantId/applications` |
+| `getApplicationUsersUrl` | `/tenant/:tenantId/applications/:appId` |
+| `getAccessMatrixUrl` | `/tenant/:tenantId/access-matrix` |
+| `getLicensesUrl` | `/tenant/:tenantId/licenses` |
+| `getBillingUrl` | `/tenant/:tenantId/billing` |
+| `getAuditUrl` | `/tenant/:tenantId/audit` |
+| `getSsoUrl` | `/tenant/:tenantId/sso` |
+| `getDomainsUrl` | `/tenant/:tenantId/domains` |
+| `getSettingsUrl` | `/tenant/:tenantId/general` (tenant settings) |
+| `getAppPickerUrl(host, { tenant?, tenantName? })` | `/auth/app-picker` (switch app) |
+| `getOrgPickerUrl(host, { clientId?, redirectUri? })` | `/auth/org-picker` (switch org) |
+| `getAccountSettingsUrl(host)` | `/account/settings` (per-user account) |
+
+> `getManagementUrls(...)` returns `{ root, overview, members, applications,
+> accessMatrix, licenses, billing, audit, sso, domains, settings }`.
+
+## State helpers (`@authvital/core`)
 
 ```typescript
-import { getPasswordResetUrl } from '@authvital/sdk/server';
+import { encodeState, decodeState } from '@authvital/core';
 
-const resetUrl = getPasswordResetUrl({
-  authVitalHost: 'https://auth.myapp.com',
-  token: 'reset-token',
-});
-```
-
-### getAccountSettingsUrl()
-
-```typescript
-import { getAccountSettingsUrl } from '@authvital/sdk/server';
-
-const settingsUrl = getAccountSettingsUrl({
-  authVitalHost: 'https://auth.myapp.com',
-});
-```
-
----
-
-## State Management
-
-### encodeState() / decodeState()
-
-Encode CSRF token and app state into the OAuth state parameter:
-
-```typescript
-import { encodeState, decodeState } from '@authvital/sdk/server';
-
-// Encode
 const state = encodeState(csrfNonce, '/dashboard?tab=settings');
-
-// Later, decode
-const payload = decodeState(state);
-// { csrf: 'abc123', appState: '/dashboard?tab=settings' }
+const payload = decodeState(state); // { csrf, appState } | null
 ```
 
-### encodeStateWithVerifier() / decodeStateWithVerifier()
-
-Include the PKCE code verifier in the state (for stateless auth):
+For stateless PKCE (carry the verifier inside the state):
 
 ```typescript
-import { encodeStateWithVerifier, decodeStateWithVerifier } from '@authvital/sdk/server';
+import { encodeStateWithVerifier, decodeStateWithVerifier } from '@authvital/core';
 
-// Encode (with encryption)
-const state = encodeStateWithVerifier(csrf, codeVerifier, appState, encryptionKey);
-
-// Decode
-const { csrf, codeVerifier, appState } = decodeStateWithVerifier(state, encryptionKey);
+// NOTE: two args only — (csrf, codeVerifier). No appState/encryption params.
+const state = encodeStateWithVerifier(csrf, codeVerifier);
+const decoded = decodeStateWithVerifier(state); // { csrf, codeVerifier } | null
 ```
 
----
-
-## Low-Level PKCE Utilities
-
-For custom OAuth implementations:
-
-### generatePKCE()
+## Low-level PKCE utilities (`@authvital/core`)
 
 ```typescript
-import { generatePKCE } from '@authvital/sdk/server';
+import { generatePKCE, buildAuthorizeUrl, buildTokenUrl } from '@authvital/core';
 
 const { codeVerifier, codeChallenge } = await generatePKCE();
-```
-
-### buildAuthorizeUrl()
-
-```typescript
-import { buildAuthorizeUrl } from '@authvital/sdk/server';
 
 const authorizeUrl = buildAuthorizeUrl({
   authVitalHost: 'https://auth.yourapp.com',
@@ -202,43 +187,20 @@ const authorizeUrl = buildAuthorizeUrl({
   redirectUri: 'https://yourapp.com/callback',
   codeChallenge,
   state: 'random-state',
+  scope: 'openid profile email',
 });
 ```
 
-### exchangeCodeForTokens()
+To exchange the code yourself, POST to `buildTokenUrl(authVitalHost)` with
+`grant_type=authorization_code`, `code`, `code_verifier`, `client_id`,
+`redirect_uri` (and `client_secret` for confidential clients) — or just use
+`OAuthFlow.handleCallback()`, which does exactly this.
+
+## Complete example: Express OAuth routes
 
 ```typescript
-import { exchangeCodeForTokens } from '@authvital/sdk/server';
-
-const tokens = await exchangeCodeForTokens({
-  authVitalHost: 'https://auth.yourapp.com',
-  clientId: 'your-client-id',
-  clientSecret: 'your-client-secret',
-  code: 'authorization-code',
-  codeVerifier,
-  redirectUri: 'https://yourapp.com/callback',
-});
-```
-
-### refreshAccessToken()
-
-```typescript
-import { refreshAccessToken } from '@authvital/sdk/server';
-
-const newTokens = await refreshAccessToken({
-  authVitalHost: 'https://auth.yourapp.com',
-  clientId: 'your-client-id',
-  clientSecret: 'your-client-secret',
-  refreshToken: 'current-refresh-token',
-});
-```
-
----
-
-## Complete Example: Express OAuth Routes
-
-```typescript
-import { OAuthFlow, getLogoutUrl } from '@authvital/sdk/server';
+import { OAuthFlow } from '@authvital/server';
+import { getLogoutUrl } from '@authvital/core';
 import express from 'express';
 import session from 'express-session';
 
@@ -248,70 +210,54 @@ app.use(session({ /* config */ }));
 const oauth = new OAuthFlow({
   authVitalHost: process.env.AV_HOST!,
   clientId: process.env.AV_CLIENT_ID!,
-  clientSecret: process.env.AV_CLIENT_SECRET!,
+  clientSecret: process.env.AV_CLIENT_SECRET,
   redirectUri: `${process.env.APP_URL}/api/auth/callback`,
 });
 
-// Start login
-app.get('/api/auth/login', (req, res) => {
-  const { authorizeUrl, state, codeVerifier } = oauth.startFlow({
+app.get('/api/auth/login', async (req, res) => {
+  const { authorizeUrl, state, codeVerifier } = await oauth.startFlow({
     appState: req.query.returnTo as string,
   });
-  
   req.session.oauthState = state;
   req.session.codeVerifier = codeVerifier;
-  
   res.redirect(authorizeUrl);
 });
 
-// OAuth callback
 app.get('/api/auth/callback', async (req, res) => {
   try {
     const tokens = await oauth.handleCallback(
       req.query.code as string,
       req.query.state as string,
       req.session.oauthState!,
-      req.session.codeVerifier!
+      req.session.codeVerifier!,
     );
-    
-    // Clear session state
     delete req.session.oauthState;
     delete req.session.codeVerifier;
-    
-    // Set httpOnly cookies
+
     res.cookie('access_token', tokens.access_token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: tokens.expires_in * 1000,
     });
-    
-    if (tokens.refresh_token) {
-      res.cookie('refresh_token', tokens.refresh_token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      });
-    }
-    
     res.redirect(tokens.appState || '/dashboard');
   } catch (error) {
-    console.error('OAuth callback error:', error);
     res.redirect('/login?error=auth_failed');
   }
 });
 
-// Logout
 app.get('/api/auth/logout', (req, res) => {
   res.clearCookie('access_token');
-  res.clearCookie('refresh_token');
-  
   const logoutUrl = getLogoutUrl({
     authVitalHost: process.env.AV_HOST!,
     postLogoutRedirectUri: process.env.APP_URL!,
   });
-  
   res.redirect(logoutUrl);
 });
 ```
+
+!!! tip "Higher-level option"
+    If you'd rather not hand-roll cookie storage, use the
+    [session middleware](./middleware.md) (`authVitalMiddleware` /
+    `createSessionStore`), which manages encrypted session cookies and refresh
+    for you.

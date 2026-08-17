@@ -20,6 +20,7 @@ export interface RequiredEnvVars {
   NODE_ENV?: string;
   CORS_ORIGINS?: string;
   KEY_ROTATION_INTERVAL_SECONDS?: string;
+  PASSIVE_KEY_LIFETIME_HOURS?: string;
   
   // SendGrid (optional - falls back to console logging)
   SENDGRID_API_KEY?: string;

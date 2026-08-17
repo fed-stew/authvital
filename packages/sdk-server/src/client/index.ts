@@ -13,6 +13,8 @@ export {
   type ApiError,
   type TokenRefreshHandler,
   type IntrospectionResponse,
+  type LicenseCheckResult,
+  type LicensedUser,
 } from './server-client.js';
 
 export {

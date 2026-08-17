@@ -33,6 +33,7 @@ import {
   type SessionStore,
 } from '../session/index.js';
 import { ServerClient, type ServerClientConfig } from '../client/index.js';
+import { parseInteractionRequired } from '../errors.js';
 
 // Web Crypto API types (available in Node 15+ but not in ES2020 lib)
 type WebCryptoKey = Awaited<ReturnType<typeof crypto.subtle.importKey>>;
@@ -107,6 +108,14 @@ export interface AuthVitalUser {
  */
 export interface RequestWithAuthVital extends Request {
   authVital?: AuthVitalContext;
+  /**
+   * Machine-readable reason why no auth context was attached.
+   * Set to 'interaction_required' when the IdP refused the token refresh
+   * because the user must re-authenticate interactively (e.g. tenant MFA
+   * policy). Guards/exception filters can read this to redirect the user
+   * through /oauth/authorize instead of treating it as a plain 401.
+   */
+  authFailureReason?: 'interaction_required';
 }
 
 /**
@@ -158,6 +167,14 @@ export const AUTHVITAL_SESSION_STORE = Symbol('AUTHVITAL_SESSION_STORE');
  * 3. Refreshes tokens if expired
  * 4. Attaches auth context to req.authVital
  * 5. Creates a server client pre-configured with the access token
+ *
+ * If the IdP rejects the refresh with `interaction_required` (e.g. the
+ * tenant's MFA policy now blocks the session), the middleware treats the
+ * session as invalid: it clears the session cookie, leaves `req.authVital`
+ * unset (so AuthVitalGuard throws its usual UnauthorizedException), and sets
+ * `req.authFailureReason = 'interaction_required'` so the app can branch on
+ * the distinction (e.g. in an exception filter) and restart the authorize
+ * flow rather than just returning 401.
  *
  * @example
  * ```typescript
@@ -226,6 +243,15 @@ export class AuthVitalMiddleware implements NestMiddleware {
       // Handle token refresh if needed
       if (needsRefresh && tokens.refreshToken) {
         const refreshResult = await this.performTokenRefresh(tokens);
+
+        if (refreshResult.interactionRequired) {
+          // The IdP demands an interactive step (e.g. MFA enrollment).
+          // Retrying is pointless — treat like an invalid session: clear the
+          // cookie and continue without auth context, but tell the app why.
+          res.setHeader('Set-Cookie', this.sessionStore.createClearCookieHeader());
+          req.authFailureReason = 'interaction_required';
+          return next();
+        }
 
         if (refreshResult.success && refreshResult.tokens) {
           tokens = {
@@ -349,7 +375,7 @@ export class AuthVitalMiddleware implements NestMiddleware {
 
   private async performTokenRefresh(
     tokens: SessionTokens
-  ): Promise<{ success: boolean; tokens?: TokenResponse }> {
+  ): Promise<{ success: boolean; tokens?: TokenResponse; interactionRequired?: boolean }> {
     try {
       const url = `${this.clientConfig.authVitalHost}/api/oauth/token`;
 
@@ -369,6 +395,10 @@ export class AuthVitalMiddleware implements NestMiddleware {
       });
 
       if (!response.ok) {
+        const bodyText = await response.text();
+        if (parseInteractionRequired(response.status, bodyText)) {
+          return { success: false, interactionRequired: true };
+        }
         return { success: false };
       }
 
@@ -481,20 +511,30 @@ export class AuthVitalPermissionGuard implements CanActivate {
       return true;
     }
 
-    // Check permissions via API
+    // The integration endpoint is M2M-guarded and requires the user identity
+    // + tenant explicitly. These come from the decoded access token claims.
+    const userId = auth.user?.id;
+    const tenantId = auth.user?.tenantId;
+    if (!userId || !tenantId) {
+      throw new ForbiddenException(
+        'Unable to determine user identity or tenant for permission check',
+      );
+    }
+
+    // Check permissions via the M2M integration client (client_credentials).
+    // The user must have ALL required permissions (matches backend allAllowed).
     try {
-      const response = await auth.client.post<{
-        results: Record<string, boolean>;
-        allAllowed: boolean;
-      }>('/api/auth/check-permissions', {
+      const result = await auth.client.integration.checkPermissions({
+        userId,
+        tenantId,
         permissions: requiredPermissions,
       });
 
-      if (!response.ok || !response.data?.allAllowed) {
+      if (!result.allAllowed) {
         throw new ForbiddenException({
           message: 'Permission denied',
           required: requiredPermissions,
-          results: response.data?.results,
+          results: result.results,
         });
       }
 

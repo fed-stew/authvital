@@ -32,7 +32,7 @@ User clicks login → Redirects to AuthVital → Returns with code
 // app/providers.tsx
 'use client';
 
-import { AuthVitalProvider } from '@authvital/sdk/client';
+import { AuthVitalProvider } from '@authvital/browser/react';
 
 interface ProvidersProps {
   children: React.ReactNode;
@@ -64,7 +64,7 @@ export function Providers({
 // app/layout.tsx
 import { cookies } from 'next/headers';
 import { Providers } from './providers';
-import { authvital } from '@/lib/authvital';
+import { verifyToken } from '@authvital/server';
 
 export default async function RootLayout({
   children,
@@ -79,14 +79,16 @@ export default async function RootLayout({
 
   if (accessToken) {
     try {
-      const mockReq = {
-        cookies: { access_token: accessToken },
-        headers: {},
-      };
+      // There is no `authvital.getCurrentUser(req)`. Verify the token with the
+      // real `verifyToken` primitive and read the claims directly.
+      const result = await verifyToken(accessToken, {
+        jwksUri: `${process.env.AV_HOST}/.well-known/jwks.json`,
+        issuer: process.env.AV_HOST,
+        audience: process.env.AV_CLIENT_ID,
+      });
 
-      const { authenticated, user } = await authvital.getCurrentUser(mockReq as any);
-
-      if (authenticated && user) {
+      if (result.valid) {
+        const user = result.payload as any;
         initialUser = {
           id: user.sub,
           email: user.email,
@@ -122,7 +124,7 @@ export default async function RootLayout({
 Access auth state and methods in your components:
 
 ```tsx
-import { useAuth } from '@authvital/sdk/client';
+import { useAuth } from '@authvital/browser/react';
 
 function Dashboard() {
   const {
@@ -158,7 +160,7 @@ function Dashboard() {
 // components/UserMenu.tsx
 'use client';
 
-import { useAuth } from '@authvital/sdk/client';
+import { useAuth } from '@authvital/browser/react';
 import { useState } from 'react';
 
 export function UserMenu() {
@@ -226,7 +228,7 @@ export function UserMenu() {
 // components/ProtectedRoute.tsx
 'use client';
 
-import { useAuth } from '@authvital/sdk/client';
+import { useAuth } from '@authvital/browser/react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 

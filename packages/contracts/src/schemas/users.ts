@@ -18,23 +18,39 @@ export const UserSchema = z.object({
 });
 export type User = z.infer<typeof UserSchema>;
 
-/** User with tenant memberships included (for admin detail views) */
-export const UserDetailSchema = UserSchema.extend({
+/**
+ * User with tenant memberships included (for admin detail views).
+ *
+ * Accurate standalone shape mirroring AdminUsersService.getUser. NOT an
+ * extension of UserSchema: getUser returns displayName/pictureUrl and grouped
+ * rolesByApplication, and does NOT return mfaEnabled/isAnonymous/emailVerified.
+ * Dates are z.string() because they serialize to strings over HTTP.
+ */
+export const UserDetailSchema = z.object({
+  id: z.string(),
+  email: z.string().nullable(),
+  givenName: z.string().nullable(),
+  familyName: z.string().nullable(),
+  phone: z.string().nullable(),
+  displayName: z.string().nullable(),
+  pictureUrl: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
   memberships: z.array(z.object({
     id: z.string(),
+    tenantId: z.string(),
+    tenant: z.object({ id: z.string(), name: z.string(), slug: z.string() }),
     status: z.string(),
     joinedAt: z.string().nullable(),
-    tenant: z.object({
-      id: z.string(),
-      name: z.string(),
-      slug: z.string(),
-    }),
-    tenantRoles: z.array(z.object({
-      id: z.string(),
-      name: z.string(),
-      slug: z.string(),
+    createdAt: z.string(),
+    rolesByApplication: z.array(z.object({
+      appId: z.string(),
+      appName: z.string(),
+      roles: z.array(z.object({ id: z.string(), name: z.string(), slug: z.string() })),
     })),
+    totalRoles: z.number(),
   })),
+  membershipCount: z.number(),
 });
 export type UserDetail = z.infer<typeof UserDetailSchema>;
 

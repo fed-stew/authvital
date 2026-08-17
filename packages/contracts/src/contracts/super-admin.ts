@@ -53,13 +53,21 @@ import {
   DomainSchema,
 } from '../schemas/tenants.js';
 import {
-  ApplicationWithRolesSchema,
-  CreateApplicationRequestSchema,
-  UpdateApplicationRequestSchema,
   CreateRoleRequestSchema,
   UpdateRoleRequestSchema,
   RoleSchema,
-  RegenerateSecretResponseSchema,
+  RotateSecretResponseSchema,
+  M2mTenantGrantSchema,
+  AddTenantGrantRequestSchema,
+  // Container model (app-client-split — Phase 2)
+  AppWithClientsSchema,
+  ApplicationClientSchema,
+  CreateApplicationInputSchema,
+  CreateApplicationResponseSchema,
+  UpdateApplicationInputSchema,
+  AddClientInputSchema,
+  AddClientResponseSchema,
+  UpdateClientInputSchema,
 } from '../schemas/applications.js';
 
 import {
@@ -526,30 +534,43 @@ export const superAdminContract = c.router(
       method: 'GET',
       path: '/applications',
       responses: {
-        200: z.array(ApplicationWithRolesSchema),
+        200: z.array(AppWithClientsSchema),
       },
-      summary: 'List all applications with roles',
+      summary: 'List all applications (container + clients[])',
+    },
+
+    getApplication: {
+      method: 'GET',
+      path: '/applications/:id',
+      pathParams: z.object({ id: IdSchema }),
+      responses: {
+        200: AppWithClientsSchema,
+        404: ErrorResponseSchema,
+      },
+      summary: 'Get application detail (container + clients[])',
     },
 
     createApplication: {
       method: 'POST',
       path: '/applications',
-      body: CreateApplicationRequestSchema,
+      body: CreateApplicationInputSchema,
       responses: {
-        201: ApplicationWithRolesSchema,
+        201: CreateApplicationResponseSchema,
+        400: ErrorResponseSchema,
+        409: ErrorResponseSchema,
       },
-      summary: 'Create an application',
+      summary: 'Create an application (container + first credential)',
     },
 
     updateApplication: {
       method: 'PUT',
       path: '/applications/:id',
       pathParams: z.object({ id: IdSchema }),
-      body: UpdateApplicationRequestSchema,
+      body: UpdateApplicationInputSchema,
       responses: {
-        200: ApplicationWithRolesSchema,
+        200: AppWithClientsSchema,
       },
-      summary: 'Update an application',
+      summary: 'Update an application (container fields only)',
     },
 
     deleteApplication: {
@@ -569,7 +590,7 @@ export const superAdminContract = c.router(
       pathParams: z.object({ id: IdSchema }),
       body: z.object({}),
       responses: {
-        200: ApplicationWithRolesSchema,
+        200: AppWithClientsSchema,
       },
       summary: 'Disable an application',
     },
@@ -580,31 +601,103 @@ export const superAdminContract = c.router(
       pathParams: z.object({ id: IdSchema }),
       body: z.object({}),
       responses: {
-        200: ApplicationWithRolesSchema,
+        200: AppWithClientsSchema,
       },
       summary: 'Enable an application',
     },
 
-    regenerateClientSecret: {
+    // -------------------------------------------------------------------------
+    // Credentials (ApplicationClient) — app-client-split Phase 2
+    // -------------------------------------------------------------------------
+
+    addApplicationClient: {
       method: 'POST',
-      path: '/applications/:id/regenerate-secret',
+      path: '/applications/:id/clients',
       pathParams: z.object({ id: IdSchema }),
-      body: z.object({}),
+      body: AddClientInputSchema,
       responses: {
-        200: RegenerateSecretResponseSchema,
+        201: AddClientResponseSchema,
+        400: ErrorResponseSchema,
+        404: ErrorResponseSchema,
+        409: ErrorResponseSchema,
       },
-      summary: 'Regenerate client secret (shown once)',
+      summary: 'Add a credential (SPA|MACHINE) to an app (<=1 of each type)',
     },
 
-    revokeClientSecret: {
+    updateApplicationClient: {
+      method: 'PATCH',
+      path: '/applications/:id/clients/:clientId',
+      pathParams: z.object({ id: IdSchema, clientId: z.string() }),
+      body: UpdateClientInputSchema,
+      responses: {
+        200: ApplicationClientSchema,
+        400: ErrorResponseSchema,
+        404: ErrorResponseSchema,
+      },
+      summary: 'Update a credential\u2019s editable fields',
+    },
+
+    deleteApplicationClient: {
       method: 'DELETE',
-      path: '/applications/:id/revoke-secret',
-      pathParams: z.object({ id: IdSchema }),
+      path: '/applications/:id/clients/:clientId',
+      pathParams: z.object({ id: IdSchema, clientId: z.string() }),
       body: z.object({}),
       responses: {
         200: SuccessResponseSchema,
+        404: ErrorResponseSchema,
       },
-      summary: 'Revoke client secret (disables M2M auth)',
+      summary: 'Remove a credential (cascades codes/refresh tokens/grants)',
+    },
+
+    rotateApplicationClientSecret: {
+      method: 'POST',
+      path: '/applications/:id/clients/:clientId/rotate-secret',
+      pathParams: z.object({ id: IdSchema, clientId: z.string() }),
+      body: z.object({}),
+      responses: {
+        200: RotateSecretResponseSchema,
+        400: ErrorResponseSchema,
+        404: ErrorResponseSchema,
+      },
+      summary: 'Rotate a MACHINE credential secret (shown once)',
+    },
+
+    // -------------------------------------------------------------------------
+    // M2M Tenant Grants (target a specific MACHINE credential by clientId)
+    // -------------------------------------------------------------------------
+
+    listClientTenantGrants: {
+      method: 'GET',
+      path: '/applications/:id/clients/:clientId/tenant-grants',
+      pathParams: z.object({ id: IdSchema, clientId: z.string() }),
+      responses: {
+        200: z.array(M2mTenantGrantSchema),
+        404: ErrorResponseSchema,
+      },
+      summary: 'List M2M tenant grants for a MACHINE credential',
+    },
+
+    addClientTenantGrant: {
+      method: 'POST',
+      path: '/applications/:id/clients/:clientId/tenant-grants',
+      pathParams: z.object({ id: IdSchema, clientId: z.string() }),
+      body: AddTenantGrantRequestSchema,
+      responses: {
+        201: M2mTenantGrantSchema,
+        404: ErrorResponseSchema,
+      },
+      summary: 'Grant a MACHINE credential M2M access to a tenant',
+    },
+
+    removeClientTenantGrant: {
+      method: 'DELETE',
+      path: '/applications/:id/clients/:clientId/tenant-grants/:tenantId',
+      pathParams: z.object({ id: IdSchema, clientId: z.string(), tenantId: IdSchema }),
+      body: z.object({}),
+      responses: {
+        200: z.object({ success: z.literal(true) }),
+      },
+      summary: 'Revoke a MACHINE credential M2M grant for a tenant',
     },
 
     // -------------------------------------------------------------------------

@@ -1,212 +1,36 @@
-# Admin Namespace
+# Admin
 
-> Instance-level administration operations.
+> Instance/super-admin operations are **not** part of the server SDK.
 
-## Overview
+!!! info "There is no `authvital.admin.*` namespace"
+    Earlier drafts described `authvital.admin.getInstanceSettings()`,
+    `.updateInstanceSettings()`, `.configureSso()`, `.disableUserMfa()`,
+    `.forcePasswordReset()`, `.disableUser()`, `.revokeUserSessions()`, etc.
+    **The `@authvital/server` SDK ships none of these.**
 
-The admin namespace provides methods for super admin and instance-level operations. These require elevated permissions.
+    Instance settings, instance-level SSO, and super-admin user actions are
+    privileged operations performed through AuthVital's Super Admin console and
+    its dedicated (super-admin-guarded) backend endpoints. They are intentionally
+    **not** exposed to integrating applications via the M2M SDK.
 
-```typescript
-const admin = authvital.admin;
-```
+## Where admin functionality lives
 
----
+| You want to… | Use |
+|--------------|-----|
+| Configure instance settings / SSO defaults | AuthVital Super Admin console — [Administration → Super Admin](../../../admin/super-admin.md) |
+| Create applications & clients | [Administration → Application Setup](../../../admin/application-setup.md) |
+| Manage a tenant's members/roles | [Administration → Tenant Admin](../../../admin/tenant-admin.md) |
 
-## Instance Settings
+## The closest the SDK gets
 
-### getInstanceSettings()
+The M2M **integration client** lets a trusted backend perform a bounded set of
+tenant-scoped operations (memberships, roles, invitations, licenses, permission
+checks). That is the supported programmatic surface — see
+[Integration API (overview)](./overview.md). It is deliberately narrower than
+"admin": there is no way to change instance-wide settings or act as super admin
+through the SDK.
 
-Get current instance settings.
+## See also
 
-```typescript
-const settings = await authvital.admin.getInstanceSettings();
-
-console.log(settings);
-// {
-//   superAdminMfaRequired: true,
-//   defaultMfaPolicy: 'OPTIONAL',
-//   publicRegistrationEnabled: true,
-//   emailVerificationRequired: true,
-//   sessionTimeoutSeconds: 3600,
-//   accessTokenLifetimeSeconds: 900,
-//   refreshTokenLifetimeSeconds: 604800,
-// }
-```
-
----
-
-### updateInstanceSettings()
-
-Update instance settings.
-
-```typescript
-await authvital.admin.updateInstanceSettings({
-  superAdminMfaRequired: true,
-  defaultMfaPolicy: 'REQUIRED',
-  sessionTimeoutSeconds: 1800, // 30 minutes
-});
-```
-
-**Available Settings:**
-
-| Setting | Type | Description |
-|---------|------|-------------|
-| `superAdminMfaRequired` | `boolean` | Require MFA for all super admins |
-| `defaultMfaPolicy` | `string` | Default MFA policy for new tenants |
-| `publicRegistrationEnabled` | `boolean` | Allow public user registration |
-| `emailVerificationRequired` | `boolean` | Require email verification |
-| `sessionTimeoutSeconds` | `number` | Session timeout in seconds |
-| `accessTokenLifetimeSeconds` | `number` | Access token lifetime |
-| `refreshTokenLifetimeSeconds` | `number` | Refresh token lifetime |
-
----
-
-## Instance SSO
-
-### configureSso()
-
-Configure instance-level SSO (default for all tenants without custom config).
-
-```typescript
-await authvital.admin.configureSso({
-  provider: 'GOOGLE',
-  enabled: true,
-  clientId: 'google-client-id',
-  clientSecret: 'google-client-secret',
-  scopes: ['openid', 'email', 'profile'],
-  allowedDomains: ['yourcompany.com'],
-  autoCreateUser: true,
-  autoLinkExisting: true,
-});
-```
-
----
-
-### getSsoConfig()
-
-Get instance SSO configuration.
-
-```typescript
-const googleConfig = await authvital.admin.getSsoConfig('GOOGLE');
-
-if (googleConfig?.enabled) {
-  console.log('Google SSO is enabled');
-}
-```
-
----
-
-## User Management
-
-### disableUserMfa()
-
-Disable a user's MFA (emergency admin operation). Use when user has lost access to authenticator AND backup codes.
-
-```typescript
-await authvital.admin.disableUserMfa('user-123', {
-  reason: 'User lost access to authenticator app',
-  adminId: currentAdminId,
-});
-```
-
-!!! warning "Audit Trail"
-    This action is logged with the reason and admin ID for security auditing.
-
----
-
-### forcePasswordReset()
-
-Force a user to reset their password on next login.
-
-```typescript
-await authvital.admin.forcePasswordReset('user-123');
-```
-
----
-
-### disableUser()
-
-Disable a user account.
-
-```typescript
-await authvital.admin.disableUser('user-123', {
-  reason: 'Policy violation',
-});
-```
-
----
-
-### enableUser()
-
-Enable a disabled user account.
-
-```typescript
-await authvital.admin.enableUser('user-123');
-```
-
----
-
-### revokeUserSessions()
-
-Revoke all sessions for a user (force logout everywhere).
-
-```typescript
-const { count } = await authvital.admin.revokeUserSessions('user-123');
-console.log(`Revoked ${count} sessions`);
-```
-
----
-
-## Complete Example
-
-```typescript
-import { createAuthVital } from '@authvital/sdk/server';
-import express from 'express';
-
-const authvital = createAuthVital({ /* config */ });
-const app = express();
-
-// Get instance settings
-app.get('/api/admin/settings', async (req, res) => {
-  const settings = await authvital.admin.getInstanceSettings();
-  res.json(settings);
-});
-
-// Update instance settings
-app.patch('/api/admin/settings', async (req, res) => {
-  const settings = await authvital.admin.updateInstanceSettings(req.body);
-  res.json(settings);
-});
-
-// Emergency: Disable user's MFA
-app.post('/api/admin/users/:id/disable-mfa', async (req, res) => {
-  const adminClaims = await authvital.validateRequest(req);
-  
-  await authvital.admin.disableUserMfa(req.params.id, {
-    reason: req.body.reason,
-    adminId: adminClaims.sub,
-  });
-  
-  res.json({ success: true });
-});
-
-// Disable user account
-app.post('/api/admin/users/:id/disable', async (req, res) => {
-  await authvital.admin.disableUser(req.params.id, {
-    reason: req.body.reason,
-  });
-  res.json({ success: true });
-});
-
-// Enable user account
-app.post('/api/admin/users/:id/enable', async (req, res) => {
-  await authvital.admin.enableUser(req.params.id);
-  res.json({ success: true });
-});
-
-// Force logout user everywhere
-app.post('/api/admin/users/:id/revoke-sessions', async (req, res) => {
-  const { count } = await authvital.admin.revokeUserSessions(req.params.id);
-  res.json({ revokedSessions: count });
-});
-```
+- [Integration API (overview)](./overview.md)
+- [Administration](../../../admin/super-admin.md)

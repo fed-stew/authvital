@@ -31,20 +31,19 @@ redirectUris: [
 **Always validate state** to prevent CSRF:
 
 ```typescript
-import { generateState, encodeState, decodeState } from '@authvital/sdk/server';
+import { generateCSRFState, encodeState, decodeState } from '@authvital/core/oauth';
 
-// Before redirect - use SDK's state utilities
-const state = generateState(); // Cryptographically secure
+// Before redirect: generate a CSRF token, encode it (plus optional app state)
+const csrf = generateCSRFState();               // cryptographically secure
+const state = encodeState(csrf, '/dashboard');  // encodeState(csrf, appState?)
 sessionStorage.setItem('oauth_state', state);
 
-// Or encode custom data in state:
-const stateWithData = encodeState({ returnTo: '/dashboard', nonce: generateState() });
-
-// After callback
+// After callback: verify the returned state matches, then decode it
 const returnedState = urlParams.get('state');
 if (returnedState !== sessionStorage.getItem('oauth_state')) {
   throw new Error('State mismatch - possible CSRF attack');
 }
+const { appState } = decodeState(returnedState) ?? {}; // -> '/dashboard'
 sessionStorage.removeItem('oauth_state'); // Clean up after validation
 ```
 

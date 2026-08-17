@@ -1,8 +1,42 @@
 # Framework Integration
 
-> Complete webhook setup examples for Express, Next.js, and NestJS.
+> Wiring AuthVital webhooks into Express, Next.js, and NestJS — using the real,
+> shipped primitives.
 
-**See also:** [Webhooks Guide](./webhooks.md) | [Event Handler Reference](./webhooks-handler.md)
+**See also:** [Webhooks Guide](./webhooks.md) | [Manual Verification](./webhooks-verification.md) | [Event Handler pattern](./webhooks-handler.md)
+
+!!! info "There is no `WebhookRouter` / `AuthVitalEventHandler` in the SDK"
+    The SDK does **not** ship a webhook router or an abstract event-handler base
+    class, and there are no `expressHandler()` / `nextjsHandler()` /
+    `fastifyHandler()` helpers. You build the endpoint from two small, real
+    pieces:
+
+    1. the `verifyWebhook` helper you copy from
+       [Manual Verification](./webhooks-verification.md) (RSA-SHA256 over
+       `` `${timestamp}.${rawBody}` `` against the IdP JWKS), and
+    2. your own dispatch function/class (see the
+       [Event Handler pattern](./webhooks-handler.md)).
+
+    Every framework example below does exactly that. The `examples/bff-express`
+    app is the reference implementation.
+
+## What AuthVital sends
+
+Each delivery is a `POST` with the JSON event as the body and these headers
+(verified against `packages/backend/src/sync/sync-event.service.ts`):
+
+| Header | Meaning |
+|--------|---------|
+| `X-AuthVital-Signature` | base64 RSA-SHA256 signature of `` `${timestamp}.${rawBody}` `` |
+| `X-AuthVital-Key-Id` | `kid` of the signing key (look it up in JWKS) |
+| `X-AuthVital-Timestamp` | unix seconds used in the signed input |
+| `X-AuthVital-Event-Id` | unique event id (use for idempotency) |
+| `X-AuthVital-Event-Type` | e.g. `subject.created` |
+
+!!! danger "Always verify over the RAW body"
+    The signature is computed over the exact bytes AuthVital sent. If a JSON
+    parser re-serializes the body first, verification will fail. Use a raw-body
+    reader on the webhook route only.
 
 ---
 
@@ -10,78 +44,42 @@
 
 ```typescript
 import express from 'express';
-import { WebhookRouter, AuthVitalEventHandler } from '@authvital/sdk/webhooks';
+import type { SyncEvent } from '@authvital/shared';
+import { verifyWebhook } from './lib/verify-webhook'; // copied from Manual Verification
+import { handleEvent } from './lib/event-handler';    // your own dispatcher
 
 const app = express();
 
-// Your event handler
-class MyEventHandler extends AuthVitalEventHandler {
-  async onSubjectCreated(event) {
-    console.log('New user:', event.data.email);
+// Raw body ONLY on the webhook route. Register it before any global express.json().
+app.post('/webhooks/authvital', express.raw({ type: '*/*' }), async (req, res) => {
+  const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : String(req.body ?? '');
+
+  const ok = await verifyWebhook({
+    body: rawBody,
+    signature: String(req.headers['x-authvital-signature'] ?? ''),
+    keyId: String(req.headers['x-authvital-key-id'] ?? ''),
+    timestamp: String(req.headers['x-authvital-timestamp'] ?? ''),
+    authVitalHost: process.env.AV_HOST!,
+    maxTimestampAge: 300,
+  });
+
+  if (!ok) {
+    return res.status(400).json({ error: 'invalid signature' });
   }
 
-  async onMemberJoined(event) {
-    console.log(`${event.data.email} joined with roles:`, event.data.tenant_roles);
-  }
-}
-
-// Create webhook router
-const webhookRouter = new WebhookRouter({
-  authVitalHost: process.env.AV_HOST!, // Or set AV_HOST env var
-  handler: new MyEventHandler(),
-  maxTimestampAge: 300,    // 5 min replay protection
-  keysCacheTtl: 3600000,   // 1 hour JWKS cache
+  const event = JSON.parse(rawBody) as SyncEvent;
+  await handleEvent(event); // your business logic
+  res.status(200).json({ received: true });
 });
 
-// IMPORTANT: Use express.raw() for signature verification!
-// The body must be the raw buffer, not parsed JSON.
-app.post(
-  '/webhooks/authvital',
-  express.raw({ type: 'application/json' }),
-  webhookRouter.expressHandler()
-);
-
-app.listen(3000, () => {
-  console.log('Webhook endpoint ready at http://localhost:3000/webhooks/authvital');
-});
-```
-
-### Express with Existing JSON Parser
-
-If you have `express.json()` globally, exclude the webhook route:
-
-```typescript
-import express from 'express';
-import { WebhookRouter, AuthVitalEventHandler } from '@authvital/sdk/webhooks';
-
-const app = express();
-
-class MyEventHandler extends AuthVitalEventHandler {
-  async onSubjectCreated(event) {
-    console.log('New user:', event.data.email);
-  }
-}
-
-const webhookRouter = new WebhookRouter({
-  authVitalHost: process.env.AV_HOST!,
-  handler: new MyEventHandler(),
-});
-
-// Register webhook BEFORE global JSON parser
-app.post(
-  '/webhooks/authvital',
-  express.raw({ type: 'application/json' }),
-  webhookRouter.expressHandler()
-);
-
-// Global JSON parser for all other routes
+// Global JSON parser for everything else
 app.use(express.json());
 
-// Your other routes
-app.get('/api/users', (req, res) => {
-  // ...
-});
+app.listen(3000);
 ```
+
+This mirrors `examples/bff-express/src/index.ts` (which uses `express.raw({ type: '*/*' })`
+and a small `WebhookRouter` class it defines itself).
 
 ---
 
@@ -89,79 +87,68 @@ app.get('/api/users', (req, res) => {
 
 ```typescript
 // app/api/webhooks/authvital/route.ts
-import { WebhookRouter, AuthVitalEventHandler } from '@authvital/sdk/webhooks';
-import type { NextRequest } from 'next/server';
+import type { SyncEvent } from '@authvital/shared';
+import { verifyWebhook } from '@/lib/verify-webhook';
+import { handleEvent } from '@/lib/event-handler';
 
-class MyEventHandler extends AuthVitalEventHandler {
-  async onSubjectCreated(event) {
-    console.log('New user:', event.data.email);
-    // Sync to your database
-  }
-
-  async onMemberJoined(event) {
-    console.log(`${event.data.given_name} joined tenant ${event.tenant_id}`);
-  }
-
-  async onLicenseAssigned(event) {
-    console.log(`License ${event.data.license_type_name} assigned to ${event.data.sub}`);
-  }
-}
-
-const webhookRouter = new WebhookRouter({
-  authVitalHost: process.env.AV_HOST!,
-  handler: new MyEventHandler(),
-  maxTimestampAge: 300,
-  keysCacheTtl: 3600000,
-});
-
-export async function POST(request: NextRequest) {
-  return webhookRouter.nextjsHandler()(request);
-}
-
-// Use Node.js runtime for crypto operations
+// crypto needs the Node.js runtime (not edge)
 export const runtime = 'nodejs';
-```
 
----
+export async function POST(request: Request) {
+  const rawBody = await request.text(); // raw bytes, not request.json()
+
+  const ok = await verifyWebhook({
+    body: rawBody,
+    signature: request.headers.get('x-authvital-signature') ?? '',
+    keyId: request.headers.get('x-authvital-key-id') ?? '',
+    timestamp: request.headers.get('x-authvital-timestamp') ?? '',
+    authVitalHost: process.env.AV_HOST!,
+  });
+
+  if (!ok) {
+    return Response.json({ error: 'invalid signature' }, { status: 400 });
+  }
+
+  await handleEvent(JSON.parse(rawBody) as SyncEvent);
+  return Response.json({ received: true });
+}
+```
 
 ## Next.js (Pages Router)
 
 ```typescript
 // pages/api/webhooks/authvital.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { WebhookRouter, AuthVitalEventHandler } from '@authvital/sdk/webhooks';
+import type { SyncEvent } from '@authvital/shared';
+import { verifyWebhook } from '@/lib/verify-webhook';
+import { handleEvent } from '@/lib/event-handler';
 
-class MyEventHandler extends AuthVitalEventHandler {
-  async onSubjectCreated(event) {
-    console.log('New user:', event.data.email);
-  }
+export const config = { api: { bodyParser: false } }; // we need the raw body
 
-  async onMemberJoined(event) {
-    console.log(`${event.data.given_name} joined tenant`);
-  }
+function readRawBody(req: NextApiRequest): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', (c) => (data += c));
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
 }
 
-const webhookRouter = new WebhookRouter({
-  authVitalHost: process.env.AV_HOST!,
-  handler: new MyEventHandler(),
-});
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-// Disable body parsing for signature verification
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
+  const rawBody = await readRawBody(req);
+  const ok = await verifyWebhook({
+    body: rawBody,
+    signature: String(req.headers['x-authvital-signature'] ?? ''),
+    keyId: String(req.headers['x-authvital-key-id'] ?? ''),
+    timestamp: String(req.headers['x-authvital-timestamp'] ?? ''),
+    authVitalHost: process.env.AV_HOST!,
+  });
+  if (!ok) return res.status(400).json({ error: 'invalid signature' });
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  return webhookRouter.nextjsPagesHandler()(req, res);
+  await handleEvent(JSON.parse(rawBody) as SyncEvent);
+  res.status(200).json({ received: true });
 }
 ```
 
@@ -169,230 +156,72 @@ export default async function handler(
 
 ## NestJS
 
-### Module Setup
-
-```typescript
-// src/webhooks/webhooks.module.ts
-import { Module } from '@nestjs/common';
-import { WebhooksController } from './webhooks.controller';
-import { WebhookEventHandler } from './webhook-event-handler';
-import { UsersModule } from '../users/users.module';
-
-@Module({
-  imports: [UsersModule],
-  controllers: [WebhooksController],
-  providers: [WebhookEventHandler],
-})
-export class WebhooksModule {}
-```
-
-### Event Handler Service
-
-```typescript
-// src/webhooks/webhook-event-handler.ts
-import { Injectable } from '@nestjs/common';
-import { AuthVitalEventHandler } from '@authvital/sdk/webhooks';
-import type {
-  SubjectCreatedEvent,
-  MemberJoinedEvent,
-  LicenseAssignedEvent,
-} from '@authvital/sdk/webhooks';
-import { UsersService } from '../users/users.service';
-
-@Injectable()
-export class WebhookEventHandler extends AuthVitalEventHandler {
-  constructor(private readonly usersService: UsersService) {
-    super();
-  }
-
-  async onSubjectCreated(event: SubjectCreatedEvent): Promise<void> {
-    await this.usersService.create({
-      id: event.data.sub,
-      email: event.data.email!,
-      firstName: event.data.given_name,
-      lastName: event.data.family_name,
-    });
-  }
-
-  async onMemberJoined(event: MemberJoinedEvent): Promise<void> {
-    await this.usersService.assignToTenant(
-      event.data.sub,
-      event.tenant_id,
-      event.data.tenant_roles
-    );
-  }
-
-  async onLicenseAssigned(event: LicenseAssignedEvent): Promise<void> {
-    await this.usersService.assignLicense(
-      event.data.sub,
-      event.data.license_type_id
-    );
-  }
-}
-```
-
-### Controller
-
-```typescript
-// src/webhooks/webhooks.controller.ts
-import { Controller, Post, Req, Res, RawBodyRequest } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { Request, Response } from 'express';
-import { WebhookRouter } from '@authvital/sdk/webhooks';
-import { WebhookEventHandler } from './webhook-event-handler';
-
-@Controller('webhooks')
-export class WebhooksController {
-  private readonly webhookRouter: WebhookRouter;
-
-  constructor(
-    private readonly eventHandler: WebhookEventHandler,
-    private readonly configService: ConfigService
-  ) {
-    this.webhookRouter = new WebhookRouter({
-      authVitalHost: this.configService.getOrThrow('AV_HOST'),
-      handler: this.eventHandler,
-      maxTimestampAge: 300,
-      keysCacheTtl: 3600000,
-    });
-  }
-
-  @Post('authvital')
-  async handleWebhook(
-    @Req() req: RawBodyRequest<Request>,
-    @Res() res: Response
-  ) {
-    return this.webhookRouter.expressHandler()(req, res);
-  }
-}
-```
-
-### Enable Raw Body in Main
+Enable raw body capture, then verify + dispatch in a controller.
 
 ```typescript
 // main.ts
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-
-async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
-    rawBody: true, // Enable raw body for webhook signature verification
-  });
-  
-  await app.listen(3000);
-}
-bootstrap();
+const app = await NestFactory.create(AppModule, { rawBody: true });
+await app.listen(3000);
 ```
+
+```typescript
+// webhooks.controller.ts
+import { Controller, Post, Req, Res, RawBodyRequest } from '@nestjs/common';
+import type { Request, Response } from 'express';
+import type { SyncEvent } from '@authvital/shared';
+import { verifyWebhook } from './lib/verify-webhook';
+import { handleEvent } from './lib/event-handler';
+
+@Controller('webhooks')
+export class WebhooksController {
+  @Post('authvital')
+  async handle(@Req() req: RawBodyRequest<Request>, @Res() res: Response) {
+    const rawBody = req.rawBody?.toString('utf8') ?? '';
+
+    const ok = await verifyWebhook({
+      body: rawBody,
+      signature: String(req.headers['x-authvital-signature'] ?? ''),
+      keyId: String(req.headers['x-authvital-key-id'] ?? ''),
+      timestamp: String(req.headers['x-authvital-timestamp'] ?? ''),
+      authVitalHost: process.env.AV_HOST!,
+    });
+    if (!ok) return res.status(400).json({ error: 'invalid signature' });
+
+    await handleEvent(JSON.parse(rawBody) as SyncEvent);
+    res.status(200).json({ received: true });
+  }
+}
+```
+
+Inject your services into a handler class if you need DI — see the
+[Event Handler pattern](./webhooks-handler.md).
 
 ---
 
-## Fastify
+## Other frameworks (Fastify, Hono, Koa, …)
+
+The recipe is identical everywhere; only the raw-body plumbing differs:
+
+1. Read the **raw** request body as a string (disable/parse-as-buffer the JSON parser on this route).
+2. Call `verifyWebhook({ body, signature, keyId, timestamp, authVitalHost })`.
+3. On success, `JSON.parse` and dispatch to your handler; respond `200`. On failure respond `400`.
+
+**Fastify** — register a buffer content-type parser:
 
 ```typescript
-import Fastify from 'fastify';
-import { WebhookRouter, AuthVitalEventHandler } from '@authvital/sdk/webhooks';
-
-const fastify = Fastify({
-  logger: true,
-});
-
-class MyEventHandler extends AuthVitalEventHandler {
-  async onSubjectCreated(event) {
-    console.log('New user:', event.data.email);
-  }
-}
-
-const webhookRouter = new WebhookRouter({
-  authVitalHost: process.env.AV_HOST!,
-  handler: new MyEventHandler(),
-});
-
-// Register raw body content type parser
-fastify.addContentTypeParser(
-  'application/json',
-  { parseAs: 'buffer' },
-  (req, body, done) => {
-    done(null, body);
-  }
-);
-
-fastify.post('/webhooks/authvital', async (request, reply) => {
-  return webhookRouter.fastifyHandler()(request, reply);
-});
-
-fastify.listen({ port: 3000 }, (err, address) => {
-  if (err) throw err;
-  console.log(`Webhook endpoint ready at ${address}/webhooks/authvital`);
-});
+fastify.addContentTypeParser('application/json', { parseAs: 'buffer' }, (_req, body, done) => done(null, body));
 ```
 
----
+**Hono** — `const rawBody = await c.req.text();`
 
-## Hono
-
-```typescript
-import { Hono } from 'hono';
-import { WebhookRouter, AuthVitalEventHandler } from '@authvital/sdk/webhooks';
-
-const app = new Hono();
-
-class MyEventHandler extends AuthVitalEventHandler {
-  async onSubjectCreated(event) {
-    console.log('New user:', event.data.email);
-  }
-}
-
-const webhookRouter = new WebhookRouter({
-  authVitalHost: process.env.AV_HOST!,
-  handler: new MyEventHandler(),
-});
-
-app.post('/webhooks/authvital', async (c) => {
-  return webhookRouter.honoHandler()(c);
-});
-
-export default app;
-```
-
----
-
-## Koa
-
-```typescript
-import Koa from 'koa';
-import Router from '@koa/router';
-import { WebhookRouter, AuthVitalEventHandler } from '@authvital/sdk/webhooks';
-
-const app = new Koa();
-const router = new Router();
-
-class MyEventHandler extends AuthVitalEventHandler {
-  async onSubjectCreated(event) {
-    console.log('New user:', event.data.email);
-  }
-}
-
-const webhookRouter = new WebhookRouter({
-  authVitalHost: process.env.AV_HOST!,
-  handler: new MyEventHandler(),
-});
-
-router.post('/webhooks/authvital', async (ctx) => {
-  return webhookRouter.koaHandler()(ctx);
-});
-
-app.use(router.routes()).use(router.allowedMethods());
-
-app.listen(3000, () => {
-  console.log('Webhook endpoint ready at http://localhost:3000/webhooks/authvital');
-});
-```
+**Koa** — use `koa-bodyparser` disabled on this route, or read `ctx.req` directly.
 
 ---
 
 ## Related Documentation
 
-- [Webhooks Guide](./webhooks.md) - Overview and quick start
-- [Event Types & Payloads](./webhooks-events.md) - All event types
-- [Manual Verification](./webhooks-verification.md) - Low-level API
-- [Best Practices](./webhooks-advanced.md) - Error handling, testing
+- [Webhooks Guide](./webhooks.md) — overview and quick start
+- [Event Types & Payloads](./webhooks-events.md) — every event type
+- [Manual Verification](./webhooks-verification.md) — the `verifyWebhook` helper
+- [Event Handler pattern](./webhooks-handler.md) — building your dispatcher
+- [Best Practices](./webhooks-advanced.md) — retries, idempotency, testing

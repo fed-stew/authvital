@@ -9,6 +9,8 @@ import type { TokenResponse, User } from '@authvital/shared';
 import type { SessionTokens } from '../session/index.js';
 import type { M2MTokenResponse } from './types.js';
 import { IntegrationClient } from './integration.js';
+import { extractUserAndTenant } from '../utils/jwt.js';
+import { InteractionRequiredError, parseInteractionRequired } from '../errors.js';
 
 // =============================================================================
 // INTROSPECTION TYPES
@@ -111,6 +113,33 @@ export interface ApiError {
  * Called when tokens are refreshed so the session can be updated.
  */
 export type TokenRefreshHandler = (tokens: TokenResponse) => void | Promise<void>;
+
+/**
+ * Result of a per-user license check (`GET /api/integration/licenses/check`).
+ * Mirrors the backend `LicenseCheckResult`.
+ */
+export interface LicenseCheckResult {
+  /** Whether the user has an active license/entitlement for the application */
+  hasLicense: boolean;
+  /** License type slug (when licensed) */
+  licenseType?: string;
+  /** Human-readable license type name (when licensed) */
+  licenseTypeName?: string;
+  /** Feature flags/limits granted by the license type */
+  features?: Record<string, unknown>;
+  /** Reason the user is not licensed (when hasLicense is false) */
+  reason?: string;
+}
+
+/**
+ * A single licensed user entry returned by
+ * `GET /api/integration/licenses/apps/:applicationId/users`.
+ */
+export interface LicensedUser {
+  userId: string;
+  licenseType: string;
+  licenseTypeName: string;
+}
 
 // =============================================================================
 // SERVER CLIENT CLASS
@@ -362,6 +391,11 @@ export class ServerClient {
         ok: response.ok,
       };
     } catch (err) {
+      // Refresh-time MFA-policy rejections must reach the BFF as a typed
+      // error (catch-and-redirect), not be flattened into a network error.
+      if (err instanceof InteractionRequiredError) {
+        throw err;
+      }
       return {
         status: 0,
         ok: false,
@@ -383,8 +417,14 @@ export class ServerClient {
    * @returns Current user or null if not authenticated
    */
   async getCurrentUser(): Promise<User | null> {
-    const response = await this.get<User>('/api/users/me');
-    return response.ok ? response.data ?? null : null;
+    // NOTE: there is no `users` controller in the backend; the current-user
+    // endpoint is GET /api/auth/me (returns an { authenticated, user } envelope).
+    const response = await this.get<{ authenticated: boolean; user: User }>(
+      '/api/auth/me',
+    );
+    return response.ok && response.data?.authenticated
+      ? response.data.user ?? null
+      : null;
   }
 
   /**
@@ -398,16 +438,130 @@ export class ServerClient {
   }
 
   /**
-   * Check if the user has a specific permission.
+   * Check if the current session user has a specific permission.
+   *
+   * The check runs against the M2M-guarded integration endpoint
+   * (`POST /api/integration/check-permission`) via {@link integration}, which
+   * authenticates using this client's configured client credentials. The
+   * user identity (userId + tenantId) is read from the current access token.
+   *
+   * Fail-closed: returns false if there is no session token, the token is
+   * missing required claims, or the check errors out.
    *
    * @param permission - Permission to check
-   * @returns true if user has permission
+   * @returns true if the user has the permission, false otherwise
    */
   async hasPermission(permission: string): Promise<boolean> {
-    const response = await this.post<{ allowed: boolean }>('/api/auth/check-permission', {
-      permission,
+    if (!this.tokens?.accessToken) {
+      return false;
+    }
+
+    const identity = extractUserAndTenant(this.tokens.accessToken);
+    if (!identity) {
+      return false;
+    }
+
+    try {
+      const result = await this.integration.checkPermission({
+        userId: identity.userId,
+        tenantId: identity.tenantId,
+        permission,
+      });
+      return result.allowed ?? false;
+    } catch {
+      return false;
+    }
+  }
+
+  // ===========================================================================
+  // LICENSE ENTITLEMENT READS (user-token, tenantId from JWT)
+  // ===========================================================================
+  //
+  // These target `/api/integration/licenses/*`, which are guarded by
+  // `JwtAuthGuard + TenantPermissionGuard(licenses:view)` and read `tenantId`
+  // from the USER JWT (`@JwtTenantId`). They therefore run on THIS client's
+  // user access token (`this.tokens.accessToken`, attached by `request()`),
+  // NOT on the M2M IntegrationClient. `tenantId` is intentionally NOT a
+  // parameter - it is derived server-side from the token to prevent IDOR.
+
+  /**
+   * Check whether a user has a license for an application.
+   *
+   * `GET /api/integration/licenses/check?userId=&applicationId=`
+   * (tenantId comes from the caller's JWT). Requires the `licenses:view`
+   * tenant permission on the session user.
+   */
+  async checkLicense(params: {
+    userId: string;
+    applicationId: string;
+  }): Promise<LicenseCheckResult> {
+    const response = await this.get<LicenseCheckResult>('/api/integration/licenses/check', {
+      query: { userId: params.userId, applicationId: params.applicationId },
     });
-    return response.ok ? response.data?.allowed ?? false : false;
+    if (!response.ok || !response.data) {
+      throw new Error(response.error?.message || 'checkLicense failed');
+    }
+    return response.data;
+  }
+
+  /**
+   * Check whether a user has a specific feature via their license.
+   *
+   * `GET /api/integration/licenses/feature?userId=&applicationId=&featureKey=`
+   * (tenantId comes from the caller's JWT). Requires `licenses:view`.
+   */
+  async checkLicenseFeature(params: {
+    userId: string;
+    applicationId: string;
+    featureKey: string;
+  }): Promise<{ hasFeature: boolean }> {
+    const response = await this.get<{ hasFeature: boolean }>('/api/integration/licenses/feature', {
+      query: {
+        userId: params.userId,
+        applicationId: params.applicationId,
+        featureKey: params.featureKey,
+      },
+    });
+    if (!response.ok || !response.data) {
+      throw new Error(response.error?.message || 'checkLicenseFeature failed');
+    }
+    return response.data;
+  }
+
+  /**
+   * List licensed users for an application in the caller's tenant.
+   *
+   * `GET /api/integration/licenses/apps/:applicationId/users`
+   * (tenantId comes from the caller's JWT). Requires `licenses:view`.
+   */
+  async getAppLicensedUsers(params: {
+    applicationId: string;
+  }): Promise<LicensedUser[]> {
+    const response = await this.get<LicensedUser[]>(
+      `/api/integration/licenses/apps/${encodeURIComponent(params.applicationId)}/users`,
+    );
+    if (!response.ok || !response.data) {
+      throw new Error(response.error?.message || 'getAppLicensedUsers failed');
+    }
+    return response.data;
+  }
+
+  /**
+   * Count licensed users for an application in the caller's tenant.
+   *
+   * `GET /api/integration/licenses/apps/:applicationId/count`
+   * (tenantId comes from the caller's JWT). Requires `licenses:view`.
+   */
+  async countLicensedUsers(params: {
+    applicationId: string;
+  }): Promise<{ count: number }> {
+    const response = await this.get<{ count: number }>(
+      `/api/integration/licenses/apps/${encodeURIComponent(params.applicationId)}/count`,
+    );
+    if (!response.ok || !response.data) {
+      throw new Error(response.error?.message || 'countLicensedUsers failed');
+    }
+    return response.data;
   }
 
   // ===========================================================================
@@ -418,6 +572,10 @@ export class ServerClient {
    * Refresh the access token using the refresh token.
    *
    * @returns New tokens or null if refresh failed
+   * @throws {InteractionRequiredError} when the IdP rejects the refresh with
+   *   `{ error: 'interaction_required' }` (e.g. tenant MFA policy now blocks
+   *   this session). Tokens are cleared; the caller should redirect the user
+   *   to re-authenticate instead of retrying.
    */
   async refreshTokens(): Promise<TokenResponse | null> {
     // Prevent concurrent refresh attempts
@@ -465,8 +623,15 @@ export class ServerClient {
       });
 
       if (!response.ok) {
+        const errorText = await response.text().catch(() => '');
         // Clear tokens on refresh failure
         this.tokens = null;
+        // MFA-policy rejection: surface a typed error so BFFs can catch it
+        // and redirect the user to re-auth instead of retry-looping.
+        const interactionRequired = parseInteractionRequired(response.status, errorText);
+        if (interactionRequired) {
+          throw interactionRequired;
+        }
         return null;
       }
 
@@ -486,7 +651,10 @@ export class ServerClient {
       }
 
       return tokens;
-    } catch {
+    } catch (err) {
+      if (err instanceof InteractionRequiredError) {
+        throw err;
+      }
       return null;
     }
   }

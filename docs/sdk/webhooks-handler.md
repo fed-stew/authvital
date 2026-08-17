@@ -1,17 +1,24 @@
-# Event Handler Reference
+# Event Handler Pattern
 
-> Complete reference for the AuthVitalEventHandler class with examples.
+> A convenient class-based pattern for dispatching webhook events.
 
 **See also:** [Webhooks Guide](./webhooks.md) | [Event Types](./webhooks-events.md)
 
+!!! warning "`AuthVitalEventHandler` is not an SDK export"
+    The SDK does **not** ship an `AuthVitalEventHandler` base class or a
+    `WebhookRouter`. This page shows a handler pattern **you define yourself** —
+    it's a nice way to organize dispatch, but the base class below is your code.
+    Event **types** are real and imported from **`@authvital/shared`**. Verify
+    signatures using the [Manual Verification](./webhooks-verification.md) helper.
+
 ---
 
-## AuthVitalEventHandler Class
+## Define your own base class
 
-Extend this class to handle webhook events. Override only the methods you need.
+Create an abstract base whose methods you override. Wire it up to your verified
+endpoint via a small `dispatch(event)` that switches on `event.type`.
 
 ```typescript
-import { AuthVitalEventHandler } from '@authvital/sdk/webhooks';
 import type {
   SubjectCreatedEvent,
   SubjectUpdatedEvent,
@@ -33,14 +40,21 @@ import type {
   LicenseRevokedEvent,
   LicenseChangedEvent,
   WebhookEvent,
-} from '@authvital/sdk/webhooks';
+} from '@authvital/shared';
 
-class AuthVitalEventHandler {
+// YOUR base class (not from the SDK).
+abstract class AuthVitalEventHandler {
+  /** Route a verified event to the right handler. Call this from your endpoint. */
+  async dispatch(event: WebhookEvent): Promise<void> {
+    await this.onEvent(event);
+    // ...switch on event.type and call the matching on* method below.
+  }
+
   /**
    * Called for EVERY event before the specific handler.
    * Use for logging, metrics, or cross-cutting concerns.
    */
-  async onEvent(event: WebhookEvent): Promise<void>;
+  async onEvent(event: WebhookEvent): Promise<void> {}
 
   // ─── Subject Events ────────────────────────────────────────────────
   async onSubjectCreated(event: SubjectCreatedEvent): Promise<void>;
@@ -78,7 +92,7 @@ class AuthVitalEventHandler {
 ## Complete Example
 
 ```typescript
-import { AuthVitalEventHandler } from '@authvital/sdk/webhooks';
+import { AuthVitalEventHandler } from './authvital-event-handler'; // your base class above
 import type {
   WebhookEvent,
   SubjectCreatedEvent,
@@ -92,7 +106,7 @@ import type {
   LicenseAssignedEvent,
   LicenseRevokedEvent,
   LicenseChangedEvent,
-} from '@authvital/sdk/webhooks';
+} from '@authvital/shared';
 import { prisma } from './lib/prisma';
 import { sendEmail } from './lib/email';
 import { slack } from './lib/slack';
@@ -345,8 +359,8 @@ export class MyEventHandler extends AuthVitalEventHandler {
 You only need to override the methods you care about:
 
 ```typescript
-import { AuthVitalEventHandler } from '@authvital/sdk/webhooks';
-import type { SubjectCreatedEvent, MemberJoinedEvent } from '@authvital/sdk/webhooks';
+import { AuthVitalEventHandler } from './authvital-event-handler';
+import type { SubjectCreatedEvent, MemberJoinedEvent } from '@authvital/shared';
 
 export class MinimalHandler extends AuthVitalEventHandler {
   async onSubjectCreated(event: SubjectCreatedEvent) {
@@ -361,21 +375,34 @@ export class MinimalHandler extends AuthVitalEventHandler {
 
 ---
 
-## Using the Handler with WebhookRouter
+## Wiring the handler to a verified endpoint
+
+There is no `WebhookRouter`. Verify the signature, then hand the parsed event to
+your handler's `dispatch()`:
 
 ```typescript
-import { WebhookRouter } from '@authvital/sdk/webhooks';
+import express from 'express';
+import type { WebhookEvent } from '@authvital/shared';
+import { verifyWebhook } from './verify-webhook'; // see Manual Verification
 import { MyEventHandler } from './event-handler';
 
-const router = new WebhookRouter({
-  authVitalHost: process.env.AV_HOST,
-  handler: new MyEventHandler(),
-  maxTimestampAge: 300,
-  keysCacheTtl: 3600000,
-});
+const handler = new MyEventHandler();
+const app = express();
 
-// Use with Express, Next.js, etc.
-// See Framework Integration docs
+app.post('/webhooks/authvital', express.raw({ type: 'application/json' }), async (req, res) => {
+  const raw = req.body.toString('utf-8');
+  const ok = await verifyWebhook({
+    body: raw,
+    signature: req.headers['x-authvital-signature'] as string,
+    keyId: req.headers['x-authvital-key-id'] as string,
+    timestamp: req.headers['x-authvital-timestamp'] as string,
+    authVitalHost: process.env.AV_HOST!,
+  });
+  if (!ok) return res.status(401).json({ error: 'invalid signature' });
+
+  await handler.dispatch(JSON.parse(raw) as WebhookEvent);
+  res.status(200).json({ received: true });
+});
 ```
 
 ---

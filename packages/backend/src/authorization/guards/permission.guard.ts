@@ -23,10 +23,17 @@ import { hasTenantPermission } from '../constants/default-tenant-roles';
  * - Multiple permissions - all required (@RequirePermissions)
  * - Multiple permissions - any required (@RequireAnyPermission)
  *
+ * Permission source (in precedence order):
+ * 1. request.tenantPermissions - populated by TenantAccessGuard from a live DB
+ *    read for the tenant in the URL. Always fresh, so a demoted admin loses
+ *    access immediately on tenant-scoped routes.
+ * 2. user.tenant_permissions - the claim baked into the JWT. Used on routes that
+ *    do NOT run TenantAccessGuard (e.g. SDK / integration surfaces).
+ *
  * Checks:
- * 1. JWT has tenant_permissions array
- * 2. Required permission(s) are in the array (supports wildcards)
- * 3. If request has tenantId, it matches JWT's tenant_id
+ * 1. Required permission(s) are present in the resolved permission set
+ *    (supports wildcards, e.g. `tenant:*`)
+ * 2. If the request targets a tenant, it matches the JWT's tenant_id
  */
 @Injectable()
 export class PermissionGuard implements CanActivate {
@@ -40,8 +47,10 @@ export class PermissionGuard implements CanActivate {
       throw new ForbiddenException('No authenticated user');
     }
 
-    // Get tenant permissions from JWT
-    const tenantPermissions: string[] = user.tenant_permissions || [];
+    // Resolve the caller's tenant permissions, preferring the fresh DB-derived
+    // set (from TenantAccessGuard) over the point-in-time JWT claim.
+    const tenantPermissions: string[] =
+      request.tenantPermissions ?? user.tenant_permissions ?? [];
 
     // Check for single required permission
     const requiredPermission = this.reflector.get<string>(

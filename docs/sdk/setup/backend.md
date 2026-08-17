@@ -13,8 +13,7 @@ Create OAuth routes for handling the authentication flow:
 ```typescript
 // routes/auth.ts
 import { Router } from 'express';
-import { OAuthFlow } from '@authvital/sdk/server';
-import { authvital } from '../lib/authvital';
+import { OAuthFlow, verifyToken } from '@authvital/server';
 
 const router = Router();
 
@@ -104,15 +103,23 @@ router.get('/callback', async (req, res) => {
  * Returns current user data
  */
 router.get('/me', async (req, res) => {
-  const { authenticated, user, error } = await authvital.getCurrentUser(req);
-
-  if (!authenticated) {
-    return res.status(401).json({ 
-      authenticated: false, 
-      error: error || 'Not authenticated' 
-    });
+  // There is no `authvital.getCurrentUser(req)`. Read the access token cookie
+  // and verify it with the real `verifyToken` primitive.
+  const token = req.cookies?.access_token;
+  if (!token) {
+    return res.status(401).json({ authenticated: false, error: 'Not authenticated' });
   }
 
+  const result = await verifyToken(token, {
+    jwksUri: `${process.env.AV_HOST}/.well-known/jwks.json`,
+    issuer: process.env.AV_HOST,
+    audience: process.env.AV_CLIENT_ID,
+  });
+  if (!result.valid) {
+    return res.status(401).json({ authenticated: false, error: result.error });
+  }
+
+  const user = result.payload as any;
   res.json({
     authenticated: true,
     user: {
@@ -214,7 +221,7 @@ app.listen(3000, () => {
 // app/api/auth/login/route.ts
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { OAuthFlow } from '@authvital/sdk/server';
+import { OAuthFlow } from '@authvital/server';
 
 const oauth = new OAuthFlow({
   authVitalHost: process.env.AV_HOST!,
@@ -262,7 +269,7 @@ export async function GET(request: Request) {
 // app/api/auth/callback/route.ts
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { OAuthFlow } from '@authvital/sdk/server';
+import { OAuthFlow } from '@authvital/server';
 
 const oauth = new OAuthFlow({
   authVitalHost: process.env.AV_HOST!,
@@ -332,18 +339,31 @@ export async function GET(request: Request) {
 ```typescript
 // app/api/auth/me/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { authvital } from '@/lib/authvital';
+import { verifyToken } from '@authvital/server';
 
 export async function GET(request: NextRequest) {
-  const { authenticated, user, error } = await authvital.getCurrentUser(request);
-
-  if (!authenticated) {
+  // No `authvital.getCurrentUser(request)` exists — verify the cookie token.
+  const token = request.cookies.get('access_token')?.value;
+  if (!token) {
     return NextResponse.json(
-      { authenticated: false, error: error || 'Not authenticated' },
+      { authenticated: false, error: 'Not authenticated' },
       { status: 401 }
     );
   }
 
+  const result = await verifyToken(token, {
+    jwksUri: `${process.env.AV_HOST}/.well-known/jwks.json`,
+    issuer: process.env.AV_HOST,
+    audience: process.env.AV_CLIENT_ID,
+  });
+  if (!result.valid) {
+    return NextResponse.json(
+      { authenticated: false, error: result.error },
+      { status: 401 }
+    );
+  }
+
+  const user = result.payload as any;
   return NextResponse.json({
     authenticated: true,
     user: {

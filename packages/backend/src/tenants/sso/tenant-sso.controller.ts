@@ -9,13 +9,15 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { TenantAccessGuard } from '../guards/tenant-access.guard';
+import { TenantIdentifierGuard } from '../guards/tenant-identifier.guard';
 import { PermissionGuard } from '../../authorization/guards/permission.guard';
 import { RequirePermission } from '../../authorization/decorators/require-permission.decorator';
 import { TenantSsoConfigService } from '../../sso/tenant-sso-config.service';
+import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { SsoProviderType } from '@prisma/client';
 
 @Controller('tenants/:tenantId/sso')
-@UseGuards(JwtAuthGuard, TenantAccessGuard)
+@UseGuards(JwtAuthGuard, TenantIdentifierGuard, TenantAccessGuard)
 export class TenantSsoController {
   constructor(
     private readonly tenantSsoConfigService: TenantSsoConfigService,
@@ -79,11 +81,16 @@ export class TenantSsoController {
       enforced?: boolean;
       allowedDomains?: string[];
     },
+    @CurrentUser('id') userId: string,
   ) {
-    return this.tenantSsoConfigService.upsertTenantSsoConfig(tenantId, {
-      provider: provider.toUpperCase() as SsoProviderType,
-      ...dto,
-    });
+    return this.tenantSsoConfigService.upsertTenantSsoConfig(
+      tenantId,
+      {
+        provider: provider.toUpperCase() as SsoProviderType,
+        ...dto,
+      },
+      userId,
+    );
   }
 
   /**
@@ -96,10 +103,12 @@ export class TenantSsoController {
   async deleteTenantSsoConfig(
     @Param('tenantId') tenantId: string,
     @Param('provider') provider: string,
+    @CurrentUser('id') userId: string,
   ) {
     return this.tenantSsoConfigService.deleteTenantSsoConfig(
       tenantId,
       provider.toUpperCase() as SsoProviderType,
+      userId,
     );
   }
 

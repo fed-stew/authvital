@@ -8,6 +8,7 @@ import { KeyModule } from '../oauth/key.module';
 import { OAuthModule } from '../oauth/oauth.module';
 import { SyncModule } from '../sync';
 import { AuthService } from './auth.service';
+import { AuthFlowService } from './auth-flow.service';
 import { AuthController } from './auth.controller';
 import { SignUpService } from './signup.service';
 import { SignUpLicenseService } from './signup-license.service';
@@ -51,6 +52,7 @@ import { MfaModule } from './mfa';
   ],
   providers: [
     AuthService,
+    AuthFlowService,
     SignUpLicenseService,
     SignUpAnonymousService,
     SignUpService,

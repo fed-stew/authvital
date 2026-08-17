@@ -11,11 +11,15 @@ import { PermissionsService } from './permissions.service';
 
 // Controllers
 import { AppAccessController } from './app-access.controller';
+import { AppAccessMatrixController } from './app-access-matrix.controller';
 import { TenantRolesController } from './tenant-roles.controller';
 
 // Guards
 import { PermissionGuard } from './guards/permission.guard';
 import { AppAccessGuard } from './guards/app-access.guard';
+import { MembershipTenantGuard } from './guards/membership-tenant.guard';
+import { TenantIdentifierGuard } from '../tenants/guards/tenant-identifier.guard';
+import { TenantAccessGuard } from '../tenants/guards/tenant-access.guard';
 
 /**
  * AuthorizationModule - Unified Authorization Module
@@ -41,6 +45,7 @@ import { AppAccessGuard } from './guards/app-access.guard';
   ],
   controllers: [
     AppAccessController,
+    AppAccessMatrixController,
     TenantRolesController,
   ],
   providers: [
@@ -50,6 +55,9 @@ import { AppAccessGuard } from './guards/app-access.guard';
     PermissionsService,
     PermissionGuard,
     AppAccessGuard,
+    MembershipTenantGuard,
+    TenantIdentifierGuard,
+    TenantAccessGuard,
   ],
   exports: [
     AppAccessAutoGrantService,
@@ -58,6 +66,7 @@ import { AppAccessGuard } from './guards/app-access.guard';
     PermissionsService,
     PermissionGuard,
     AppAccessGuard,
+    MembershipTenantGuard,
   ],
 })
 export class AuthorizationModule {}

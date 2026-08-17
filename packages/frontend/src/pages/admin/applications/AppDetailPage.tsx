@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Power, Trash2 } from 'lucide-react';
 import { superAdminApi } from '@/lib/api';
 import { AdminLayout, type BreadcrumbItem } from '@/components/admin/AdminLayout';
@@ -12,56 +12,18 @@ import { AccessTab } from './AccessTab';
 import { BrandingTab } from './BrandingTab';
 import { RolesTab } from './RolesTab';
 import { LicensesTab } from './LicensesTab';
+import { CredentialsTab } from './CredentialsTab';
+import type { AppWithClients } from '@/types';
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
-export interface ApplicationInfo {
-  id: string;
-  clientId: string;
-  name: string;
-  slug: string;
-  description?: string;
-  isActive: boolean;
-  redirectUris?: string[];
-  postLogoutRedirectUri?: string;
-  initiateLoginUri?: string;
-  accessTokenTtl?: number;
-  refreshTokenTtl?: number;
-  createdAt: string;
-  updatedAt: string;
-  // Branding
-  brandingName?: string;
-  brandingLogoUrl?: string;
-  brandingIconUrl?: string;
-  brandingPrimaryColor?: string;
-  brandingBackgroundColor?: string;
-  brandingAccentColor?: string;
-  brandingSupportUrl?: string;
-  brandingPrivacyUrl?: string;
-  brandingTermsUrl?: string;
-  // Roles (simple: name, slug, description - no permissions)
-  roles?: Array<{
-    id: string;
-    name: string;
-    slug: string;
-    description?: string;
-    isDefault?: boolean;
-  }>;
-  // Licensing
-  licensingMode?: string;
-  accessMode?: string;
-  defaultLicenseTypeId?: string;
-  defaultSeatCount?: number;
-  autoProvisionOnSignup?: boolean;
-  autoGrantToOwner?: boolean;
-  // Webhooks
-  webhookUrl?: string | null;
-  webhookEnabled?: boolean;
-  webhookEvents?: string[];
-  [key: string]: any;
-}
+// The detail page (and every tab it renders) operates on the container shape:
+// container-level fields + clients[]. Credential-specific state lives on the
+// individual clients, never flattened onto the app. This is the canonical
+// contract type -- do NOT re-add the old flat `clientId`/`redirectUris` fields.
+export type ApplicationInfo = AppWithClients;
 
 // =============================================================================
 // COMPONENT
@@ -70,13 +32,17 @@ export interface ApplicationInfo {
 export function AppDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
   
   const [app, setApp] = React.useState<ApplicationInfo | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
-  const [activeTab, setActiveTab] = React.useState('settings');
+  // Allow deep-linking to a specific tab (e.g. right after creating an app we
+  // land on ?tab=credentials to show the guided empty state).
+  const initialTab = searchParams.get('tab') || 'settings';
+  const [activeTab, setActiveTab] = React.useState(initialTab);
   const [isDisabling, setIsDisabling] = React.useState(false);
   const [isEnabling, setIsEnabling] = React.useState(false);
   const [showDisableModal, setShowDisableModal] = React.useState(false);
@@ -95,9 +61,8 @@ export function AppDetailPage() {
     
     try {
       setIsLoading(true);
-      const apps = await superAdminApi.getAllApplications();
-      const foundApp = apps?.find((a: ApplicationInfo) => a.id === id);
-      
+      const foundApp = await superAdminApi.getApplication(id);
+
       if (foundApp) {
         setApp(foundApp);
       } else {
@@ -252,6 +217,7 @@ export function AppDetailPage() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="settings">Settings</TabsTrigger>
+            <TabsTrigger value="credentials">Credentials</TabsTrigger>
             <TabsTrigger value="access">Access</TabsTrigger>
             <TabsTrigger value="licensing">Licensing</TabsTrigger>
             <TabsTrigger value="roles">Roles</TabsTrigger>
@@ -259,6 +225,9 @@ export function AppDetailPage() {
           </TabsList>
           <TabsContent value="settings">
             <SettingsTab app={app} appId={id!} onRefresh={loadApp} />
+          </TabsContent>
+          <TabsContent value="credentials">
+            <CredentialsTab app={app} appId={id!} onRefresh={loadApp} />
           </TabsContent>
           <TabsContent value="access">
             <AccessTab app={app} appId={id!} onRefresh={loadApp} />

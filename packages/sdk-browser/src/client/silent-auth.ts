@@ -17,7 +17,7 @@
  * @packageDocumentation
  */
 
-import { generateCSRFState } from '@authvital/core';
+import { generateCSRFState, generatePKCE } from '@authvital/core';
 import type { AuthUser } from './types';
 
 // =============================================================================
@@ -181,6 +181,11 @@ export async function attemptSilentAuth(
   // Generate state parameter for CSRF protection
   const state = generateCSRFState();
 
+  // Generate PKCE. SPA (public) clients must send an S256 code_challenge even
+  // on the silent prompt=none flow. The verifier stays in this function scope
+  // (no full-page redirect) and is used on the token exchange below.
+  const { codeVerifier, codeChallenge } = await generatePKCE();
+
   // Build authorization URL with prompt=none
   const authorizeUrl = buildSilentAuthUrl({
     authVitalHost,
@@ -188,6 +193,7 @@ export async function attemptSilentAuth(
     redirectUri,
     scope,
     state,
+    codeChallenge,
   });
 
   return new Promise<SilentAuthResult>((resolve) => {
@@ -260,6 +266,7 @@ export async function attemptSilentAuth(
           clientId,
           code: data.code,
           redirectUri,
+          codeVerifier,
         })
           .then((tokenResult) => {
             if (tokenResult.success) {
@@ -328,6 +335,7 @@ function buildSilentAuthUrl(params: {
   redirectUri: string;
   scope: string;
   state: string;
+  codeChallenge: string;
 }): string {
   const url = new URL(`${params.authVitalHost}/oauth/authorize`);
   url.searchParams.set('client_id', params.clientId);
@@ -336,6 +344,9 @@ function buildSilentAuthUrl(params: {
   url.searchParams.set('scope', params.scope);
   url.searchParams.set('state', params.state);
   url.searchParams.set('prompt', 'none');
+  // Required for SPA (public) clients.
+  url.searchParams.set('code_challenge', params.codeChallenge);
+  url.searchParams.set('code_challenge_method', 'S256');
 
   return url.toString();
 }
@@ -392,6 +403,7 @@ async function exchangeCodeForTokens(params: {
   clientId: string;
   code: string;
   redirectUri: string;
+  codeVerifier?: string;
 }): Promise<{
   success: boolean;
   accessToken?: string;
@@ -410,6 +422,7 @@ async function exchangeCodeForTokens(params: {
         client_id: params.clientId,
         code: params.code,
         redirect_uri: params.redirectUri,
+        ...(params.codeVerifier ? { code_verifier: params.codeVerifier } : {}),
       }),
     });
 

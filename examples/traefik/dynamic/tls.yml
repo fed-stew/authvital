@@ -1,0 +1,19 @@
+# =============================================================================
+# Traefik dynamic config — default TLS certificate
+# =============================================================================
+# Loaded via the file provider (see docker-compose.examples.yml, which mounts
+# this directory at /dynamic and watches it). Points Traefik at the mkcert
+# cert/key produced by examples/traefik/gen-certs.sh, mounted at /certs.
+#
+# This is the DEFAULT cert served for every websecure router unless a more
+# specific one matches — one wildcard cert covers all our *.lvh.me hosts.
+# =============================================================================
+tls:
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /certs/lvh.me.pem
+        keyFile: /certs/lvh.me-key.pem
+  certificates:
+    - certFile: /certs/lvh.me.pem
+      keyFile: /certs/lvh.me-key.pem

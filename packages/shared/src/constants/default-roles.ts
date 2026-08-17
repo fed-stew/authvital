@@ -12,6 +12,7 @@
 import {
   ADMIN_PERMISSIONS,
   MEMBER_PERMISSIONS,
+  BILLING_ADMIN_PERMISSIONS,
 } from './permissions.js';
 
 // =============================================================================
@@ -50,6 +51,7 @@ export const SYSTEM_TENANT_ROLE_SLUGS = {
   OWNER: 'owner',
   ADMIN: 'admin',
   MEMBER: 'member',
+  BILLING_ADMIN: 'billing-admin',
 } as const;
 
 /**
@@ -104,6 +106,13 @@ export const DEFAULT_TENANT_ROLES: DefaultTenantRole[] = [
     slug: 'member',
     description: 'Standard tenant membership with minimal permissions.',
     permissions: MEMBER_PERMISSIONS as unknown as string[],
+  },
+  {
+    name: 'Billing Admin',
+    slug: 'billing-admin',
+    description:
+      'Manages subscriptions, license seats, and billing without full tenant control.',
+    permissions: BILLING_ADMIN_PERMISSIONS as unknown as string[],
   },
 ];
 

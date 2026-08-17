@@ -1,274 +1,177 @@
 # Identity Sync Events
 
-> Detailed information about what each event does and how it's handled.
+> The exact payloads AuthVital sends, verified against
+> `packages/shared/src/types/sync-events.types.ts`.
 
-## Subject Events
+## Envelope
 
-Subject events fire when identity lifecycle changes occur at the IDP level.
+Every event has the same top-level shape (`BaseSyncEvent`):
 
-### subject.created
-
-Fires when a new user registers or is created in AuthVital.
-
-```typescript
-// Incoming event payload
+```jsonc
 {
-  event: 'subject.created',
-  data: {
-    sub: 'user-abc-123',
-    email: 'jane@example.com',
-    email_verified: true,
-    preferred_username: 'janesmith',
-    name: 'Jane Smith',
-    given_name: 'Jane',
-    family_name: 'Smith',
-    middle_name: null,
-    nickname: 'Janey',
-    picture: 'https://example.com/avatar.jpg',
-    website: 'https://janesmith.com',
-    gender: 'female',
-    birthdate: '1990-05-15',
-    zoneinfo: 'America/New_York',
-    locale: 'en-US',
-    phone_number: '+1-555-123-4567',
-    phone_number_verified: false,
-    tenant_id: 'tenant-xyz',
-    app_role: 'member',
-    groups: ['engineering', 'frontend'],
+  "id": "e2b1…",              // unique event id (also in X-AuthVital-Event-Id)
+  "type": "subject.created",  // the event type — note: "type", NOT "event"
+  "timestamp": "2024-01-15T10:30:00.000Z",
+  "tenant_id": "tenant-xyz",
+  "application_id": "app-123",
+  "data": { /* event-specific */ }
+}
+```
+
+!!! warning "Fields are minimal by design"
+    `data` carries only what changed. There is **no** `preferred_username`,
+    `name`, `picture`, `locale`, `groups`, or `app_role` on these payloads. For
+    the full profile, read the ID token at login or call `client.getCurrentUser()`.
+
+The TypeScript types and guards are importable from `@authvital/shared`
+(`SyncEvent`, `SubjectCreatedEvent`, `isSubjectEvent`, …).
+
+---
+
+## Subject events
+
+### `subject.created`
+
+```jsonc
+{
+  "type": "subject.created",
+  "tenant_id": "tenant-xyz",
+  "application_id": "app-123",
+  "data": {
+    "sub": "user-abc-123",
+    "email": "jane@example.com",
+    "given_name": "Jane",
+    "family_name": "Smith",
+    "subject_type": "user"   // "user" | "service_account" | "machine"
   }
 }
-
-// Handler creates identity
-await prisma.identity.create({
-  data: {
-    id: 'user-abc-123',
-    email: 'jane@example.com',
-    emailVerified: true,
-    username: 'janesmith',
-    displayName: 'Jane Smith',
-    givenName: 'Jane',
-    familyName: 'Smith',
-    // ... all other OIDC fields
-    tenantId: 'tenant-xyz',
-    appRole: 'member',
-    groups: ['engineering', 'frontend'],
-    isActive: true,
-    hasAppAccess: true,
-  },
-});
 ```
 
----
+### `subject.updated`
 
-### subject.updated
+Adds `changed_fields` — apply only those.
 
-Fires when user profile data changes. **Only updates changed fields!**
-
-```typescript
-// Incoming event payload
+```jsonc
 {
-  event: 'subject.updated',
-  data: {
-    sub: 'user-abc-123',
-    email: 'jane.smith@newcompany.com',  // Changed
-    given_name: 'Jane',
-    family_name: 'Smith-Johnson',         // Changed
-    changed_fields: ['email', 'family_name'],  // Tells us what changed
-    // ... other fields
+  "type": "subject.updated",
+  "data": {
+    "sub": "user-abc-123",
+    "email": "jane.smith@newco.com",
+    "family_name": "Smith-Johnson",
+    "changed_fields": ["email", "family_name"]
   }
 }
-
-// Handler updates ONLY changed fields
-await prisma.identity.update({
-  where: { id: 'user-abc-123' },
-  data: {
-    email: 'jane.smith@newcompany.com',
-    familyName: 'Smith-Johnson',
-    syncedAt: new Date(),
-  },
-});
 ```
+
+### `subject.deleted` / `subject.deactivated`
+
+`data` is `{ sub, email? }`. `deleted` removes the record; `deactivated` sets
+`isActive = false` (the person can no longer log into any app).
 
 ---
 
-### subject.deleted
+## Member events
 
-Fires when a user is permanently deleted from AuthVital.
+Member `data` uses **`tenant_roles`** (array of role slugs), plus
+`membership_id` and `sub`.
 
-```typescript
-// Handler deletes identity (cascades to sessions due to onDelete: Cascade)
-await prisma.identity.delete({
-  where: { id: 'user-abc-123' },
-});
-```
+### `member.joined`
 
----
-
-### subject.deactivated
-
-Fires when a user's account is deactivated at the IDP level (cannot log into ANY app).
-
-```typescript
-// Handler sets isActive = false
-await prisma.identity.update({
-  where: { id: 'user-abc-123' },
-  data: {
-    isActive: false,
-    syncedAt: new Date(),
-  },
-});
-```
-
----
-
-## Member Events
-
-Member events fire when a user's relationship with a tenant changes.
-
-### member.joined
-
-Fires when a user joins a tenant/organization.
-
-```typescript
-// Incoming event payload
+```jsonc
 {
-  event: 'member.joined',
-  data: {
-    sub: 'user-abc-123',
-    tenant_id: 'tenant-xyz',
-    role: 'editor',
-    groups: ['design-team', 'all-hands'],
+  "type": "member.joined",
+  "tenant_id": "tenant-xyz",
+  "data": {
+    "membership_id": "mem-1",
+    "sub": "user-abc-123",
+    "email": "jane@example.com",
+    "tenant_roles": ["editor"],
+    "given_name": "Jane",
+    "family_name": "Smith"
   }
 }
-
-// Handler updates tenant context
-await prisma.identity.update({
-  where: { id: 'user-abc-123' },
-  data: {
-    tenantId: 'tenant-xyz',
-    appRole: 'editor',
-    groups: ['design-team', 'all-hands'],
-    syncedAt: new Date(),
-  },
-});
 ```
 
----
+### `member.left`
 
-### member.left
+`data` is `{ membership_id, sub, email? }` — clear the tenant association.
 
-Fires when a user leaves a tenant/organization.
+### `member.role_changed`
 
-```typescript
-// Handler clears tenant context
-await prisma.identity.update({
-  where: { id: 'user-abc-123' },
-  data: {
-    tenantId: null,
-    appRole: null,
-    groups: [],
-    syncedAt: new Date(),
-  },
-});
+```jsonc
+{
+  "type": "member.role_changed",
+  "data": {
+    "membership_id": "mem-1",
+    "sub": "user-abc-123",
+    "email": "jane@example.com",
+    "tenant_roles": ["admin"],
+    "previous_roles": ["editor"]
+  }
+}
 ```
 
+There are also `member.suspended` and `member.activated` (`{ membership_id, sub, email? }`).
+
 ---
 
-### member.role_changed
+## App-access events
 
-Fires when a user's role within a tenant changes.
+App-access `data` describes a role on **your** application:
+`{ membership_id, sub, email?, role_id, role_name, role_slug }`.
 
-```typescript
-// Handler updates role and groups
-await prisma.identity.update({
-  where: { id: 'user-abc-123' },
-  data: {
-    appRole: 'admin',  // Promoted!
-    groups: ['design-team', 'all-hands', 'leadership'],  // New groups
-    syncedAt: new Date(),
-  },
-});
+### `app_access.granted`
+
+```jsonc
+{
+  "type": "app_access.granted",
+  "application_id": "app-123",
+  "data": {
+    "membership_id": "mem-1",
+    "sub": "user-abc-123",
+    "email": "jane@example.com",
+    "role_id": "role-9",
+    "role_name": "Viewer",
+    "role_slug": "viewer",
+    "given_name": "Jane",
+    "family_name": "Smith"
+  }
+}
 ```
 
----
+### `app_access.revoked`
 
-## App Access Events
+`data` is `{ membership_id, sub, email? }` — set `hasAppAccess = false`.
 
-App access events fire when a user's access to YOUR SPECIFIC APPLICATION changes.
+### `app_access.role_changed`
 
-### app_access.granted
-
-Fires when a user is granted access to THIS specific application.
-
-```typescript
-// Handler enables app access
-await prisma.identity.update({
-  where: { id: 'user-abc-123' },
-  data: {
-    hasAppAccess: true,
-    appRole: 'viewer',  // Initial role for this app
-    syncedAt: new Date(),
-  },
-});
-```
+Adds `previous_role_id`, `previous_role_name`, `previous_role_slug` alongside the
+new `role_*` fields.
 
 ---
 
-### app_access.revoked
+## Invite & license events
 
-Fires when a user's access to THIS specific application is revoked.
+These also flow through the same webhook (handle them if relevant to your app):
 
-```typescript
-// Handler disables app access
-await prisma.identity.update({
-  where: { id: 'user-abc-123' },
-  data: {
-    hasAppAccess: false,
-    appRole: null,  // Clear app role
-    syncedAt: new Date(),
-  },
-});
-```
+- `invite.created` / `invite.accepted` / `invite.deleted` / `invite.expired` —
+  `data` includes `invite_id`, `membership_id`, `email`, `tenant_roles`
+  (accepted also adds `sub`).
+- `license.assigned` / `license.revoked` / `license.changed` — `data` includes
+  `assignment_id`, `sub`, `license_type_id`, `license_type_name` (changed adds
+  `previous_license_type_*`).
 
----
-
-### app_access.role_changed
-
-Fires when a user's role within THIS application changes.
-
-```typescript
-// Handler updates app role
-await prisma.identity.update({
-  where: { id: 'user-abc-123' },
-  data: {
-    appRole: 'editor',  // Changed from 'viewer'
-    syncedAt: new Date(),
-  },
-});
-```
+See [Webhook Event Types](../webhooks-events.md) for the complete catalog of
+sync-webhook events. Tenant/application/SSO **configuration** changes are a
+separate channel — see [Organization Sync](../organization-sync/index.md).
 
 ---
 
-## Event Summary
+## Mapping to Prisma
 
-| Event | Affects | Key Fields |
-|-------|---------|------------|
-| `subject.created` | New identity | All OIDC fields |
-| `subject.updated` | Existing identity | Only `changed_fields` |
-| `subject.deleted` | Identity record | Deletes record |
-| `subject.deactivated` | Identity status | `isActive = false` |
-| `member.joined` | Tenant membership | `tenantId`, `appRole`, `groups` |
-| `member.left` | Tenant membership | Clears tenant fields |
-| `member.role_changed` | Tenant role | `appRole`, `groups` |
-| `app_access.granted` | App access | `hasAppAccess = true`, `appRole` |
-| `app_access.revoked` | App access | `hasAppAccess = false` |
-| `app_access.role_changed` | App role | `appRole` |
+See [Building a Sync Handler](./sync-handler.md) for the full switch that turns
+each of these into an upsert.
 
----
+## Related
 
-## Related Documentation
-
-- [Identity Sync Overview](./index.md)
-- [Sync Handler](./sync-handler.md)
-- [Custom Event Handlers](./advanced.md)
-- [Webhook Event Types](../webhooks-events.md)
+- [Sync Handler](./sync-handler.md) · [Prisma Schema](./prisma-schema.md) · [Overview](./index.md)

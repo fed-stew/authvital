@@ -36,7 +36,11 @@ interface RolesTabProps {
 export function RolesTab({ app, appId, onRefresh: _onRefresh }: RolesTabProps) {
   const { toast } = useToast();
 
-  const [roles, setRoles] = React.useState<Role[]>(app.roles || []);
+  const [roles, setRoles] = React.useState<Role[]>(
+    // AppWithClients roles carry description: string | null; normalize to the
+    // local Role shape (description?: string).
+    (app.roles || []).map((r) => ({ ...r, description: r.description ?? undefined })),
+  );
 
   // Modal states
   const [isCreateModalOpen, setIsCreateModalOpen] = React.useState(false);

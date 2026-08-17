@@ -17,48 +17,49 @@
 
 ## Example: Login Logging
 
+AuthVital uses the OAuth redirect flow — login completes at your OAuth callback,
+not a password endpoint. Log success/failure there:
+
 ```typescript
-import { createAuthVital } from '@authvital/sdk/server';
+import { OAuthFlow } from '@authvital/server';
 
-const authvital = createAuthVital({ /* config */ });
+const oauth = new OAuthFlow({
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
+  redirectUri: process.env.AV_REDIRECT_URI!,
+});
 
-app.post('/api/auth/login', async (req, res) => {
+app.get('/auth/callback', async (req, res) => {
   try {
-    const result = await authvital.auth.login({
-      email: req.body.email,
-      password: req.body.password,
-    });
-    
-    // Handle MFA if required
-    if ('mfaRequired' in result && result.mfaRequired) {
-      return res.json({ mfaRequired: true, challengeToken: result.mfaChallengeToken });
-    }
-    
-    // Success - log and set cookie
+    const tokens = await oauth.handleCallback(
+      req.query.code as string,
+      req.query.state as string,
+      req.cookies.oauth_state,        // stored during startFlow()
+      req.cookies.oauth_code_verifier // stored during startFlow()
+    );
+
     logger.info('Successful login', {
-      userId: result.user.id,
-      email: result.user.email,
       ip: req.ip,
       timestamp: new Date().toISOString(),
     });
-    
-    res.cookie('access_token', result.accessToken, {
+
+    res.cookie('access_token', tokens.access_token, {
       httpOnly: true,
       secure: true,
       sameSite: 'lax',
       maxAge: 3600000,
     });
-    res.json({ user: result.user });
+    res.redirect(tokens.appState ?? '/');
   } catch (error) {
     // Log failed attempt
     logger.warn('Failed login attempt', {
-      email: req.body.email,
       ip: req.ip,
       userAgent: req.headers['user-agent'],
       timestamp: new Date().toISOString(),
       error: error instanceof Error ? error.message : 'Unknown error',
     });
-    res.status(401).json({ error: 'Invalid credentials' });
+    res.status(401).json({ error: 'Authentication failed' });
   }
 });
 ```

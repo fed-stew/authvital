@@ -204,18 +204,21 @@ KEY_ROTATION_INTERVAL_SECONDS=604800  # 7 days
 
 ### Webhook Secrets
 
+There is no `WebhookRouter` in the SDK — you verify the signature yourself
+(RSA-SHA256 via JWKS) and then dispatch to your own handler:
+
 ```typescript
-// ✅ Always verify webhook signatures (RSA-SHA256 via JWKS)
-const router = new WebhookRouter({
-  authVitalHost: process.env.AV_HOST,  // JWKS URL derived automatically
-  handler: myHandler,
+// ✅ Always verify webhook signatures before handling the event.
+// See docs/sdk/webhooks-verification.md for the full, real verification helper.
+app.post('/webhooks', async (req, res) => {
+  const valid = await verifyWebhookSignature(req); // your verifier (JWKS/RSA-SHA256)
+  if (!valid) return res.status(401).end();
+  handleEvent(req.body);
+  res.json({ received: true });
 });
 
 // ❌ Never skip signature verification
-app.post('/webhooks', (req, res) => {
-  // Missing signature check = anyone can call this!
-  handleEvent(req.body);
-});
+// Missing signature check = anyone can call this!
 ```
 
 ---

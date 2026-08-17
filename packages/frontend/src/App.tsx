@@ -26,7 +26,17 @@ import {
   MembersPage as TenantMembersPage,
   ApplicationsPage as TenantApplicationsPage,
   AppUsersPage,
+  AccessMatrixPage as TenantAccessMatrixPage,
+  SsoSettingsPage as TenantSsoSettingsPage,
+  DomainsPage as TenantDomainsPage,
+  GeneralPage as TenantGeneralPage,
+  LicensesPage as TenantLicensesPage,
+  BillingPage as TenantBillingPage,
+  AuditPage as TenantAuditPage,
 } from './pages/tenant';
+
+// Account pages
+import { AccountSettingsPage } from './pages/account';
 
 // Auth pages (KEEP - DO NOT CHANGE)
 import { EmbedLogin } from './pages/auth/EmbedLogin';
@@ -42,6 +52,7 @@ import { ForgotPassword } from './pages/auth/ForgotPassword';
 import { ResetPassword } from './pages/auth/ResetPassword';
 import MfaChallenge from './pages/auth/MfaChallenge';
 import UserMfaSetup from './pages/auth/MfaSetup';
+import MfaEnroll from './pages/auth/MfaEnroll';
 
 
 // =============================================================================
@@ -112,6 +123,7 @@ function AppContent() {
       <Route path="/auth/reset-password" element={<ResetPassword />} />
       <Route path="/auth/mfa" element={<MfaChallenge />} />
       <Route path="/auth/mfa/setup" element={<UserMfaSetup />} />
+      <Route path="/auth/mfa/enroll" element={<MfaEnroll />} />
       <Route path="/auth/org-picker" element={<OrgPicker />} />
       <Route path="/auth/app-picker" element={<AppPicker />} />
       <Route path="/auth/embed/login" element={<EmbedLogin />} />
@@ -123,6 +135,10 @@ function AppContent() {
       {/* Admin routes - wrapped in AdminProvider separately */}
       <Route path="/admin/*" element={<AdminRoutes />} />
 
+      {/* Account settings (canonical per-user route; also the console entry point) */}
+      <Route path="/account" element={<Navigate to="/account/settings" replace />} />
+      <Route path="/account/settings" element={<AccountSettingsPage />} />
+
       {/* Tenant Management Routes */}
       <Route path="/tenant/:tenantId" element={<TenantLayout />}>
         <Route index element={<Navigate to="overview" replace />} />
@@ -130,6 +146,13 @@ function AppContent() {
         <Route path="members" element={<TenantMembersPage />} />
         <Route path="applications" element={<TenantApplicationsPage />} />
         <Route path="applications/:appId" element={<AppUsersPage />} />
+        <Route path="access-matrix" element={<TenantAccessMatrixPage />} />
+        <Route path="licenses" element={<TenantLicensesPage />} />
+        <Route path="billing" element={<TenantBillingPage />} />
+        <Route path="audit" element={<TenantAuditPage />} />
+        <Route path="sso" element={<TenantSsoSettingsPage />} />
+        <Route path="domains" element={<TenantDomainsPage />} />
+        <Route path="general" element={<TenantGeneralPage />} />
       </Route>
 
       {/* Catch-all for unknown routes */}

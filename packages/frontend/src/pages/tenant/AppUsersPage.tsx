@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import { tenantApi } from '@/lib/api';
+import { useTenant } from '@/contexts/TenantContext';
 import type { AppUsersResponse, AppUserWithAccess } from '@/types';
 
 /**
@@ -26,8 +27,11 @@ import type { AppUsersResponse, AppUserWithAccess } from '@/types';
  * Shows ALL members with toggle switches to grant/revoke access
  */
 export function AppUsersPage() {
-  const { tenantId, appId } = useParams<{ tenantId: string; appId: string }>();
+  const { appId } = useParams<{ tenantId: string; appId: string }>();
+  const { tenantId, can } = useTenant();
   const { toast } = useToast();
+
+  const canManage = can('app-access:manage');
 
   const [data, setData] = useState<AppUsersResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -36,7 +40,7 @@ export function AppUsersPage() {
   const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
-      const result = await tenantApi.getAppUsers(tenantId!, appId!);
+      const result = await tenantApi.getAppUsers(tenantId, appId!);
       setData(result);
     } catch (err: any) {
       toast({
@@ -85,7 +89,7 @@ export function AppUsersPage() {
 
     try {
       await tenantApi.toggleAppAccess(
-        tenantId!,
+        tenantId,
         appId!,
         user.userId,
         enable,
@@ -128,7 +132,7 @@ export function AppUsersPage() {
 
     try {
       await tenantApi.updateAppRole(
-        tenantId!,
+        tenantId,
         appId!,
         user.membershipId,
         newRoleId,
@@ -286,7 +290,9 @@ export function AppUsersPage() {
                   {/* Role - fixed width */}
                   <td className="px-4 py-3 w-40">
                     <div className="w-36">
-                      {user.hasAccess ? (
+                      {!user.hasAccess ? (
+                        <span className="text-sm text-muted-foreground">—</span>
+                      ) : canManage ? (
                         <Select
                           value={user.roleId || ''}
                           onValueChange={(value) => handleRoleChange(user, value)}
@@ -303,7 +309,9 @@ export function AppUsersPage() {
                           </SelectContent>
                         </Select>
                       ) : (
-                        <span className="text-sm text-muted-foreground">—</span>
+                        <Badge variant="outline" className="text-xs">
+                          {user.roleName || '—'}
+                        </Badge>
                       )}
                     </div>
                   </td>
@@ -316,7 +324,7 @@ export function AppUsersPage() {
                         onCheckedChange={(checked) =>
                           handleToggleAccess(user, checked)
                         }
-                        disabled={isToggling || (!user.hasAccess && !canToggleOn)}
+                        disabled={!canManage || isToggling || (!user.hasAccess && !canToggleOn)}
                         aria-label={`Toggle access for ${user.name}`}
                       />
                       {user.hasAccess ? (

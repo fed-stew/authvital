@@ -6,7 +6,8 @@
 model AuditLog {
   id         String   @id @default(cuid())
   tenantId   String?  @map("tenant_id")
-  userId     String?  @map("user_id")
+  userId     String?  @map("user_id") // actor user id (nullable: system / M2M actions)
+  actorEmail String?  @map("actor_email") // denormalized actor email (survives user deletion)
   action     String // e.g., "license:assign", "role:create", "member:remove"
   targetType String @map("target_type") // e.g., "user", "role", "license", "permission"
   targetId   String?  @map("target_id")

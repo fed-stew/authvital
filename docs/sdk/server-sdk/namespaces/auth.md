@@ -1,208 +1,88 @@
-# Auth Namespace
+# Auth (login & account flows)
 
-> Authentication operations (register, login, password reset).
+> How authentication actually works with the `@authvital/server` SDK.
 
-## Overview
+!!! info "There is no `authvital.auth.*` namespace"
+    Earlier drafts described `createAuthVital(...).auth.register()`, `.login()`,
+    `.verifyEmail()`, `.forgotPassword()`, etc. **The server SDK does not expose
+    password-authentication methods.** AuthVital is an OAuth 2.0 / OIDC identity
+    provider: your app never handles the user's password. Instead you redirect the
+    user to AuthVital and complete an **Authorization Code + PKCE** flow with the
+    real primitive: [`OAuthFlow`](../oauth-flow.md).
 
-The auth namespace provides methods for user authentication flows. Most methods don't require authentication.
+    The username/password, email-verification and password-reset **REST
+    endpoints do exist** on the backend (they power AuthVital's own hosted login
+    UI) and are documented under [API Reference → Authentication](../../../api/authentication.md).
+    They are not wrapped by the SDK.
+
+## The real login flow: `OAuthFlow`
 
 ```typescript
-const auth = authvital.auth;
-```
+import { OAuthFlow } from '@authvital/server';
 
----
-
-## Registration
-
-### register()
-
-Register a new user.
-
-```typescript
-const user = await authvital.auth.register({
-  email: 'user@example.com',
-  password: 'secure-password',
-  givenName: 'John',       // Optional
-  familyName: 'Doe',       // Optional
+const oauth = new OAuthFlow({
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  // clientSecret is OPTIONAL — omit it for public/PKCE clients
+  redirectUri: 'https://app.example.com/auth/callback',
+  scope: 'openid profile email',
 });
 
-console.log(user);
-// { id: 'user-123', email: 'user@example.com', emailVerified: false, ... }
-```
-
----
-
-## Login
-
-### login()
-
-Login with email and password. May return MFA challenge if user has MFA enabled.
-
-```typescript
-const result = await authvital.auth.login({
-  email: 'user@example.com',
-  password: 'password',
-  redirectUri: 'https://app.example.com/callback', // Optional
-  clientId: 'my-app', // Optional
+// 1. Kick off login — store state + codeVerifier, redirect to authorizeUrl
+app.get('/api/auth/login', async (_req, res) => {
+  const { authorizeUrl, state, codeVerifier } = await oauth.startFlow({ appState: '/' });
+  // Persist { state, codeVerifier } in a short-lived, encrypted, httpOnly cookie.
+  res.setHeader('Set-Cookie', serializeFlowCookie({ state, codeVerifier }));
+  res.redirect(authorizeUrl);
 });
 
-// Check if MFA is required
-if ('mfaRequired' in result && result.mfaRequired) {
-  // Redirect to MFA challenge
-  res.json({
-    mfaRequired: true,
-    challengeToken: result.mfaChallengeToken,
-  });
-} else {
-  // Login successful
-  res.cookie('access_token', result.accessToken, { httpOnly: true });
-  res.json({ user: result.user });
-}
-```
-
-**Return Types:**
-
-```typescript
-// Normal login response
-interface LoginResponse {
-  accessToken: string;
-  refreshToken?: string;
-  idToken?: string;
-  expiresIn: number;
-  user: {
-    id: string;
-    email: string;
-    givenName?: string;
-    familyName?: string;
-  };
-}
-
-// MFA required response
-interface MfaRequiredResponse {
-  mfaRequired: true;
-  mfaChallengeToken: string;
-  redirectUri?: string;
-  clientId?: string;
-}
-```
-
----
-
-## Email Verification
-
-### verifyEmail()
-
-Verify email with token from verification email.
-
-```typescript
-const result = await authvital.auth.verifyEmail('verification-token');
-
-console.log(result);
-// { success: true, email: 'user@example.com', emailVerified: true }
-```
-
----
-
-### resendVerificationEmail()
-
-Resend verification email.
-
-```typescript
-await authvital.auth.resendVerificationEmail('user@example.com');
-```
-
----
-
-## Password Reset
-
-### forgotPassword()
-
-Request password reset email. Always returns success to prevent email enumeration.
-
-```typescript
-await authvital.auth.forgotPassword('user@example.com');
-// Email sent (or not, if email doesn't exist - but we don't reveal that)
-```
-
----
-
-### resetPassword()
-
-Reset password with token from email.
-
-```typescript
-await authvital.auth.resetPassword({
-  token: 'reset-token-from-email',
-  password: 'new-secure-password',
+// 2. Handle the callback — verify state, exchange the code for tokens
+app.get('/api/auth/callback', async (req, res) => {
+  const flow = readFlowCookie(req.headers.cookie); // { state, codeVerifier }
+  const tokens = await oauth.handleCallback(
+    String(req.query.code),
+    String(req.query.state),
+    flow.state,
+    flow.codeVerifier,
+  );
+  // tokens = { access_token, refresh_token?, expires_in, id_token?, appState? }
+  // Store them in an encrypted session cookie (see the Sessions page).
+  res.redirect(tokens.appState || '/');
 });
 ```
 
----
+`OAuthFlow` methods (verified against `packages/sdk-server/src/oauth/oauth-flow.ts`):
 
-## Complete Example
+| Method | Signature | Returns |
+|--------|-----------|---------|
+| `startFlow` | `({ appState? })` | `{ authorizeUrl, state, codeVerifier }` |
+| `handleCallback` | `(code, state, expectedState, codeVerifier)` | `{ access_token, refresh_token?, expires_in, id_token?, token_type?, appState? }` |
+| `refreshTokens` | `(refreshToken)` | `{ access_token, refresh_token?, expires_in, ... }` |
+
+## Logout
+
+Revoke the token (RFC 7009) and clear the session cookie:
 
 ```typescript
-import { createAuthVital } from '@authvital/sdk/server';
-import express from 'express';
-
-const authvital = createAuthVital({ /* config */ });
-const app = express();
-
-// Register
-app.post('/api/auth/register', async (req, res) => {
-  try {
-    const user = await authvital.auth.register({
-      email: req.body.email,
-      password: req.body.password,
-      givenName: req.body.firstName,
-      familyName: req.body.lastName,
-    });
-    res.status(201).json(user);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
-// Login
-app.post('/api/auth/login', async (req, res) => {
-  const result = await authvital.auth.login({
-    email: req.body.email,
-    password: req.body.password,
-  });
-  
-  if ('mfaRequired' in result && result.mfaRequired) {
-    res.json({
-      mfaRequired: true,
-      challengeToken: result.mfaChallengeToken,
-    });
-  } else {
-    res.cookie('access_token', result.accessToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-    });
-    res.json({ user: result.user });
-  }
-});
-
-// Verify email
-app.post('/api/auth/verify-email', async (req, res) => {
-  const result = await authvital.auth.verifyEmail(req.body.token);
-  res.json(result);
-});
-
-// Forgot password
-app.post('/api/auth/forgot-password', async (req, res) => {
-  await authvital.auth.forgotPassword(req.body.email);
-  res.json({ success: true }); // Always success to prevent enumeration
-});
-
-// Reset password
-app.post('/api/auth/reset-password', async (req, res) => {
-  await authvital.auth.resetPassword({
-    token: req.body.token,
-    password: req.body.password,
-  });
-  res.json({ success: true });
-});
+const client = createServerClient(
+  { authVitalHost: process.env.AV_HOST!, clientId: process.env.AV_CLIENT_ID!, clientSecret: '' },
+  tokens,
+);
+await client.revokeToken();               // best-effort revoke at the IdP
+res.setHeader('Set-Cookie', sessionStore.createClearCookieHeader());
 ```
+
+## Reading the current user
+
+Once you have a session, use the user-scoped convenience method:
+
+```typescript
+const user = await client.getCurrentUser(); // GET /api/users/me -> User | null
+```
+
+## See also
+
+- [OAuth Flow](../oauth-flow.md) — full PKCE reference
+- [Integration API (overview)](./overview.md) — server-to-server (M2M) methods
+- [API Reference → Authentication](../../../api/authentication.md) — the raw REST endpoints
+- Working example: `examples/bff-express` (public PKCE client, no secret)

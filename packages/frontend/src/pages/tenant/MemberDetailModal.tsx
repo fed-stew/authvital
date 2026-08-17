@@ -54,6 +54,10 @@ interface MemberDetailModalProps {
   onUpdate: () => void;
   member: Member;
   tenantId: string;
+  /** Caller can change member/invite roles (members:manage-roles). */
+  canManageRoles?: boolean;
+  /** Caller can remove members / revoke invites (members:remove). */
+  canRemove?: boolean;
 }
 
 export function MemberDetailModal({
@@ -62,6 +66,8 @@ export function MemberDetailModal({
   onUpdate,
   member,
   tenantId,
+  canManageRoles = false,
+  canRemove = false,
 }: MemberDetailModalProps) {
   const { toast } = useToast();
   const [isRemoving, setIsRemoving] = useState(false);
@@ -198,7 +204,7 @@ export function MemberDetailModal({
       footer={
         <div className="flex gap-2 justify-between">
           <div className="flex gap-2">
-            {!isOwner && (
+            {!isOwner && canRemove && (
               <Button
                 variant="destructive"
                 onClick={handleRemoveMember}
@@ -211,7 +217,7 @@ export function MemberDetailModal({
                   : (isInvited ? 'Revoke Invitation' : 'Remove Member')}
               </Button>
             )}
-            {isInvited && (
+            {isInvited && canRemove && (
               <Button
                 variant="outline"
                 onClick={handleResendInvitation}
@@ -290,14 +296,18 @@ export function MemberDetailModal({
           <h4 className="text-sm font-medium text-muted-foreground">
             Organization Role
           </h4>
-          {isOwner ? (
-            // Owners can't have their role changed
+          {isOwner || !canManageRoles ? (
+            // Owners can't have their role changed; viewers see it read-only.
             <div className="flex flex-wrap gap-2">
-              {member.tenantRoles.map((role) => (
-                <Badge key={role.id} className={getRoleBadgeClass(role.slug)}>
-                  {role.name}
-                </Badge>
-              ))}
+              {member.tenantRoles.length > 0 ? (
+                member.tenantRoles.map((role) => (
+                  <Badge key={role.id} className={getRoleBadgeClass(role.slug)}>
+                    {role.name}
+                  </Badge>
+                ))
+              ) : (
+                <span className="text-sm text-muted-foreground">No role</span>
+              )}
             </div>
           ) : (
             // Allow role change for non-owners

@@ -1,61 +1,57 @@
-import { Injectable, ExecutionContext, UnauthorizedException, CanActivate } from '@nestjs/common';
+import { Injectable, ExecutionContext, UnauthorizedException, CanActivate, Logger } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import { KeyService } from '../../oauth/key.service';
 import { AuthService } from '../auth.service';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
-import { extractJwt } from '../utils/extract-jwt';
+import { extractSessionJwt } from '../utils/extract-jwt';
 
 /**
- * JWT Authentication Guard - STRICTLY STATELESS.
+ * JWT Authentication Guard.
  *
- * This guard enforces a strictly stateless authentication model by validating
- * access tokens exclusively from the Authorization header. It embodies the
- * split-token security architecture that separates access token transport
- * from refresh token handling for maximum security.
+ * Authenticates a request by cryptographically verifying an RS256 access
+ * token against the rotating signing keys managed by KeyManagerService
+ * (ACTIVE key signs; PASSIVE keys remain verifiable until archived). The
+ * token is accepted from EITHER of two first-party sources, in this order
+ * (see {@link extractSessionJwt}):
  *
- * === STRICT AUTHORIZATION HEADER ENFORCEMENT ===
- * Access tokens are ONLY accepted from the `Authorization: Bearer <token>` header.
- * This guard will NEVER read tokens from cookies, request body, query parameters,
- * or any other source. This is a deliberate architectural constraint that:
+ *   1. `Authorization: Bearer <token>` header — the in-memory access token the
+ *      SPA attaches once it is warm.
+ *   2. The `idp_session` httpOnly cookie — the durable console/IdP browser
+ *      session set on every login / signup / SSO / invite-accept flow. This is
+ *      what keeps the console authenticated across full page reloads (the
+ *      in-memory Bearer token does not survive a reload, and the password-login
+ *      flow issues no refresh_token cookie, so the cookie is the ONLY thing
+ *      that lets a reloaded console re-authenticate).
  *
- * 1. Prevents token leakage via XSS attacks (cookies can be stolen, headers cannot)
- * 2. Enforces clear separation between access tokens (stateless) and refresh tokens
- * 3. Ensures the guard remains completely stateless with no server-side session storage
+ * This mirrors {@link OptionalAuthGuard} and the OAuth authorize redirect, both
+ * of which already read `idp_session`, so console routes authenticate
+ * consistently whether they are optional- or hard-guarded.
  *
- * === NO COOKIE READING ===
- * This guard explicitly does NOT access `req.cookies` in any form. Refresh tokens
- * are handled separately by {@link CookieService} and {@link RefreshService}.
- * The guard delegates all cookie-related operations to dedicated services,
- * maintaining strict separation of concerns.
+ * === SECURITY ===
+ * `idp_session` is httpOnly (so XSS cannot read/exfiltrate it — the usual
+ * argument against JS-readable token cookies does not apply) and sameSite
+ * (cross-site fetches do not carry it, mitigating CSRF). We deliberately read
+ * ONLY `idp_session`, never `super_admin_session` or any other cookie.
  *
- * === STATELESSNESS PRINCIPLE ===
- * This guard is designed to be strictly stateless:
- * - No server-side session storage is accessed or modified
- * - Each request is validated independently
- * - No authentication state persists between requests
- * - Token validation is performed against cryptographic signatures only
+ * === VALIDATION MODEL (mostly stateless, one DB check) ===
+ * Signature, issuer, and expiry are verified purely cryptographically — no
+ * server-side session store is consulted. However, this guard is NOT fully
+ * stateless: after signature verification it performs ONE per-request database
+ * lookup (AuthService.validateUser) to confirm the token's subject still
+ * exists. This is deliberate: tokens are otherwise irrevocable for their
+ * lifetime, so the existence check is what cuts off deleted/deactivated users
+ * immediately instead of letting them ride out the remainder of their token.
  *
- * This statelessness enables:
- * - Horizontal scalability (any server instance can validate any request)
- * - Simplified deployment (no shared session store required)
- * - Improved reliability (no session state to synchronize or expire)
- * - Better performance (no database lookups for session validation)
+ * === TOKEN LIFETIME ===
+ * Console session tokens (both the Bearer JWT and the `idp_session` cookie
+ * value) live for CONSOLE_SESSION_TTL_SECONDS (currently 7 days) — see
+ * `auth/constants/token-ttl.ts`, which also documents the coupling between
+ * this TTL and the passive signing-key lifetime in KeyManagerService.
  *
- * === SECURITY ARCHITECTURE ===
- * - **XSS Protection**: Refresh tokens in HttpOnly cookies are immune to JavaScript
- *   theft, while access tokens (short-lived, in-memory) minimize exposure window
- * - **Separation of concerns**: Access tokens (stateless, 15-min lifespan) and refresh
- *   tokens (stateful, rotating, long-lived) follow completely different validation paths
- * - **Reduced attack surface**: Even if XSS compromises the frontend, refresh tokens
- *   cannot be exfiltrated, and access tokens expire quickly
- * - **Clear token lifecycle**: Each token type has dedicated acquisition, validation,
- *   and renewal flows, making the system auditable and maintainable
- *
- * @see {@link extractJwt} - Header-only token extraction utility
- * @see {@link CookieService} - Refresh token cookie operations (completely separate)
- * @see {@link RefreshService} - Refresh token validation and rotation
+ * @see {@link extractSessionJwt} - Header/cookie token extraction utility
+ * @see CONSOLE_SESSION_TTL_SECONDS - Console session TTL (auth/constants/token-ttl.ts)
  *
  * @example
  * // Apply to entire controller (all routes protected)
@@ -73,6 +69,7 @@ import { extractJwt } from '../utils/extract-jwt';
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
+  private readonly logger = new Logger(JwtAuthGuard.name);
   private readonly issuer: string;
 
   constructor(
@@ -95,12 +92,13 @@ export class JwtAuthGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest<Request>();
-    // Split-token: Only accepts Authorization header (no cookies)
-    const token = extractJwt(request);
+        const request = context.switchToHttp().getRequest<Request>();
+    // Accept the access token from the Authorization header OR the durable
+    // `idp_session` cookie (see extractSessionJwt for the why + security notes).
+    const token = extractSessionJwt(request);
 
     if (!token) {
-      throw new UnauthorizedException('No Authorization header provided');
+      throw new UnauthorizedException('No authentication token provided');
     }
 
     try {
@@ -112,15 +110,40 @@ export class JwtAuthGuard implements CanActivate {
         throw new UnauthorizedException('User not found');
       }
 
-      // Attach user to request
+      // Attach user to request.
+      //
+      // We propagate the tenant-scoped claims straight from the *verified* JWT
+      // payload. These claims (tenant_id / tenant_permissions / tenant_roles)
+      // are minted by the OAuth token service for tenant-scoped tokens and are
+      // the contract PermissionGuard depends on. The original code dropped them
+      // here, which silently disabled every @RequirePermission check in the app.
       (request as any).user = {
         id: user.id,
         sub: payload.sub,
         email: payload.email || user.email,
+        given_name: payload.given_name,
+        family_name: payload.family_name,
+        scope: payload.scope,
+        tenant_id: payload.tenant_id,
+        tenant_subdomain: payload.tenant_subdomain,
+        tenant_roles: payload.tenant_roles,
+        tenant_permissions: payload.tenant_permissions,
+        app_roles: payload.app_roles,
+        // MFA claims minted by oauth-token.service. MfaComplianceGuard uses
+        // these verified claims as its fast path (no DB hit): amr including
+        // 'otp' proves MFA, and mfa_grace_expires_at marks an open grace
+        // window for the token's tenant.
+        amr: payload.amr,
+        mfa_grace_expires_at: payload.mfa_grace_expires_at,
       };
 
       return true;
     } catch (error) {
+      // Log the underlying reason (signature vs issuer vs expiry vs missing
+      // user) at debug level so ops can diagnose — never log token contents.
+      this.logger.debug(
+        `Token verification failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
       throw new UnauthorizedException('Invalid token');
     }
   }

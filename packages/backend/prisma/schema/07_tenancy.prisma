@@ -36,6 +36,13 @@ model Tenant {
   // MFA Policy
   mfaPolicy          MfaPolicy @default(OPTIONAL) @map("mfa_policy")
   mfaGracePeriodDays Int       @default(7) @map("mfa_grace_period_days")
+  // When mfaPolicy last changed. Grace periods for existing members anchor to
+  // max(membership.joinedAt, mfaPolicyUpdatedAt ?? tenant.createdAt) so flipping
+  // a tenant to REQUIRED doesn't instantly lock out members who joined long ago.
+  mfaPolicyUpdatedAt DateTime? @map("mfa_policy_updated_at")
+
+  // M2M per-tenant authorization grants
+  m2mTenantGrants M2mTenantGrant[]
 
   @@unique([slug])
   @@map("tenants")

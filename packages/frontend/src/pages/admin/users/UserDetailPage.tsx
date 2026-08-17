@@ -22,42 +22,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { StatsCard } from '@/components/ui/StatsCard';
 import { EditUserModal } from './EditUserModal';
-
-// =============================================================================
-// TYPES
-// =============================================================================
-
-interface UserMembership {
-  id: string;
-  tenantId: string;
-  tenant: {
-    id: string;
-    name: string;
-    slug: string;
-  };
-  status: 'INVITED' | 'ACTIVE' | 'SUSPENDED';
-  joinedAt: string | null;
-  createdAt: string;
-  rolesByApplication: Array<{
-    appId: string;
-    appName: string;
-    roles: Array<{ id: string; name: string; slug: string }>;
-  }>;
-  totalRoles: number;
-}
-
-interface UserDetail {
-  id: string;
-  email: string;
-  givenName?: string;
-  familyName?: string;
-  phone?: string;
-  profile?: Record<string, any>;
-  createdAt: string;
-  updatedAt: string;
-  memberships: UserMembership[];
-  membershipCount: number;
-}
+// Single source of truth: the repaired contract UserDetail matches the real
+// getUser backend response (rolesByApplication, totalRoles, membershipCount).
+import type { UserDetail } from '@authvital/contracts';
 
 // =============================================================================
 // HELPER FUNCTIONS

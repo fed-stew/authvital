@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from './email.service';
+import { PasswordBreachCheckService } from './password-breach-check.service';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 
@@ -31,6 +32,7 @@ export class PasswordResetService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
+    private readonly breachCheckService: PasswordBreachCheckService,
   ) {
     const baseUrl = process.env.BASE_URL;
     if (!baseUrl) {
@@ -126,6 +128,18 @@ export class PasswordResetService {
   async resetPassword(dto: ResetPasswordDto): Promise<{ success: boolean }> {
     if (!dto.newPassword || dto.newPassword.length < 8) {
       throw new BadRequestException('Password must be at least 8 characters');
+    }
+
+    if (dto.newPassword.length > 128) {
+      throw new BadRequestException('Password must be at most 128 characters');
+    }
+
+    // Reject passwords known from public breach corpuses (fails open if HIBP is down)
+    const breachResult = await this.breachCheckService.checkPassword(dto.newPassword);
+    if (breachResult.isBreached) {
+      throw new BadRequestException(
+        'This password has appeared in a known data breach; please choose a different password.',
+      );
     }
 
     // Find users with valid reset tokens

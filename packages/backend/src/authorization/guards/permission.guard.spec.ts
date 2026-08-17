@@ -186,4 +186,40 @@ describe("PermissionGuard", () => {
 
     expect(guard.canActivate(context as any)).toBe(true);
   });
+
+  it("prefers DB-derived request.tenantPermissions over the JWT claim", () => {
+    setMetadata({ single: "members:invite" });
+    const context = createContext({
+      // JWT claim is empty, but TenantAccessGuard populated fresh DB perms.
+      user: { sub: "u1", tenant_permissions: [] },
+      tenantPermissions: ["members:invite"],
+    });
+
+    expect(guard.canActivate(context as any)).toBe(true);
+  });
+
+  it("denies using DB perms even when the stale JWT claim would allow", () => {
+    setMetadata({ single: "members:invite" });
+    const context = createContext({
+      // Stale token still says invite; the live DB role was downgraded.
+      user: { sub: "u1", tenant_permissions: ["members:invite"] },
+      tenantPermissions: ["members:view"],
+    });
+
+    expect(() => guard.canActivate(context as any)).toThrow(
+      new ForbiddenException(
+        "Access denied: Missing required permission 'members:invite'",
+      ),
+    );
+  });
+
+  it("honours wildcards from the DB-derived permission set", () => {
+    setMetadata({ single: "tenant:delete" });
+    const context = createContext({
+      user: { sub: "u1", tenant_permissions: [] },
+      tenantPermissions: ["tenant:*"],
+    });
+
+    expect(guard.canActivate(context as any)).toBe(true);
+  });
 });

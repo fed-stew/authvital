@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength, IsOptional, IsObject } from 'class-validator';
+import { IsEmail, IsString, MinLength, MaxLength, IsOptional, IsObject } from 'class-validator';
 
 export class RegisterDto {
   @IsEmail()
@@ -6,6 +6,7 @@ export class RegisterDto {
 
   @IsString()
   @MinLength(8)
+  @MaxLength(128) // Cap bcrypt input; prevents DoS via megabyte-sized passwords
   password!: string;
 
   @IsOptional()

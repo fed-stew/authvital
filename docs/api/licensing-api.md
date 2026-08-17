@@ -2,61 +2,90 @@
 
 > REST API endpoints for license and subscription management.
 
-!!! tip "SDK Recommended"
-    While these endpoints are documented for reference, we strongly recommend using
-    the [Server SDK Licenses Namespace](../sdk/server-sdk/namespaces/licenses.md)
-    for all license operations.
+!!! tip "Use the SDK integration client"
+    These endpoints are documented for reference; for server-to-server use, prefer
+    `createServerClient(...).integration.*` — see the
+    [Licenses namespace](../sdk/server-sdk/namespaces/licenses.md). (There is no
+    `authvital.licenses.*` fluent namespace.)
 
 ---
 
 ## Endpoints Overview
 
-### Integration API (JWT Auth)
+### License checks / entitlement reads (`/api/integration/licenses/*`)
 
-These endpoints are for application integrations and require JWT authentication:
+!!! info "These run on the **user's** access token, not M2M"
+    Every route below is guarded by `JwtAuthGuard + TenantPermissionGuard(licenses:view)`
+    and derives `tenantId` **from the JWT**. In the SDK they are exposed on the
+    `ServerClient` itself (`client.checkLicense`, `client.checkLicenseFeature`,
+    `client.getAppLicensedUsers`, `client.countLicensedUsers`) — **not** on
+    `client.integration.*`, and they take no `tenantId` param. An M2M
+    client-credentials token is rejected by these routes.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/integration/licenses/check` | GET/POST | Check user's license |
+| `/api/integration/licenses/check-bulk` | POST | Bulk license check |
 | `/api/integration/licenses/feature` | GET/POST | Check feature access |
 | `/api/integration/licenses/type` | GET | Get user's license type |
-| `/api/integration/licenses/apps/:id/users` | GET | List licensed users |
-| `/api/integration/licenses/apps/:id/count` | GET | Count licensed users |
-| `/api/integration/licenses/grant` | POST | Grant license to user |
-| `/api/integration/licenses/revoke` | POST | Revoke license from user |
+| `/api/integration/licenses/apps/:applicationId/users` | GET | List licensed users |
+| `/api/integration/licenses/apps/:applicationId/count` | GET | Count licensed users |
 
-### Admin API (M2M Auth)
-
-These endpoints require Super Admin or M2M authentication:
+### License management (M2M, `/api/integration/*`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/licensing/license-types` | GET/POST | Manage license types |
-| `/api/licensing/tenants/:id/license-overview` | GET | Tenant license overview |
-| `/api/licensing/tenants/:id/subscriptions` | GET | List subscriptions |
+| `/api/integration/grant-license` | POST | Grant license to user |
+| `/api/integration/revoke-license` | POST | Revoke license from user |
+| `/api/integration/change-license-type` | POST | Change a user's license type |
+| `/api/integration/user-licenses` | GET | A user's licenses |
+| `/api/integration/license-holders` | GET | License holders |
+| `/api/integration/usage-overview` | GET | Usage overview |
+
+### Tenant-scoped licensing (`/api/tenants/:tenantId/licenses/*`)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/tenants/:tenantId/licenses/overview` | GET | Tenant license overview |
+| `/api/tenants/:tenantId/licenses/subscriptions` | GET/POST | List / create subscriptions |
+| `/api/tenants/:tenantId/licenses/available-types` | GET | Available license types |
+| `/api/tenants/:tenantId/licenses/grant` | POST | Grant (tenant-scoped, `licenses:manage`) |
+| `/api/tenants/:tenantId/licenses/revoke` | POST | Revoke (tenant-scoped, `licenses:manage`) |
+| `/api/tenants/:tenantId/licenses/usage-trends` | GET | Seat-usage time series for charts (`billing:view`) |
+| `/api/tenants/:tenantId/licenses/subscriptions/:subscriptionId/quantity` | PATCH | Resize a subscription (`licenses:provision`) |
+| `/api/tenants/:tenantId/licenses/subscriptions/:subscriptionId/cancel` | POST | Cancel a subscription (`licenses:provision`) |
+
+!!! warning "Path corrections vs earlier drafts"
+    There is **no** `/api/licensing/*` controller. Grant/revoke on the
+    integration API are `/api/integration/grant-license` and
+    `/api/integration/revoke-license` (M2M) — **not**
+    `/api/integration/licenses/grant`. Tenant license overview/subscriptions live
+    under `/api/tenants/:tenantId/licenses/*`.
 
 ---
 
 ## SDK vs Raw API
 
-=== "SDK (Recommended)"
+=== "SDK (integration client)"
 
     ```typescript
-    import { createAuthVital } from '@authvital/sdk/server';
-    
-    const authvital = createAuthVital({ /* config */ });
-    
+    import { createServerClient } from '@authvital/server';
+
+    const client = createServerClient({ /* authVitalHost, clientId, clientSecret */ });
+
+    // `client` carries the user's session tokens; tenantId comes from the JWT.
+    // These entitlement reads live on the ServerClient, NOT client.integration.
+
     // Check license
-    const result = await authvital.licenses.check(req, undefined, 'app-123');
-    
-    if (result.hasLicense) {
-      console.log('License type:', result.licenseType);
-    }
-    
+    const result = await client.checkLicense({
+      userId, applicationId: 'app-123',
+    });
+    if (result.hasLicense) console.log('License type:', result.licenseType);
+
     // Check feature
-    const { hasFeature } = await authvital.licenses.hasFeature(
-      req, undefined, 'app-123', 'sso'
-    );
+    const { hasFeature } = await client.checkLicenseFeature({
+      userId, applicationId: 'app-123', featureKey: 'sso',
+    });
     ```
 
 === "Raw API"
@@ -204,9 +233,10 @@ Get count of licensed users for an application.
 
 ## Grant License
 
-### POST /api/integration/licenses/grant
+### POST /api/integration/grant-license
 
-Assign a license to a user.
+Assign a license to a user (M2M). A tenant-scoped variant exists at
+`POST /api/tenants/:tenantId/licenses/grant`.
 
 **Request:**
 
@@ -233,7 +263,7 @@ Assign a license to a user.
 **SDK Equivalent:**
 
 ```typescript
-await authvital.licenses.grant(req, {
+await client.integration.grantLicense({
   userId: 'user-123',
   applicationId: 'app-456',
   licenseTypeId: 'license-pro',
@@ -244,9 +274,10 @@ await authvital.licenses.grant(req, {
 
 ## Revoke License
 
-### POST /api/integration/licenses/revoke
+### POST /api/integration/revoke-license
 
-Remove a license from a user.
+Remove a license from a user (M2M). Tenant-scoped variant:
+`POST /api/tenants/:tenantId/licenses/revoke`.
 
 **Request:**
 
@@ -269,7 +300,7 @@ Remove a license from a user.
 **SDK Equivalent:**
 
 ```typescript
-await authvital.licenses.revoke(req, {
+await client.integration.revokeLicense({
   userId: 'user-123',
   applicationId: 'app-456',
 });
@@ -279,9 +310,10 @@ await authvital.licenses.revoke(req, {
 
 ## Admin: Tenant License Overview
 
-### GET /api/licensing/tenants/:tenantId/license-overview
+### GET /api/tenants/:tenantId/licenses/overview
 
-Get full license overview for a tenant. Requires Super Admin or M2M auth.
+Get full license overview for a tenant. (The M2M integration equivalent is
+`GET /api/integration/usage-overview`.)
 
 **Response (200 OK):**
 
@@ -310,8 +342,31 @@ Get full license overview for a tenant. Requires Super Admin or M2M auth.
 **SDK Equivalent:**
 
 ```typescript
-const overview = await authvital.licenses.getTenantOverview('tenant-123');
+const overview = await client.integration.getUsageOverview({ tenantId: 'tenant-123' });
 ```
+
+---
+
+## Admin: Usage Trends
+
+### GET /api/tenants/:tenantId/licenses/usage-trends
+
+Seat-usage time series (owned vs assigned) for charts, built from the daily
+snapshots written by the license-lifecycle sweep.
+
+**Guards:** `JwtAuthGuard + TenantIdentifierGuard + TenantAccessGuard + PermissionGuard`
+· **Permission:** `billing:view` · `tenantId` from the URL.
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `days` | number | 30 | Size of the trailing time window in days |
+
+> Not exposed as an SDK wrapper; call it with `client.get(...)` or surface it via
+> the hosted console's Billing/Usage view (`/tenant/:tenantId/billing`). Historical
+> backfill + per-environment snapshot scheduling are still open — see the
+> [authorization model gap appendix](../sdk/authorization-model.md#6-gap-remediation-appendix).
 
 ---
 

@@ -30,6 +30,9 @@ export type { Toast, ToastVariant, ToastContextValue } from './Toast';
 export { StatsCard } from './StatsCard';
 export type { StatsCardProps } from './StatsCard';
 
+export { Sparkline } from './Sparkline';
+export type { SparklineProps, SparklineSeries } from './Sparkline';
+
 export { SearchInput } from './SearchInput';
 export type { SearchInputProps } from './SearchInput';
 

@@ -48,9 +48,13 @@ export class InvitationManagementService {
   /**
    * Revoke/delete an invitation
    *
-   * Also deletes the membership and potentially the placeholder user
+   * Also deletes the membership and potentially the placeholder user.
+   *
+   * `tenantId` is the caller's authenticated tenant (from the JWT). The
+   * invitation is only touched when it belongs to that tenant, which closes
+   * the cross-tenant IDOR: knowing another tenant's invitation id is useless.
    */
-  async revokeInvitation(invitationId: string) {
+  async revokeInvitation(invitationId: string, tenantId: string) {
     const invitation = await this.prisma.invitation.findUnique({
       where: { id: invitationId },
       include: {
@@ -66,7 +70,9 @@ export class InvitationManagementService {
       },
     });
 
-    if (!invitation) {
+    // Treat "not yours" exactly like "not found" so we never leak the existence
+    // of another tenant's invitations.
+    if (!invitation || invitation.tenantId !== tenantId) {
       throw new NotFoundException('Invitation not found');
     }
 
@@ -74,7 +80,8 @@ export class InvitationManagementService {
       throw new BadRequestException('Cannot revoke a consumed invitation');
     }
 
-    const { tenantId, email, clientId } = invitation;
+    // tenantId is already the caller's authenticated tenant (verified above).
+    const { email, clientId } = invitation;
     const membershipId = invitation.membership?.id;
 
     await this.prisma.$transaction(async (tx) => {
@@ -124,7 +131,7 @@ export class InvitationManagementService {
   /**
    * Resend invitation email
    */
-  async resendInvitationEmail(invitationId: string) {
+  async resendInvitationEmail(invitationId: string, tenantId: string) {
     const invitation = await this.prisma.invitation.findUnique({
       where: { id: invitationId },
       include: {
@@ -135,7 +142,8 @@ export class InvitationManagementService {
       },
     });
 
-    if (!invitation) {
+    // Cross-tenant guard: only the owning tenant may resend (see revokeInvitation).
+    if (!invitation || invitation.tenantId !== tenantId) {
       throw new NotFoundException('Invitation not found');
     }
 
@@ -168,7 +176,11 @@ export class InvitationManagementService {
    *
    * Updates the role on the linked membership instead of on the invitation
    */
-  async updateInvitation(invitationId: string, data: { roleId?: string }) {
+  async updateInvitation(
+    invitationId: string,
+    data: { roleId?: string },
+    tenantId: string,
+  ) {
     const invitation = await this.prisma.invitation.findUnique({
       where: { id: invitationId },
       include: {
@@ -183,7 +195,8 @@ export class InvitationManagementService {
       },
     });
 
-    if (!invitation) {
+    // Cross-tenant guard: only the owning tenant may update (see revokeInvitation).
+    if (!invitation || invitation.tenantId !== tenantId) {
       throw new NotFoundException('Invitation not found');
     }
 
@@ -244,10 +257,11 @@ export class InvitationManagementService {
   }
 
   async getApplicationIdFromClientId(clientId: string): Promise<string[]> {
-    const app = await this.prisma.application.findUnique({
+    // clientId lives on ApplicationClient; resolve to the owning application id.
+    const client = await this.prisma.applicationClient.findUnique({
       where: { clientId },
-      select: { id: true },
+      select: { applicationId: true },
     });
-    return app ? [app.id] : [];
+    return client ? [client.applicationId] : [];
   }
 }

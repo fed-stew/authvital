@@ -1,0 +1,14 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": "..",
+  "testMatch": ["<rootDir>/test/**/*.e2e-spec.ts"],
+  "moduleNameMapper": {
+    "^@/(.*)$": "<rootDir>/src/$1"
+  },
+  "transform": {
+    "^.+\\.(t|j)s$": ["ts-jest", { "diagnostics": false }]
+  },
+  "transformIgnorePatterns": ["node_modules/(?!(jose|uuid)/)"],
+  "testEnvironment": "node",
+  "testTimeout": 120000
+}

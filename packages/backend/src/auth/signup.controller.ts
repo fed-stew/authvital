@@ -7,6 +7,7 @@ import {
   UseGuards,
   Req,
 } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import {
   SignUpService,
   SignUpDto,
@@ -29,6 +30,7 @@ export class SignUpController {
    * Creates user, tenant (if corporate email), and domain record
    */
   @Post("signup")
+  @Throttle({ default: { limit: 10, ttl: 60_000 } }) // signup submission
   @HttpCode(HttpStatus.CREATED)
   async signUp(@Body() dto: SignUpDto) {
     const result = await this.signUpService.signUp(dto);
@@ -57,6 +59,7 @@ export class SignUpController {
    * Use case: Mobile games, try-before-you-buy experiences
    */
   @Post("signup/anonymous")
+  @Throttle({ default: { limit: 10, ttl: 60_000 } }) // signup submission
   @HttpCode(HttpStatus.CREATED)
   async signUpAnonymous(@Body() dto: AnonymousSignUpDto) {
     const result = await this.signUpService.signUpAnonymous(dto);

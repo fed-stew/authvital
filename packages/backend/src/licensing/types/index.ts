@@ -80,6 +80,8 @@ export interface CreateSubscriptionInput {
   licenseTypeId: string;
   quantityPurchased: number;
   currentPeriodEnd?: Date;
+  /** Acting user id for audit; undefined for system/admin-initiated provisioning. */
+  actorUserId?: string;
 }
 
 export interface UpdateSubscriptionQuantityInput {
@@ -100,8 +102,10 @@ export interface SubscriptionSummaryInternal {
   licenseTypeSlug: string;
   quantityPurchased: number;
   quantityAssigned: number;
-  quantityAvailable: number;
+    quantityAvailable: number;
   status: SubscriptionStatus;
+  /** Display price for UI (e.g., "$29/mo"); null when unset */
+  displayPrice: string | null;
   /** Internal: use .toISOString() when converting to API response */
   currentPeriodEnd: Date;
   features: LicenseTypeFeatures;

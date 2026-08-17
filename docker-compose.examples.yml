@@ -1,0 +1,297 @@
+# =============================================================================
+# AuthVital - Examples Overlay (Traefik + subdomain UAT environment)
+# =============================================================================
+#
+# This is an OVERLAY. It is meant to be layered on top of the base compose file.
+# The blessed one-command entrypoints are the Makefile targets:
+#
+#     make up        # cold start (self-configures certs + volume), all hosts up
+#     make down      # stop, KEEP data
+#     make fresh     # wipe volume (down -v) + fresh reseed
+#
+# ...which are just wrappers around:
+#
+#     docker compose -f docker-compose.yml -f docker-compose.examples.yml up --build
+#
+# What it adds/changes:
+#   - examples-certs     one-shot init: generates a self-signed *.lvh.me cert if
+#                        one isn't already present, then exits (restart: no)
+#   - traefik            reverse proxy w/ subdomain routing + local HTTPS
+#   - api (override)      Traefik router for auth.lvh.me + HTTPS-aware issuer env
+#   - spa-react           "My Local App" SPA        -> app.lvh.me  (+ {tenant}.app.lvh.me)
+#   - spa-seat            "Seat App" SPA            -> seat.lvh.me (+ {tenant}.seat.lvh.me)
+#   - bff-express         Express BFF               -> bff.lvh.me  (+ {tenant}.bff.lvh.me)
+#
+# ZERO manual pre-steps. Hostnames all resolve to 127.0.0.1 via lvh.me. TLS:
+#   - `examples-certs` mints a self-signed cert on first `up` (no browser trust).
+#   - OPTIONAL upgrade: run `npm run certs:examples` (mkcert) FIRST for a locally
+#     TRUSTED cert (no browser warning). examples-certs detects it and skips —
+#     it never overwrites an existing cert. Idempotent either way.
+#
+# The IdP issuer/BASE_URL is https://auth.lvh.me here. Because Postgres now lives
+# in a NAMED VOLUME (base compose), a clean reseed is just `make fresh`
+# (down -v + up) — no ./data wiping, no stale-issuer footgun. See examples/README.md.
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # examples-certs - one-shot TLS cert bootstrap (runs once, then exits)
+  # ===========================================================================
+  # Makes a cold `up` work with ZERO manual cert pre-step. On boot it checks for
+  # examples/traefik/certs/lvh.me.pem; if present (whether a trusted mkcert cert
+  # or a previous self-signed one) it does NOTHING and exits 0. Otherwise it
+  # mints a self-signed cert for lvh.me + the wildcard subdomains with openssl.
+  #
+  # It NEVER overwrites an existing cert, so `npm run certs:examples` (mkcert)
+  # remains a valid OPTIONAL upgrade for a locally-trusted padlock: run it first
+  # and this service simply skips. Idempotent either way.
+  examples-certs:
+    image: alpine:3.20
+    container_name: authvital-examples-certs
+    volumes:
+      # RW so it can write the cert; Traefik mounts the same dir read-only.
+      - ./examples/traefik/certs:/certs
+    entrypoint:
+      - /bin/sh
+      - -euc
+      - |
+        if [ -f /certs/lvh.me.pem ] && [ -f /certs/lvh.me-key.pem ]; then
+          echo "[examples-certs] cert already present -> skipping (leaves mkcert/trusted certs untouched)."
+          exit 0
+        fi
+        echo "[examples-certs] no cert found -> generating a self-signed *.lvh.me cert (openssl)."
+        echo "[examples-certs] DEV ONLY: browsers will warn it's untrusted. Run 'npm run certs:examples' (mkcert) for a trusted one."
+        apk add --no-cache openssl >/dev/null
+        openssl req -x509 -newkey rsa:2048 -sha256 -days 825 -nodes \
+          -keyout /certs/lvh.me-key.pem -out /certs/lvh.me.pem \
+          -subj "/CN=lvh.me" \
+          -addext "subjectAltName=DNS:lvh.me,DNS:*.lvh.me,DNS:*.app.lvh.me,DNS:*.seat.lvh.me,DNS:*.bff.lvh.me"
+        echo "[examples-certs] wrote /certs/lvh.me.pem + /certs/lvh.me-key.pem"
+    restart: "no"
+
+  # ===========================================================================
+  # Traefik - reverse proxy, subdomain routing, local HTTPS termination
+  # ===========================================================================
+  traefik:
+    depends_on:
+      # TLS must have a cert before Traefik boots. examples-certs runs once and
+      # exits; this gate guarantees the cert exists first.
+      examples-certs:
+        condition: service_completed_successfully
+    # NOTE: v3.6+ is REQUIRED. Traefik <= v3.5 ships an old moby/docker client
+    # that talks Docker API v1.24 without negotiation. Docker Engine 25+/Docker
+    # Desktop (Engine 29 = API 1.54) raised the MINIMUM API version to 1.40 and
+    # rejects the old v1.24 request with a bare HTTP 400. That kills the docker
+    # provider -> zero routers discovered -> every host returns 404. v3.6's
+    # client negotiates the API version correctly. Don't downgrade this.
+    image: traefik:v3.6
+    container_name: authvital-traefik
+    command:
+      # Entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      # Global redirect web -> websecure (HTTPS everywhere)
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      # Docker provider (only expose containers that opt in via labels)
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=authvital"
+      # File provider for TLS config (watches examples/traefik/dynamic)
+      - "--providers.file.directory=/dynamic"
+      - "--providers.file.watch=true"
+      # Dashboard (insecure = no auth; local dev only). Served on :8081 and
+      # also routed at traefik.lvh.me (see labels below).
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8081:8080" # Traefik dashboard -> http://localhost:8081
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./examples/traefik/dynamic:/dynamic:ro
+      - ./examples/traefik/certs:/certs:ro
+    networks:
+      authvital:
+        # IN-NETWORK DNS ALIAS for the IdP host. lvh.me resolves to 127.0.0.1
+        # everywhere, which INSIDE a container is the container itself — so a
+        # server-side call from bff-express to https://auth.lvh.me would hit
+        # the BFF, not the IdP. Aliasing auth.lvh.me to Traefik on this network
+        # makes Docker's embedded DNS answer auth.lvh.me -> traefik, which then
+        # routes (TLS) to the api service. This keeps the OIDC issuer constant
+        # (iss=https://auth.lvh.me) AND makes it reachable for the BFF's
+        # server-side /oauth/token exchange + JWKS fetch. Dev-only convenience.
+        aliases:
+          - auth.lvh.me
+    labels:
+      - "traefik.enable=true"
+      # Optional: reach the dashboard via https://traefik.lvh.me too
+      - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.lvh.me`)"
+      - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
+      - "traefik.http.routers.traefik-dashboard.tls=true"
+      - "traefik.http.routers.traefik-dashboard.service=api@internal"
+    restart: unless-stopped
+
+  # ===========================================================================
+  # api (OVERRIDE of base docker-compose.yml `api` service)
+  # ===========================================================================
+  # We keep the base build/depends_on/volumes and just:
+  #   - add Traefik labels so auth.lvh.me routes to it over HTTPS
+  #   - make the issuer/cookies subdomain + HTTPS aware
+  # NOTE: base still publishes 8080:8000; we leave that alone so localhost:8080
+  # keeps working. Traefik reaches api in-network on :8000.
+  # ---------------------------------------------------------------------------
+  api:
+    volumes:
+      # Seed the examples/UAT stack from the COMMITTED canonical seed (overrides
+      # the base file's ./seed.config.yaml mount by container-path). This is what
+      # makes a fresh clone's `make up` boot the full lvh.me demo with zero setup.
+      - ./seed.config.examples.yaml:/app/seed.config.yaml:ro
+    environment:
+      # Issuer / OAuth base URL must match how browsers reach the IdP
+      BASE_URL: https://auth.lvh.me
+      # HTTPS everywhere -> Secure cookies
+      COOKIE_SECURE: "true"
+      # Every browser origin that will call the IdP's OAuth/API endpoints.
+      # allowed_web_origins in seed handles per-app CORS at the OAuth layer;
+      # this env is the API-level CORS allow-list. Keep them in sync.
+      CORS_ORIGINS: >-
+        https://auth.lvh.me,
+        https://app.lvh.me,
+        https://acme.app.lvh.me,
+        https://globex.app.lvh.me,
+        https://licenseco.app.lvh.me,
+        https://otherco.app.lvh.me,
+        https://seat.lvh.me,
+        https://licenseco.seat.lvh.me,
+        https://otherco.seat.lvh.me,
+        https://bff.lvh.me,
+        https://acme.bff.lvh.me,
+        https://globex.bff.lvh.me,
+        https://licenseco.bff.lvh.me,
+        https://otherco.bff.lvh.me
+      # MASTER_SECRET and the rest are inherited from the base compose env block.
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.authvital-api.rule=Host(`auth.lvh.me`)"
+      - "traefik.http.routers.authvital-api.entrypoints=websecure"
+      - "traefik.http.routers.authvital-api.tls=true"
+      - "traefik.http.services.authvital-api.loadbalancer.server.port=8000"
+
+  # ===========================================================================
+  # migrate (OVERRIDE) — same committed-seed mount so the base file's
+  # ./seed.config.yaml bind-mount doesn't create a stray empty host dir.
+  # ===========================================================================
+  migrate:
+    environment:
+      # The image bakes ENV NODE_ENV=production (prod-like cookies/TLS), but the
+      # super-admin bootstrap runs HERE (migrate.sh -> migrate-runner -> bootstrap).
+      # Opt in so this local demo honors the documented admin@localhost.com /
+      # admin123 seed password instead of a random, must-change one. Real
+      # production (docker-compose.yml / deploy scripts) never sets this.
+      SEED_SUPER_ADMIN_USE_YAML_PASSWORD: "true"
+    volumes:
+      - ./seed.config.examples.yaml:/app/seed.config.yaml:ro
+
+  # ===========================================================================
+  # spa-react - "My Local App" SPA  ->  app.lvh.me (+ {tenant}.app.lvh.me)
+  # ===========================================================================
+  # Phase 2: Vite + @authvital/browser/react SPA, built against the LOCAL
+  #   workspace SDKs. Build context is the REPO ROOT (packages/ must be visible),
+  #   with the Dockerfile referenced explicitly. Serves the static bundle on :80.
+  spa-react:
+    build:
+      context: .
+      dockerfile: examples/spa-react/Dockerfile
+      args:
+        VITE_AV_HOST: https://auth.lvh.me
+        VITE_AV_CLIENT_ID: local-spa-client-id
+    container_name: authvital-spa-react
+    networks:
+      - authvital
+    labels:
+      - "traefik.enable=true"
+      # Matches app.lvh.me AND any {tenant}.app.lvh.me subdomain
+      - "traefik.http.routers.spa-react.rule=Host(`app.lvh.me`) || HostRegexp(`^[a-z0-9-]+\\.app\\.lvh\\.me$`)"
+      - "traefik.http.routers.spa-react.entrypoints=websecure"
+      - "traefik.http.routers.spa-react.tls=true"
+      - "traefik.http.services.spa-react.loadbalancer.server.port=80"
+    restart: unless-stopped
+
+  # ===========================================================================
+  # spa-seat - "Seat App" SPA  ->  seat.lvh.me (+ {tenant}.seat.lvh.me)
+  # ===========================================================================
+  # Phase 2: Vite SPA for the PER_SEAT licensing UAT (client_id
+  #   seat-app-client-id). Repo-root build context; serves on :80.
+  spa-seat:
+    build:
+      context: .
+      dockerfile: examples/spa-seat/Dockerfile
+      args:
+        VITE_AV_HOST: https://auth.lvh.me
+        VITE_AV_CLIENT_ID: seat-app-client-id
+    container_name: authvital-spa-seat
+    networks:
+      - authvital
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.spa-seat.rule=Host(`seat.lvh.me`) || HostRegexp(`^[a-z0-9-]+\\.seat\\.lvh\\.me$`)"
+      - "traefik.http.routers.spa-seat.entrypoints=websecure"
+      - "traefik.http.routers.spa-seat.tls=true"
+      - "traefik.http.services.spa-seat.loadbalancer.server.port=80"
+    restart: unless-stopped
+
+  # ===========================================================================
+  # bff-express - Express BFF (confidential-ish PKCE flow)  ->  bff.lvh.me (+ {tenant}.bff.lvh.me)
+  # ===========================================================================
+  # Phase 2: Express BFF (@authvital/server) — ONE app, TWO credentials
+  #   Both identities below belong to the SINGLE "Web BFF" app CONTAINER
+  #   (slug web-bff), which owns one SPA + one MACHINE credential:
+  #     • SPA credential     web-bff-client-id     — public PKCE login flow,
+  #       callback /api/auth/callback, listens on :3000. NO client secret.
+  #     • MACHINE credential local-machine-client-id — the ONLY secret here,
+  #       used for the Integration API + /api/m2m (client_credentials) demo.
+  #   Repo-root build context so the workspace SDKs are available.
+  bff-express:
+    build:
+      context: .
+      dockerfile: examples/bff-express/Dockerfile
+    container_name: authvital-bff-express
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      AV_HOST: https://auth.lvh.me
+      AV_CLIENT_ID: web-bff-client-id
+      # Fallback only — the BFF computes the redirect URI per-request from the
+      # incoming Host so {tenant}.bff.lvh.me binds the tenant. See src/index.ts.
+      AV_REDIRECT_URI: https://bff.lvh.me/api/auth/callback
+      # Server-side the BFF reaches the IdP at https://auth.lvh.me, which now
+      # resolves (via the traefik network alias above) to Traefik's mkcert TLS.
+      # mkcert certs aren't in Node's CA bundle, so token exchange + JWKS fetch
+      # would fail TLS verification. DEV ONLY: trust the local cert. For a
+      # cleaner setup, mount the mkcert root CA and use NODE_EXTRA_CA_CERTS
+      # instead of disabling verification — never do this outside local dev.
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+      # Dev-only cookie encryption key (>= 32 chars). Rotate for anything real.
+      SESSION_SECRET: dev-only-insecure-session-secret-change-me-please
+      # MACHINE credential of the SAME "Web BFF" app (the only secret in it).
+      AV_MACHINE_CLIENT_ID: local-machine-client-id
+      AV_MACHINE_CLIENT_SECRET: local-machine-secret-key
+    networks:
+      - authvital
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.bff-express.rule=Host(`bff.lvh.me`) || HostRegexp(`^[a-z0-9-]+\\.bff\\.lvh\\.me$`)"
+      - "traefik.http.routers.bff-express.entrypoints=websecure"
+      - "traefik.http.routers.bff-express.tls=true"
+      - "traefik.http.services.bff-express.loadbalancer.server.port=3000"
+    restart: unless-stopped
+
+# The base compose file already defines this network (name: authvital). Compose
+# merges the two definitions; we redeclare it here so this overlay is readable
+# and so `docker compose -f ... -f ...` has a consistent network to attach to.
+networks:
+  authvital:
+    name: authvital
+    driver: bridge

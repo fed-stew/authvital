@@ -1,317 +1,175 @@
-# Client SDK Patterns
+# Client SDK Patterns & Types
 
-> OAuth flow, state management, and TypeScript types.
+> OAuth callback handling, invitations, tenant switching, and TypeScript types.
 
-## OAuth Flow
+## OAuth flow (handled client-side)
 
-### How Cookie-Based Auth Works
+With `@authvital/browser`, the authorization-code exchange happens **in the
+browser** — you don't need a server round-trip for it (that's the BFF pattern,
+which is the [Server SDK](../server-sdk/index.md)).
 
-1. **User clicks "Login"** → Client calls `startLogin()` or `login()`
-2. **Redirect to AuthVital** → User authenticates on AuthVital's hosted pages
-3. **OAuth callback** → AuthVital redirects to your `redirectUri` with `code`
-4. **Your server exchanges code** → Server SDK's `exchangeCode()` gets JWT
-5. **Server sets httpOnly cookie** → JWT stored securely, inaccessible to JS
-6. **Server returns user data** → JSON response with user/tenants
-7. **Client updates state** → `setAuthState(user, tenants)`
+1. **User clicks login** -> `useAuth().login()` (or `client.login()`).
+2. **Redirect to AuthVital** -> user authenticates on the hosted pages.
+3. **Callback** -> AuthVital redirects to your `redirectUri` with a `code`.
+4. **SDK exchanges the code** -> `handleCallback()` / `useAuthCallback()` swaps
+   the code for tokens and stores the access token in memory (refresh token is an
+   httpOnly cookie set by the IdP).
+5. **State updates** -> `isAuthenticated` flips to `true`, `user` is available.
 
-### Example Server Callback (Express)
-
-```typescript
-import { createAuthVital } from '@authvital/sdk/server';
-import { OAuthFlow } from '@authvital/sdk/server';
-
-const authvital = createAuthVital({
-  authVitalHost: process.env.AV_HOST!,
-  clientId: process.env.AV_CLIENT_ID!,
-  clientSecret: process.env.AV_CLIENT_SECRET!,
-});
-
-const oauth = new OAuthFlow({
-  authVitalHost: process.env.AV_HOST!,
-  clientId: process.env.AV_CLIENT_ID!,
-  clientSecret: process.env.AV_CLIENT_SECRET!,
-  redirectUri: 'https://yourapp.com/api/auth/callback',
-});
-
-app.post('/api/auth/callback', async (req, res) => {
-  const { code, codeVerifier } = req.body;
-  
-  // 1. Exchange code for tokens
-  const tokens = await oauth.exchangeCode(code, codeVerifier);
-  
-  // 2. Set httpOnly cookies
-  res.cookie('access_token', tokens.access_token, {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'lax',
-    maxAge: 15 * 60 * 1000, // 15 minutes
-  });
-  
-  res.cookie('refresh_token', tokens.refresh_token, {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-  });
-  
-  // 3. Get user data from the token
-  const { user } = await authvital.getCurrentUser(req);
-  
-  // 4. Get user's tenants
-  const { memberships } = await authvital.memberships.listTenantsForUser(req);
-  
-  res.json({ 
-    user,
-    tenants: memberships.map(m => m.tenant),
-  });
-});
-```
-
-### Example Server Callback (Next.js API Route)
-
-```typescript
-// pages/api/auth/callback.ts
-import { createAuthVital, OAuthFlow } from '@authvital/sdk/server';
-import { NextApiRequest, NextApiResponse } from 'next';
-import { serialize } from 'cookie';
-
-const authvital = createAuthVital({
-  authVitalHost: process.env.AV_HOST!,
-  clientId: process.env.AV_CLIENT_ID!,
-  clientSecret: process.env.AV_CLIENT_SECRET!,
-});
-
-const oauth = new OAuthFlow({
-  authVitalHost: process.env.AV_HOST!,
-  clientId: process.env.AV_CLIENT_ID!,
-  clientSecret: process.env.AV_CLIENT_SECRET!,
-  redirectUri: 'https://yourapp.com/api/auth/callback',
-});
-
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-  
-  const { code, codeVerifier } = req.body;
-  const tokens = await oauth.exchangeCode(code, codeVerifier);
-  
-  // Set cookies
-  res.setHeader('Set-Cookie', [
-    serialize('access_token', tokens.access_token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 15 * 60,
-    }),
-    serialize('refresh_token', tokens.refresh_token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 7 * 24 * 60 * 60,
-    }),
-  ]);
-  
-  const { user } = await authvital.getCurrentUser(req);
-  const { memberships } = await authvital.memberships.listTenantsForUser(req);
-  
-  res.json({ 
-    user,
-    tenants: memberships.map(m => m.tenant),
-  });
-}
-```
-
----
-
-## Handling Pending Invites in Callback
+### Callback route
 
 ```tsx
-// In your /api/auth/callback page or route
-function AuthCallback() {
-  const { hasPendingInvite, consumeInvite, setAuthState } = useAuth();
-  const navigate = useNavigate();
-  
-  useEffect(() => {
-    async function processCallback() {
-      // 1. Exchange code on your server
-      const response = await fetch('/api/auth/callback', {
-        method: 'POST',
-        body: JSON.stringify({ code: getCodeFromUrl() }),
-        credentials: 'include',
-      });
-      
-      const { user, tenants } = await response.json();
-      setAuthState(user, tenants);
-      
-      // 2. Check for pending invitation
-      if (hasPendingInvite) {
-        const token = sessionStorage.getItem('pendingInviteToken');
-        if (token) {
-          await consumeInvite(token);
-          sessionStorage.removeItem('pendingInviteToken');
-        }
-      }
-      
-      navigate('/dashboard');
-    }
-    
-    processCallback();
-  }, []);
-  
-  return <p>Processing...</p>;
+import { useAuthCallback } from '@authvital/browser/react';
+
+function AuthCallbackPage() {
+  const { isProcessing, error } = useAuthCallback({
+    onSuccess: () => router.push('/dashboard'),
+    onError: (err) => console.error('Auth failed', err),
+  });
+
+  if (isProcessing) return <p>Signing you in…</p>;
+  if (error) return <p>Login failed: {error.description}</p>;
+  return null;
+}
+```
+
+Prefer imperative control? Call the client directly:
+
+```tsx
+import { useAuthVitalClient } from '@authvital/browser/react';
+
+const client = useAuthVitalClient();
+const result = await client.handleCallback(); // defaults to window.location.href
+if (result.success) {
+  router.push('/dashboard');
 }
 ```
 
 ---
 
-## TypeScript Types
+## Invitations
+
+There is no `useInvitation` hook. Invitation acceptance is just an OAuth login
+carrying the invite token — AuthVital validates and consumes it during login:
+
+```tsx
+import { useAuthVitalClient } from '@authvital/browser/react';
+
+function AcceptInvite({ token }: { token: string }) {
+  const client = useAuthVitalClient();
+  return (
+    <button onClick={() => client.login({ inviteToken: token })}>
+      Accept Invitation & Sign In
+    </button>
+  );
+}
+```
+
+If you need to *display* invitation details, or list/revoke invitations, do it
+**server-side** with the Server SDK integration client
+(`client.integration.listInvitations`, `sendInvitation`, `revokeInvitation`).
+
+---
+
+## Tenant switching
+
+An access token is scoped to one tenant, and the browser SDK has **no in-place
+tenant switch** — switching tenants means a fresh login with a `tenantHint`
+(commonly combined with navigating to the tenant's subdomain):
+
+```tsx
+import { useAuthVitalClient } from '@authvital/browser/react';
+
+const client = useAuthVitalClient();
+client.login({ tenantHint: 'acme' }); // re-login scoped to the "acme" tenant
+```
+
+The current tenant is available on the user object as `user.tenantId` /
+`user.tenantSubdomain`.
+
+---
+
+## TypeScript types
 
 ```typescript
 import type {
-  AuthVitalUser,
-  AuthVitalTenant,
+  AuthUser,
+  AuthState,
+  AuthError,
+  AuthorizationOptions,
+  OAuthCallbackResult,
+  LoginResult,
+  LogoutResult,
+  RefreshResult,
+} from '@authvital/browser';
+
+import type {
   AuthVitalProviderProps,
   AuthContextValue,
-  InvitationDetails,
-} from '@authvital/sdk/client';
+  UseAuthReturn,
+} from '@authvital/browser/react';
 ```
 
-### AuthVitalUser
+### AuthUser
 
 ```typescript
-interface AuthVitalUser {
+interface AuthUser {
   id: string;
-  email: string | null;
-  givenName: string | null;
-  familyName: string | null;
-  fullName: string | null;
-  imageUrl?: string | null;
-  isAnonymous: boolean;
-  createdAt?: string;
-  updatedAt?: string;
+  email: string;
+  emailVerified?: boolean;
+  name?: string;
+  givenName?: string;
+  familyName?: string;
+  picture?: string;
+  tenantId?: string;
+  tenantSubdomain?: string;
+  tenantRoles?: string[];
+  tenantPermissions?: string[];
+  license?: { type: string; name: string; features: string[] };
 }
 ```
 
-### AuthVitalTenant
+There is no separate `AuthVitalUser` / `AuthVitalTenant` type, and no `tenants`
+array on the context — tenant context is carried on `AuthUser` for the currently
+active tenant.
 
-```typescript
-interface AuthVitalTenant {
-  id: string;
-  name: string;
-  slug: string;
-  imageUrl?: string | null;
-  role: string;  // "owner", "admin", "member", etc.
-}
-```
-
-### AuthContextValue
+### AuthContextValue (returned by `useAuth`)
 
 ```typescript
 interface AuthContextValue {
   // State
   isAuthenticated: boolean;
   isLoading: boolean;
-  isSigningIn: boolean;
-  isSigningUp: boolean;
-  user: AuthVitalUser | null;
-  tenants: AuthVitalTenant[];
-  currentTenant: AuthVitalTenant | null;
-  error: string | null;
-  
-  // Auth methods (redirect to OAuth)
-  login: (email?: string, password?: string) => Promise<LoginResult>;
-  signIn: (email?: string, password?: string) => Promise<LoginResult>;
-  signUp: (data?: SignUpData) => Promise<SignUpResult>;
-  signOut: () => Promise<void>;
-  logout: () => Promise<void>;
-  
-  // Tenant methods
-  setActiveTenant: (tenantId: string) => void;
-  switchTenant: (tenantId: string) => void;
-  
-  // Session methods (no-ops, server handles)
-  refreshToken: () => Promise<void>;
+  isRefreshing: boolean;
+  user: AuthUser | null;
+  accessToken: string | null;
+  error: AuthError | null;
+
+  // Actions
+  login: (options?: AuthorizationOptions) => void;
+  signIn: (options?: AuthorizationOptions) => void;   // alias
+  signup: (options?: AuthorizationOptions) => void;
+  signUp: (options?: AuthorizationOptions) => void;    // alias
+  logout: () => Promise<LogoutResult>;
+  signOut: () => Promise<LogoutResult>;                // alias
+  refreshToken: () => Promise<RefreshResult>;
   checkAuth: () => Promise<boolean>;
-  
-  // State setters
-  setAuthState: (user: AuthVitalUser | null, tenants?: AuthVitalTenant[]) => void;
-  clearAuthState: () => void;
+  handleCallback: (url?: string) => Promise<OAuthCallbackResult>;
+  getApiClient: () => import('axios').AxiosInstance;
 }
 ```
 
-### InvitationDetails
+### AuthorizationOptions
 
 ```typescript
-interface InvitationDetails {
-  id: string;
-  email: string;
-  role: string;
-  expiresAt: string;
-  tenant: {
-    id: string;
-    name: string;
-    slug: string;
-  };
-  invitedBy: {
-    name: string;
-  } | null;
+interface AuthorizationOptions {
+  email?: string;
+  screen?: 'login' | 'signup';
+  state?: string;        // custom state (bypasses auto-CSRF)
+  inviteToken?: string;  // team invitation token
+  tenantHint?: string;   // pre-select a tenant
 }
 ```
-
-### AuthVitalConfig
-
-```typescript
-interface AuthVitalConfig {
-  authVitalHost: string;   // e.g., "https://auth.yourapp.com"
-  clientId: string;        // OAuth client ID
-  redirectUri: string;     // OAuth callback URL
-  scope: string;           // OAuth scopes
-}
-```
-
----
-
-## Auth Flow Summary
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         CLIENT-SIDE (React)                              │
-├─────────────────────────────────────────────────────────────────────────┤
-│  1. User clicks login                                                   │
-│  2. useAuth().login() or useOAuth().startLogin()                        │
-│  3. Redirect to AuthVital IDP                                           │
-│                                  ↓                                      │
-│  4. User authenticates on AuthVital                                     │
-│                                  ↓                                      │
-│  5. Redirect back to YOUR callback URL with `code`                      │
-│                                  ↓                                      │
-├─────────────────────────────────────────────────────────────────────────┤
-│                         SERVER-SIDE (Your API)                           │
-├─────────────────────────────────────────────────────────────────────────┤
-│  6. POST code to your /api/auth/callback                                │
-│  7. Server calls exchangeCode(code) → gets JWT                          │
-│  8. Server sets httpOnly cookies (access_token, refresh_token)          │
-│  9. Server calls getCurrentUser() → gets user data                      │
-│ 10. Server returns { user, tenants } JSON                               │
-│                                  ↓                                      │
-├─────────────────────────────────────────────────────────────────────────┤
-│                         CLIENT-SIDE (React)                              │
-├─────────────────────────────────────────────────────────────────────────┤
-│ 11. setAuthState(user, tenants) → updates React context                 │
-│ 12. isAuthenticated = true, user is available!                          │
-│ 13. Redirect to dashboard                                               │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-**Remember:**
-
-- ✅ JS can see user data (name, email, roles)
-- ❌ JS cannot see JWT tokens (httpOnly cookies)
-- ✅ All API calls automatically include cookies
-- ✅ Server verifies JWT on every request
 
 ---
 
@@ -319,6 +177,6 @@ interface AuthVitalConfig {
 
 - [Client SDK Overview](./index.md)
 - [Hooks Reference](./hooks.md)
-- [Components](./components.md)
-- [Server SDK](../server-sdk/index.md) - Server-side token verification
-- [OAuth Flow](../../concepts/oauth-flow.md) - Detailed OAuth implementation guide
+- [Components & Gating Patterns](./components.md)
+- [Server SDK](../server-sdk/index.md) — server-side / BFF integration
+- [OAuth Flow](../../concepts/oauth-flow.md)

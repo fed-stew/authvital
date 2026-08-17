@@ -8,22 +8,15 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { useToast } from '@/components/ui/Toast';
 import { CreateAppModal } from './CreateAppModal';
+import type { AppWithClients } from '@/types';
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
-interface ApplicationInfo {
-  id: string;
-  clientId: string;
-  name: string;
-  slug: string;
-  description?: string;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
-  [key: string]: any;
-}
+// The list endpoint returns containers + their clients[]. There is no single
+// top-level clientId/secret anymore -- an app may hold a SPA and/or a MACHINE.
+type ApplicationInfo = AppWithClients;
 
 // =============================================================================
 // COMPONENT
@@ -91,12 +84,6 @@ export function ApplicationsPage() {
     }
   };
 
-  // Truncate client ID
-  const truncateClientId = (clientId: string) => {
-    if (clientId.length <= 16) return clientId;
-    return clientId.substring(0, 8) + '...' + clientId.substring(clientId.length - 8);
-  };
-
   // Table columns
   const columns: Column<ApplicationInfo>[] = [
     {
@@ -138,13 +125,36 @@ export function ApplicationsPage() {
       ),
     },
     {
-      header: 'Client ID',
-      accessor: 'clientId',
-      cell: (value) => (
-        <code className="rounded bg-white/10 px-2 py-1 text-sm font-mono text-foreground">
-          {truncateClientId(value)}
-        </code>
-      ),
+      header: 'Credentials',
+      accessor: 'clients',
+      cell: (_, row) => {
+        const clients = row.clients ?? [];
+        if (clients.length === 0) {
+          // Subtle, muted badge so incomplete (zero-credential) apps stand out
+          // at a glance in the list without shouting for attention.
+          return (
+            <Badge className="bg-white/5 text-muted-foreground border-white/10">
+              No credentials
+            </Badge>
+          );
+        }
+        return (
+          <div className="flex flex-wrap gap-1">
+            {clients.map((c) => (
+              <Badge
+                key={c.id}
+                className={
+                  c.type === 'MACHINE'
+                    ? 'bg-blue-500/20 text-blue-50 border-blue-500/40'
+                    : 'bg-purple-500/20 text-purple-50 border-purple-500/40'
+                }
+              >
+                {c.type}
+              </Badge>
+            ))}
+          </div>
+        );
+      },
     },
     {
       header: 'Created',

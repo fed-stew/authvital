@@ -1,0 +1,13 @@
+# Keep Docker build contexts lean. The base image (Dockerfile) and the example
+# images (examples/*/Dockerfile) all use the repo root as build context, so we
+# exclude hoisted deps, VCS, local state, and stale build output. Every image
+# reinstalls deps and rebuilds from source, so none of these are needed.
+**/node_modules
+node_modules
+.git
+.gitignore
+data
+*.log
+examples/**/dist
+examples/traefik/certs
+packages/*/dist

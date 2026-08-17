@@ -11,6 +11,7 @@ import {
   SYSTEM_TENANT_ROLE_SLUGS,
 } from './constants/default-tenant-roles';
 import type { TenantRole } from '@prisma/client';
+import { resolveEffectiveTenantPermissions } from './utils/tenant-permissions.util';
 
 /**
  * TenantRolesService - Tenant Role Management
@@ -219,15 +220,8 @@ export class TenantRolesService {
    */
   async getMembershipTenantPermissions(membershipId: string): Promise<string[]> {
     const roles = await this.getMembershipTenantRoles(membershipId);
-
-    const permissionSet = new Set<string>();
-    for (const role of roles) {
-      for (const permission of role.permissions) {
-        permissionSet.add(permission);
-      }
-    }
-
-    return Array.from(permissionSet);
+    // Owner is expanded to the full permission set (matches guards + JWT).
+    return resolveEffectiveTenantPermissions(roles);
   }
 
   /**

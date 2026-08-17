@@ -66,10 +66,16 @@ export function OAuthLogin() {
     return null;
   })();
 
-  console.log('[OAuth Login] Initialized with:', {
-    clientId: clientId || 'none',
-    redirectUri: redirectUri || 'none',
-  });
+  // Dev-only diagnostic: log once when the OAuth params resolve/change
+  // (NOT on every render — that spammed the console on each keystroke).
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      console.log('[OAuth Login] Initialized with:', {
+        clientId: clientId || 'none',
+        redirectUri: redirectUri || 'none',
+      });
+    }
+  }, [clientId, redirectUri]);
 
   // Fetch branding when client_id is available, or instance branding when not
   useEffect(() => {
@@ -298,6 +304,7 @@ export function OAuthLogin() {
                 placeholder="you@example.com"
                 required
                 autoFocus
+                autoComplete="email"
                 className="w-full px-4 py-3 rounded-lg bg-secondary border border-white/10 text-white placeholder-muted-foreground focus:outline-none focus:ring-2 focus:border-transparent transition-shadow"
                 style={{ 
                   // @ts-expect-error - CSS custom property
@@ -316,6 +323,7 @@ export function OAuthLogin() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
+                autoComplete="current-password"
                 className="w-full px-4 py-3 rounded-lg bg-secondary border border-white/10 text-white placeholder-muted-foreground focus:outline-none focus:ring-2 focus:border-transparent transition-shadow"
                 style={{ 
                   // @ts-expect-error - CSS custom property

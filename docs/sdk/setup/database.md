@@ -1,79 +1,62 @@
 # Database & Identity Sync
 
-> Set up local identity sync via webhooks to mirror AuthVital data.
+> Mirror AuthVital identities into your database via verified webhooks.
+
+!!! info "There is no `IdentitySyncHandler` / `WebhookRouter` to import"
+    Earlier drafts imported those from `@authvital/sdk/server` — they don't
+    exist. Identity sync is a small pattern you implement: **verify** each
+    webhook with the [`verifyWebhook` helper](../webhooks-verification.md), then
+    **upsert** with your own [dispatcher](../identity-sync/sync-handler.md). The
+    `examples/bff-express` app shows the full flow. For the deep dive see the
+    [Identity Sync Guide](../identity-sync/index.md).
 
 ---
 
-## Why Sync Identities Locally?
+## Why sync locally?
 
 | Benefit | Description |
 |---------|-------------|
-| **Performance** | Query identities locally without API calls |
-| **Relationships** | Create foreign keys to your app data |
-| **Offline Access** | Data available if AuthVital is unreachable |
-| **Custom Fields** | Extend identity data with app-specific attributes |
+| **Performance** | Query identities locally without calling AuthVital |
+| **Relationships** | Foreign keys from your data to identities |
+| **Offline access** | Data available if AuthVital is briefly unreachable |
+| **Custom fields** | Extend the identity with app-specific columns |
 
 ---
 
-## Prisma Schema
+## Prisma schema
 
-Add the identity models to your `schema.prisma`:
+A minimal starting point (see [full schema](../identity-sync/prisma-schema.md)):
 
 ```prisma
-// schema.prisma
-
-/// Synced identity from AuthVital
 model Identity {
-  id              String    @id @map("id")
-  email           String?   @unique
-  name            String?
-  givenName       String?   @map("given_name")
-  familyName      String?   @map("family_name")
-  picture         String?
-  locale          String?
-  timezone        String?
-  
-  // Status flags (see terminology below)
-  isActive        Boolean   @default(true) @map("is_active")
-  hasAppAccess    Boolean   @default(true) @map("has_app_access")
-  
-  subjectType     String    @default("user") @map("subject_type")
-  tenantId        String?   @map("tenant_id")
-  tenantRoles     Json      @default("[]") @map("tenant_roles")
-  appPermissions  Json      @default("[]") @map("app_permissions")
-  licenseType     String?   @map("license_type")
-  licenseFeatures Json      @default("[]") @map("license_features")
-  
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id            String    @id
+  email         String?   @unique
+  givenName     String?   @map("given_name")
+  familyName    String?   @map("family_name")
+  subjectType   String    @default("user") @map("subject_type")
 
-  sessions        IdentitySession[]
-  // Add your app relations here:
-  // posts         Post[]
-  // orders        Order[]
+  // Status flags (see terminology below)
+  isActive      Boolean   @default(true) @map("is_active")
+  hasAppAccess  Boolean   @default(true) @map("has_app_access")
+
+  // Tenant context (from member.* events; tenant_roles is an array of slugs)
+  tenantId      String?   @map("tenant_id")
+  tenantRoles   Json      @default("[]") @map("tenant_roles")
+  appRole       String?   @map("app_role") // from app_access.* events
+
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   @@map("av_identities")
 }
-
-/// Active sessions for an identity
-model IdentitySession {
-  id              String    @id @default(cuid())
-  identityId      String    @map("identity_id")
-  identity        Identity  @relation(fields: [identityId], references: [id], onDelete: Cascade)
-  jti             String    @unique
-  issuedAt        DateTime  @map("issued_at")
-  expiresAt       DateTime  @map("expires_at")
-  ipAddress       String?   @map("ip_address")
-  userAgent       String?   @map("user_agent")
-  createdAt       DateTime  @default(now()) @map("created_at")
-
-  @@index([identityId])
-  @@index([expiresAt])
-  @@map("av_identity_sessions")
-}
 ```
 
-### Run Migration
+!!! warning "Webhooks populate a subset of columns"
+    Add richer profile columns (picture, locale, phone, …) only if you also
+    backfill them from the ID token or `client.getCurrentUser()` — the sync
+    events don't carry them. See [Event Details](../identity-sync/events.md).
+
+Run the migration:
 
 ```bash
 npx prisma migrate dev --name add-identity-sync
@@ -82,158 +65,99 @@ npx prisma generate
 
 ---
 
-## Key Terminology
+## `isActive` vs `hasAppAccess`
 
-### isActive vs hasAppAccess
-
-| Field | Level | Question it Answers |
-|-------|-------|---------------------|
-| `isActive` | **IDP-level** | Can this person log into ANY app? |
-| `hasAppAccess` | **App-level** | Does this person have access to THIS app? |
-
-**Always check both:**
+| Field | Level | Question | Driven by |
+|-------|-------|----------|-----------|
+| `isActive` | IdP-level | Can they log into *any* app? | `subject.deactivated` |
+| `hasAppAccess` | App-level | Can they use *this* app? | `app_access.granted/revoked` |
 
 ```typescript
 const identity = await prisma.identity.findUnique({ where: { id: userId } });
-
-if (!identity?.isActive) {
-  throw new ForbiddenError('Your account has been deactivated.');
-}
-
-if (!identity?.hasAppAccess) {
-  throw new ForbiddenError('You do not have access to this application.');
-}
+if (!identity?.isActive) throw new Error('Account deactivated');
+if (!identity?.hasAppAccess) throw new Error('No access to this application');
 ```
 
 ---
 
-## Webhook Handler Setup
+## Webhook endpoint (Express)
 
-### Express
+Verify the raw body, then dispatch to your upsert logic.
 
 ```typescript
 // routes/webhooks.ts
-import { Router } from 'express';
-import express from 'express';
-import { IdentitySyncHandler, WebhookRouter } from '@authvital/sdk/server';
-import { prisma } from '../lib/prisma';
+import express, { Router } from 'express';
+import type { SyncEvent } from '@authvital/shared';
+import { verifyWebhook } from '../lib/verify-webhook';    // from Manual Verification
+import { syncIdentityEvent } from '../lib/sync-handler';  // your dispatcher
 
 const router = Router();
 
-const syncHandler = new IdentitySyncHandler(prisma);
-const webhookRouter = new WebhookRouter({
-  authVitalHost: process.env.AV_HOST!,
-  handler: syncHandler,
-});
+router.post('/authvital', express.raw({ type: '*/*' }), async (req, res) => {
+  const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : String(req.body ?? '');
 
-// IMPORTANT: Use express.raw() to preserve raw body for signature verification
-router.post(
-  '/authvital',
-  express.raw({ type: 'application/json' }),
-  webhookRouter.expressHandler()
-);
+  const ok = await verifyWebhook({
+    body: rawBody,
+    signature: String(req.headers['x-authvital-signature'] ?? ''),
+    keyId: String(req.headers['x-authvital-key-id'] ?? ''),
+    timestamp: String(req.headers['x-authvital-timestamp'] ?? ''),
+    authVitalHost: process.env.AV_HOST!,
+  });
+  if (!ok) return res.status(400).json({ error: 'invalid signature' });
+
+  await syncIdentityEvent(JSON.parse(rawBody) as SyncEvent);
+  res.status(200).json({ received: true });
+});
 
 export default router;
 ```
 
-**Mount before json() middleware:**
+Mount it **before** any global `express.json()` so the raw body survives:
 
 ```typescript
-// app.ts
-import webhookRoutes from './routes/webhooks';
-
-app.use('/webhooks', webhookRoutes); // Before json()
+app.use('/webhooks', webhookRoutes);
 app.use(express.json());
 ```
 
-### Next.js App Router
+For Next.js / NestJS / other frameworks, see
+[Framework Integration](../webhooks-frameworks.md).
 
-```typescript
-// app/webhooks/authvital/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { IdentitySyncHandler, WebhookRouter } from '@authvital/sdk/server';
-import { prisma } from '@/lib/prisma';
+---
 
-const syncHandler = new IdentitySyncHandler(prisma);
-const webhookRouter = new WebhookRouter({
-  authVitalHost: process.env.AV_HOST!,
-  handler: syncHandler,
-});
+## Configure the webhook in AuthVital
 
-export async function POST(request: NextRequest) {
-  const body = await request.text();
-  const headers: Record<string, string> = {};
-  request.headers.forEach((value, key) => {
-    headers[key] = value;
-  });
+1. **AuthVital Admin** → your application → **Webhooks**.
+2. Set the URL, e.g. `https://yourapp.com/webhooks/authvital`.
+3. Optionally filter to the events you consume (wildcards like `subject.*` are supported):
 
-  try {
-    await webhookRouter.handleRequest(body, headers);
-    return NextResponse.json({ received: true });
-  } catch (error) {
-    console.error('Webhook error:', error);
-    return NextResponse.json(
-      { error: 'Webhook processing failed' },
-      { status: 400 }
-    );
-  }
-}
+```
+subject.created  subject.updated  subject.deleted  subject.deactivated
+member.joined    member.left      member.role_changed
+app_access.granted  app_access.revoked  app_access.role_changed
+license.assigned license.revoked  license.changed
 ```
 
 ---
 
-## Configure Webhook in Dashboard
+## Events you'll typically handle
 
-1. Go to **AuthVital Admin** → **Settings** → **Webhooks**
-2. Click **Add Webhook**
-3. Configure:
+| Event | Action | Fields set |
+|-------|--------|-----------|
+| `subject.created` | upsert identity | `email`, `givenName`, `familyName` |
+| `subject.updated` | update changed fields | per `changed_fields` |
+| `subject.deleted` | delete | – |
+| `subject.deactivated` | update | `isActive = false` |
+| `member.joined` | update | `tenantId`, `tenantRoles` |
+| `member.left` | update | clear tenant fields |
+| `member.role_changed` | update | `tenantRoles` |
+| `app_access.granted` | update | `hasAppAccess = true`, `appRole` |
+| `app_access.revoked` | update | `hasAppAccess = false` |
 
-| Field | Value |
-|-------|-------|
-| **Name** | `Identity Sync` |
-| **URL** | `https://yourapp.com/webhooks/authvital` |
-
-4. **Subscribe to events:**
-
-```
-✅ subject.created      - New user created
-✅ subject.updated      - Profile updated
-✅ subject.deleted      - User deleted
-✅ subject.deactivated  - User deactivated
-
-✅ member.joined        - User joined tenant
-✅ member.left          - User left tenant
-✅ member.role_changed  - Roles updated
-
-✅ app_access.granted   - App access granted
-✅ app_access.revoked   - App access revoked
-✅ app_access.role_changed - App role changed
-
-✅ license.assigned     - License assigned
-✅ license.revoked      - License revoked
-✅ license.changed      - License changed
-```
+Full mapping in [Building a Sync Handler](../identity-sync/sync-handler.md).
 
 ---
 
-## Events Handled Automatically
+## Next steps
 
-The `IdentitySyncHandler` handles these events:
-
-| Event | Action | Fields Affected |
-|-------|--------|----------------|
-| `subject.created` | Create identity | All fields |
-| `subject.updated` | Update identity | Only changed fields |
-| `subject.deleted` | Delete identity | Removes record |
-| `subject.deactivated` | Update status | `isActive = false` |
-| `member.joined` | Update tenant | `tenantId`, `tenantRoles` |
-| `member.left` | Clear tenant | Clears tenant fields |
-| `app_access.granted` | Grant access | `hasAppAccess = true` |
-| `app_access.revoked` | Revoke access | `hasAppAccess = false` |
-
----
-
-## Next Steps
-
-- [Frontend Setup](./frontend.md) - React provider and hooks
-- [Identity Sync Guide](../identity-sync/index.md) - Advanced sync patterns
+- [Frontend Setup](./frontend.md) — React provider and hooks
+- [Identity Sync Guide](../identity-sync/index.md) — schema, events, tenant isolation, backfill

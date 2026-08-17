@@ -42,6 +42,12 @@
 #   - Example: https://app.example.com (valid)
 #   - Invalid: https://*.example.com (CORS doesn't support wildcards)
 #
+# Webhook URLs (webhook_url):
+#   - Must be a valid http:// or https:// URL
+#   - https:// is recommended for public endpoints, but plain http:// is
+#     allowed for trusted internal networks (auth is JWKS-signature based, not
+#     TLS based) — e.g. http://bff-express:3000/webhooks on a Docker network
+#
 # =============================================================================
 
 
@@ -136,6 +142,12 @@ applications:
       # - https://app.example.com
       # - https://admin.example.com
 
+    # Deep-link login start (OIDC initiate_login_uri). The app-picker / org-picker
+    # use this to send users back INTO your app after they choose an org. If it's
+    # omitted, app/org switching can't route back and the user gets stranded.
+    # {tenant} expands to the selected tenant's slug.
+    initiate_login_uri: http://localhost:5173/login
+
     # Application branding (overrides instance branding for this app)
     # branding_name: "My App"
     # branding_logo_url: "https://cdn.example.com/app-logo.png"
@@ -159,6 +171,28 @@ applications:
       - name: Viewer
         slug: viewer
         description: "Read-only access"
+
+    # ── Webhooks (per-application identity sync) ─────────────────────────────
+    # AuthVital can POST signed identity-sync events (subject/member/app_access/
+    # license/invite) to your app. These three keys map 1:1 to the Application
+    # model's webhookUrl / webhookEnabled / webhookEvents columns and are fully
+    # seedable — NO manual /admin step required. Uncomment to enable:
+    #
+    #   webhook_url: https://your-app.example.com/webhooks
+    #   webhook_enabled: true
+    #   # Optional event filter. Supports exact names ("member.joined") and
+    #   # wildcards ("member.*"). Omit or leave empty to receive ALL events.
+    #   webhook_events:
+    #     - subject.*
+    #     - member.*
+    #     - app_access.*
+    #     - license.*
+    #     - invite.*
+    #
+    # Webhook auth is JWKS-signature based (X-AuthVital-Signature verified
+    # against /.well-known/jwks.json), so the endpoint may be plain http:// on
+    # a trusted internal network. See examples/README.md for the Web BFF demo,
+    # which seeds an INTERNAL Docker URL (http://bff-express:3000/webhooks).
 
   # ═══════════════════════════════════════════════════════════════════════════
   # LICENSING EXAMPLES - Uncomment to test different licensing modes
@@ -274,6 +308,25 @@ applications:
   #     - http://localhost:5175
 
   # ── Example: machine-to-machine client (backend service) ─────────────────
+  # NOTE ON THE CONTAINER/CREDENTIAL MODEL:
+  # An app is a CONTAINER that can host up to ONE SPA + ONE MACHINE credential.
+  # Below uses the OLD flat single-credential shape (still fully supported —
+  # it's normalized into a one-credential container at seed time). To give ONE
+  # app BOTH a browser (SPA) identity and a server (MACHINE) identity, use the
+  # nested `credentials:` list instead — see the "Web BFF" app in
+  # seed.config.examples.yaml for a worked example:
+  #
+  #   - name: "Backend API Worker"
+  #     slug: backend-api
+  #     credentials:
+  #       - type: SPA
+  #         client_id: ...
+  #         redirect_uris: [ ... ]
+  #       - type: MACHINE
+  #         client_id: local-machine-client-id
+  #         client_secret: local-machine-secret-key
+  #         m2m_trusted_all_tenants: true
+  #         m2m_allowed_scopes: [integration:read, integration:write]
   - name: "Backend API Worker"
     slug: backend-api
     type: MACHINE
@@ -353,3 +406,31 @@ users:
   #   password: password123
   #   given_name: Dana
   #   family_name: Lee
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Subscriptions & Seat Assignments (optional)
+# ─────────────────────────────────────────────────────────────────────────────
+# Pre-load licensing state so a tenant's Licenses portal has content the instant
+# an admin logs in — purchased inventory + a couple of assigned seats — instead
+# of an empty "No subscriptions yet" page. Fully idempotent (re-run safe).
+#
+#   tenant        → tenant slug (must exist above)
+#   application   → app slug (must exist above; needs PER_SEAT/TENANT_WIDE mode
+#                   with a matching license_type)
+#   license_type  → license type slug defined on that application
+#   quantity      → seats purchased (auto-bumped to fit assign_to)
+#   assign_to     → user emails to hand seats to
+#   current_period_end → optional ISO date (defaults to now + 1 year)
+#
+# Requires the referenced app to declare a matching license_type above (the
+# FREE-mode "My Local App" in this example does not, so this is commented out).
+#
+# subscriptions:
+#   - tenant: acme
+#     application: pro-crm
+#     license_type: pro-seat
+#     quantity: 5
+#     assign_to:
+#       - alice@acme.com
+#       - bob@acme.com

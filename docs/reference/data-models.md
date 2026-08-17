@@ -29,11 +29,13 @@ erDiagram
     Role ||--o{ MembershipRole : "assigned via"
     
     %% Applications & OAuth
+    Application ||--o{ ApplicationClient : "holds (≤1 SPA + ≤1 MACHINE)"
     Application ||--o{ Role : "defines"
-    Application ||--o{ AuthorizationCode : "issues"
-    Application ||--o{ RefreshToken : "issues"
     Application ||--o{ LicenseType : "defines"
     Application ||--o{ AppSubscription : "sold as"
+    ApplicationClient ||--o{ AuthorizationCode : "issues"
+    ApplicationClient ||--o{ RefreshToken : "issues"
+    ApplicationClient ||--o{ M2mTenantGrant : "authorizes"
     
     %% Licensing
     LicenseType ||--o{ AppSubscription : "purchased as"
@@ -119,8 +121,9 @@ interface Tenant {
   initiateLoginUri: string | null; // Custom login URL
   
   // MFA Policy
-  mfaPolicy: 'OPTIONAL' | 'REQUIRED' | 'ENFORCED_AFTER_GRACE';
-  mfaGracePeriodDays: number;
+  mfaPolicy: 'DISABLED' | 'OPTIONAL' | 'ENCOURAGED' | 'REQUIRED';
+  mfaGracePeriodDays: number; // With REQUIRED: >0 gives members a grace window to enroll; 0 enforces immediately
+  mfaPolicyUpdatedAt: Date | null; // Anchors grace windows to the last policy change
   
   // Timestamps
   createdAt: Date;
@@ -162,9 +165,18 @@ interface Membership {
 
 ## OAuth Models
 
-### Application
+### Application (container)
 
-OAuth client configuration.
+An **Application is a container** — a product/tenant-facing app. It owns the
+identity-level configuration (branding, licensing, roles, access mode,
+webhooks) but **does not** carry OAuth credentials itself. The credentials live
+on one or more [`ApplicationClient`](#applicationclient-credential) records
+nested under it.
+
+> **Mental model (Entra-style):** an App is the container/product. `SPA` vs
+> `MACHINE` is the **type of a credential** you add to it — not the type of the
+> app. One app may hold **both** at once; the canonical example is a **BFF**
+> (a SPA credential for user login + a MACHINE credential for server-to-server).
 
 ```typescript
 interface Application {
@@ -172,21 +184,6 @@ interface Application {
   name: string;
   slug: string;
   description: string | null;
-  type: 'SPA' | 'MACHINE';
-  
-  // OAuth Credentials
-  clientId: string;        // UUID, unique
-  clientSecret: string | null; // Hashed, MACHINE only
-  
-  // OAuth URIs
-  redirectUris: string[];
-  postLogoutRedirectUris: string[];
-  allowedWebOrigins: string[];
-  initiateLoginUri: string | null;
-  
-  // Token Settings
-  accessTokenTtl: number;   // Seconds
-  refreshTokenTtl: number;  // Seconds
   
   // Branding
   brandingName: string | null;
@@ -220,8 +217,63 @@ interface Application {
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
+  
+  // Relations
+  clients: ApplicationClient[];  // ≤1 SPA + ≤1 MACHINE
+  roles: Role[];
 }
 ```
+
+### ApplicationClient (credential)
+
+An OAuth **credential** attached to an [`Application`](#application-container).
+The `type` (`SPA` or `MACHINE`) is a property of the *credential*, and this is
+where `clientId`/`clientSecret`, redirect URIs, token TTLs, and M2M
+authorization live.
+
+> **Invariant:** an app may hold **at most one SPA** credential **and at most
+> one MACHINE** credential (≤1 of each). A given `clientId` is **never** both
+> types — it belongs to exactly one credential.
+
+```typescript
+interface ApplicationClient {
+  id: string;
+  applicationId: string;   // The container this credential belongs to
+  type: 'SPA' | 'MACHINE';
+  
+  // OAuth Credentials
+  clientId: string;            // UUID, unique
+  clientSecret: string | null; // Hashed, MACHINE only (SPA is a public client)
+  
+  // OAuth URIs (primarily SPA)
+  redirectUris: string[];
+  postLogoutRedirectUris: string[];
+  allowedWebOrigins: string[];
+  initiateLoginUri: string | null;
+  
+  // Token Settings
+  accessTokenTtl: number;   // Seconds
+  refreshTokenTtl: number;  // Seconds
+  
+  // M2M Authorization (MACHINE only — deny-by-default)
+  m2mTrustedAllTenants: boolean;   // Access every tenant (first-party backends)
+  m2mAllowedScopes: string[];      // e.g. ['integration:read', 'integration:write']
+  m2mTenantGrants: M2mTenantGrant[]; // Explicit per-tenant grants when not trusted-all
+  
+  createdAt: Date;
+  updatedAt: Date;
+  
+  // Relations
+  application: Application;
+}
+```
+
+!!! note "Codes, refresh tokens, and grants key off the credential"
+    `AuthorizationCode`, `RefreshToken`, and `M2mTenantGrant` now reference the
+    **`ApplicationClient`** (the specific credential), not the `Application`
+    container. A user token issued via the SPA credential and an M2M token
+    issued via the MACHINE credential therefore trace back to two different
+    credentials under the *same* app.
 
 ### AuthorizationCode
 
@@ -246,12 +298,12 @@ interface AuthorizationCode {
   
   // Lifecycle
   expiresAt: Date;
-  usedAt: Date | null;
+    usedAt: Date | null;
   createdAt: Date;
   
   // Relations
   userId: string;
-  applicationId: string;
+  applicationClientId: string;  // The credential (SPA) that issued this code
 }
 ```
 
@@ -281,7 +333,7 @@ interface RefreshToken {
   
   // Relations
   userId: string;
-  applicationId: string;
+  applicationClientId: string;  // The credential that issued this token
 }
 ```
 
@@ -585,7 +637,7 @@ Key indexes for query performance:
 | `memberships` | `(user_id, tenant_id)` | Unique membership |
 | `sessions` | `token` | Session validation |
 | `refresh_tokens` | `id` | Token ghosting |
-| `applications` | `client_id` | OAuth lookup |
+| `application_clients` | `client_id` | OAuth lookup (per credential) |
 | `authorization_codes` | `code` | Code exchange |
 
 ---

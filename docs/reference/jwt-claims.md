@@ -27,36 +27,43 @@ AuthVital issues three types of tokens:
   "jti": "unique-token-id",
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // OIDC PROFILE CLAIMS
+  // AUTHENTICATION CONTEXT
+  // amr (RFC 8176): ["pwd"] for password-only, ["pwd", "otp"] with MFA.
+  // mfa_grace_expires_at only appears on tokens minted under a tenant MFA
+  // grace period (policy REQUIRED, user not yet enrolled).
+  // ═══════════════════════════════════════════════════════════════════════════
+  "amr": ["pwd", "otp"],
+  "mfa_grace_expires_at": 1735689600,
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // OIDC EMAIL CLAIM (email scope) + PROFILE (profile scope)
+  // The access token currently carries given_name/family_name for `profile`.
+  // Richer OIDC fields (name, picture, locale, ...) are available on the
+  // ID token / userinfo, not necessarily on the access token.
   // ═══════════════════════════════════════════════════════════════════════════
   "email": "user@example.com",
-  "email_verified": true,
   "given_name": "Jane",
   "family_name": "Smith",
-  "name": "Jane Smith",
-  "picture": "https://cdn.example.com/avatars/user.jpg",
-  "locale": "en-US",
 
   // ═══════════════════════════════════════════════════════════════════════════
   // TENANT CLAIMS (when tenant-scoped)
   // ═══════════════════════════════════════════════════════════════════════════
   "tenant_id": "tenant-uuid",
-  "tenant_slug": "acme-corp",
-  "tenant_role": "admin",
+  "tenant_subdomain": "acme-corp",
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // AUTHORIZATION CLAIMS
+  // AUTHORIZATION CLAIMS (when tenant-scoped)
   // ═══════════════════════════════════════════════════════════════════════════
-  "app_roles": ["admin", "member"],
-  "app_permissions": [
+  "tenant_roles": ["admin"],
+  "tenant_permissions": [
     "users:read",
     "users:write",
-    "projects:*",
-    "billing:view"
+    "projects:*"
   ],
+  "app_roles": ["editor"],
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // LICENSE CLAIMS
+  // LICENSE CLAIMS (when a license applies to the current app)
   // ═══════════════════════════════════════════════════════════════════════════
   "license": {
     "type": "pro",
@@ -64,12 +71,35 @@ AuthVital issues three types of tokens:
     "features": ["api-access", "sso", "advanced-reports"]
   },
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // SESSION CLAIMS
-  // ═══════════════════════════════════════════════════════════════════════════
-  "sid": "session-uuid"
+  // OAuth
+  "scope": "openid profile email"
 }
 ```
+
+!!! warning "Verified against the backend token builder"
+    The claims above reflect `buildAccessTokenPayload` in
+    `packages/backend/src/oauth/oauth-token.service.ts`. Notable corrections to
+    earlier drafts: the tenant slug claim is **`tenant_subdomain`** (not
+    `tenant_slug`); roles are **`tenant_roles`** (array, not `tenant_role`); the
+    effective permission set is **`tenant_permissions`** (there is no
+    `app_permissions` in tokens the backend issues today). `tenant_*` /
+    `app_roles` / `license` are only present on **tenant-scoped** tokens.
+
+!!! info "`aud` / `client_id` identify the credential, not the app"
+    An **Application** is a container that may hold more than one credential
+    (`ApplicationClient`) — see
+    [Data Models: ApplicationClient](./data-models.md#applicationclient-credential).
+    The `aud` (and the `client_id` in token introspection) reflect the specific
+    **credential** the token was issued through:
+
+    - A **BFF's user token** (issued via `authorization_code` + PKCE) carries the
+      **SPA** credential's `clientId` (e.g. `web-bff-client-id`).
+    - The **same BFF's M2M token** (issued via `client_credentials`) carries the
+      **MACHINE** credential's `clientId` (e.g. `local-machine-client-id`).
+
+    Both trace back to the **same App** behind them — same roles, licensing, and
+    branding — but they are two distinct credentials with two distinct `aud`
+    values.
 
 ## Claim Reference
 
@@ -79,10 +109,11 @@ AuthVital issues three types of tokens:
 |-------|------|-------------|
 | `sub` | string | Subject - unique user identifier (UUID) |
 | `iss` | string | Issuer - AuthVital URL |
-| `aud` | string or string[] | Audience - client ID(s) |
+| `aud` | string or string[] | Audience - the `clientId` of the specific **credential** the token was issued for |
 | `exp` | number | Expiration time (Unix timestamp) |
 | `iat` | number | Issued at time (Unix timestamp) |
 | `jti` | string | JWT ID - unique token identifier |
+| `amr` | string[] | Authentication Method References (RFC 8176): `["pwd"]` for password-only logins, `["pwd", "otp"]` when the login satisfied TOTP-based MFA. Present on access and ID tokens. |
 
 ### OIDC Profile Claims
 
@@ -122,20 +153,28 @@ Included when `phone` scope is requested:
 
 ### Tenant Claims
 
-Included when token is tenant-scoped:
+Included when the token is tenant-scoped:
 
 | Claim | Type | Description |
 |-------|------|-------------|
 | `tenant_id` | string | Tenant UUID |
-| `tenant_slug` | string | URL-safe tenant identifier |
-| `tenant_role` | string | User's role within tenant (`owner`, `admin`, `member`) |
+| `tenant_subdomain` | string | Tenant subdomain (URL-safe identifier) |
+| `mfa_grace_expires_at` | number | Only when minted under a tenant MFA grace period (policy `REQUIRED`, user not enrolled): Unix seconds when the grace window closes and minting will be refused. See [MFA — Enforcement at token mint](../security/mfa.md#enforcement-at-token-mint). |
 
 ### Authorization Claims
 
+Included when the token is tenant-scoped:
+
 | Claim | Type | Description |
 |-------|------|-------------|
-| `app_roles` | string[] | Application-specific role slugs |
-| `app_permissions` | string[] | Granted permission strings |
+| `tenant_roles` | string[] | Tenant-level role slugs (owner is expanded to full permissions) |
+| `tenant_permissions` | string[] | Effective permission strings for the tenant |
+| `app_roles` | string[] | Application-specific role slugs (only when present) |
+
+!!! note "`app_permissions` and `groups`"
+    The SDK's `EnhancedJwtPayload` type also declares `app_permissions?` and
+    `groups?`, but the backend token builder does **not** populate these on the
+    tokens it currently issues — use `tenant_permissions` for authorization.
 
 **Permission format:**
 ```
@@ -143,6 +182,38 @@ resource:action
 resource:*        (all actions on resource)
 *                 (superadmin - all permissions)
 ```
+
+**Standard tenant permissions** (from `@authvital/shared` `TENANT_PERMISSIONS`,
+verified against `packages/shared/src/constants/permissions.ts`):
+
+| Permission | Owner | Admin | Billing Admin | Member |
+|------------|:---:|:---:|:---:|:---:|
+| `tenant:view` | ✓ | ✓ | ✓ | ✓ |
+| `tenant:manage` | ✓ | ✓ | — | — |
+| `tenant:delete` | ✓ | — | — | — |
+| `members:view` | ✓ | ✓ | ✓ | ✓ |
+| `members:invite` | ✓ | ✓ | — | — |
+| `members:remove` | ✓ | ✓ | — | — |
+| `members:manage-roles` | ✓ | ✓ | — | — |
+| `licenses:view` | ✓ | ✓ | ✓ | ✓ |
+| `licenses:manage` | ✓ | ✓ | ✓ | — |
+| `licenses:provision` | ✓ | — | ✓ | — |
+| `service-accounts:view` | ✓ | ✓ | — | — |
+| `service-accounts:manage` | ✓ | ✓ | — | — |
+| `domains:view` | ✓ | ✓ | — | — |
+| `domains:manage` | ✓ | ✓ | — | — |
+| `billing:view` | ✓ | ✓ | ✓ | — |
+| `billing:manage` | ✓ | — | ✓ | — |
+| `app-access:view` | ✓ | ✓ | ✓ | ✓ |
+| `app-access:manage` | ✓ | ✓ | ✓ | — |
+| `tenant:sso:manage` | ✓ | ✓ | — | — |
+| `audit:view` | ✓ | ✓ | — | — |
+| `audit:export` | ✓ | — | — | — |
+
+> `audit:view` lets Owner + Admin read the tenant audit log; `audit:export`
+> (CSV) is a heavier, exfil-adjacent capability granted to **Owner only** by
+> default — assign it explicitly to others. Owner holds `tenant:*` (all of the
+> above).
 
 ### License Claims
 
@@ -152,12 +223,16 @@ resource:*        (all actions on resource)
 | `license.name` | string | License type display name |
 | `license.features` | string[] | Enabled feature keys |
 
-### Session Claims
+### OAuth Claim
 
 | Claim | Type | Description |
 |-------|------|-------------|
-| `sid` | string | Session ID (refresh token reference) |
-| `nonce` | string | OIDC nonce (if provided in auth request) |
+| `scope` | string | Space-delimited granted scopes |
+
+!!! note "Session/nonce claims live on other tokens"
+    `sid` is carried by the **refresh token** (session reference), and `nonce`
+    appears on the **ID token** when supplied in the auth request — not on the
+    access token.
 
 ## ID Token Structure
 
@@ -208,28 +283,30 @@ The `sid` claim points to a `RefreshToken` record in the database that tracks:
 
 ## Token Validation
 
-### Validating Access Tokens
+### Validating Access Tokens (SDK)
+
+Use `verifyToken` from `@authvital/server` (re-exported from `@authvital/core`).
+It fetches and caches JWKS and verifies the RS256 signature, returning the
+decoded `EnhancedJwtPayload`:
 
 ```typescript
-import { createAuthVital } from '@authvital/sdk/server';
+import { verifyToken } from '@authvital/server';
 
-const authvital = createAuthVital({
+const payload = await verifyToken(accessToken, {
   authVitalHost: 'https://auth.yourapp.com',
-  clientId: 'your-client-id',
-  clientSecret: 'your-client-secret',
+  // audience/issuer options as needed
 });
 
-// Extract and validate from request
-const { authenticated, user, error } = await authvital.getCurrentUser(req);
-
-if (authenticated) {
-  console.log('User ID:', user.sub);
-  console.log('Email:', user.email);
-  console.log('Tenant:', user.tenant_id);
-  console.log('Roles:', user.app_roles);
-  console.log('Permissions:', user.app_permissions);
-}
+console.log('User ID:', payload.sub);
+console.log('Email:', payload.email);
+console.log('Tenant:', payload.tenant_id);
+console.log('Roles:', payload.tenant_roles, payload.app_roles);
+console.log('Permissions:', payload.tenant_permissions);
 ```
+
+In Express, the SDK also ships `authVitalMiddleware` / `requireAuth` (see
+[Server SDK middleware](../sdk/server-sdk/middleware.md)) which do this for you
+and attach the payload to the request.
 
 ### Manual Validation (without SDK)
 
@@ -264,10 +341,12 @@ async function validateToken(token: string) {
 
 ## TypeScript Types
 
-```typescript
-import type { EnhancedJwtPayload, JwtLicenseInfo } from '@authvital/sdk/server';
+The real types are exported from `@authvital/core` (and re-exported by
+`@authvital/server`). Abbreviated:
 
-// Full access token payload type
+```typescript
+import type { EnhancedJwtPayload, JwtLicenseInfo } from '@authvital/server';
+
 interface EnhancedJwtPayload {
   // Standard claims
   sub: string;
@@ -275,32 +354,32 @@ interface EnhancedJwtPayload {
   aud: string | string[];
   exp: number;
   iat: number;
-  jti?: string;
-  
-  // Profile claims
+  amr?: string[];              // RFC 8176, e.g. ['pwd', 'otp']
+
+  // OIDC profile / email (present per requested scope)
   email?: string;
   email_verified?: boolean;
   given_name?: string;
   family_name?: string;
-  name?: string;
-  picture?: string;
-  locale?: string;
-  
-  // Tenant claims
+  name?: string;         // ID token / userinfo
+  picture?: string;      // ID token / userinfo
+  locale?: string;       // ID token / userinfo
+
+  // Tenant context (tenant-scoped tokens)
   tenant_id?: string;
-  tenant_slug?: string;
-  tenant_role?: string;
-  
-  // Authorization
+  tenant_subdomain?: string;
+  mfa_grace_expires_at?: number; // only on tokens minted under an MFA grace period
+
+  // Authorization (tenant-scoped tokens)
+  tenant_roles?: string[];
+  tenant_permissions?: string[];
   app_roles?: string[];
-  app_permissions?: string[];
-  
-  // License
+  app_permissions?: string[];  // declared, not populated by current backend
+  groups?: string[];           // declared, not populated by current backend
+
   license?: JwtLicenseInfo;
-  
-  // Session
-  sid?: string;
-  nonce?: string;
+  scope?: string;
+  [key: string]: unknown;      // additional custom claims
 }
 
 interface JwtLicenseInfo {
@@ -316,15 +395,14 @@ interface JwtLicenseInfo {
 
 ```typescript
 function hasPermission(user: EnhancedJwtPayload, permission: string): boolean {
+  const perms = user.tenant_permissions ?? [];
   // Superadmin has all permissions
-  if (user.app_permissions?.includes('*')) return true;
-  
-  // Check exact match
-  if (user.app_permissions?.includes(permission)) return true;
-  
-  // Check wildcard (e.g., 'users:*' includes 'users:read')
+  if (perms.includes('*')) return true;
+  // Exact match
+  if (perms.includes(permission)) return true;
+  // Wildcard (e.g., 'users:*' includes 'users:read')
   const [resource] = permission.split(':');
-  return user.app_permissions?.includes(`${resource}:*`) ?? false;
+  return perms.includes(`${resource}:*`);
 }
 ```
 
@@ -362,12 +440,16 @@ function getTokenTtl(user: EnhancedJwtPayload): number {
 
 ## Token Signing
 
-AuthVital uses **Ed25519** (EdDSA) for token signing:
+AuthVital signs tokens with **RS256** (RSA). Verified against
+`packages/backend/src/oauth/key-manager.service.ts` (generates RSA key pairs) and
+the discovery document (`id_token_signing_alg_values_supported: ["RS256"]`).
 
-- **Algorithm**: EdDSA
-- **Curve**: Ed25519
-- **Key rotation**: Every 7 days (configurable)
+- **Algorithm**: RS256 (RSASSA-PKCS1-v1_5 + SHA-256)
+- **Key type**: RSA
 - **JWKS endpoint**: `/.well-known/jwks.json`
+
+The same RSA keys are used to sign webhook payloads (see
+[Webhook Verification](../sdk/webhooks-verification.md)).
 
 ### JWKS Response
 
@@ -375,26 +457,18 @@ AuthVital uses **Ed25519** (EdDSA) for token signing:
 {
   "keys": [
     {
-      "kty": "OKP",
-      "crv": "Ed25519",
-      "x": "base64url-encoded-public-key",
+      "kty": "RSA",
+      "n": "base64url-encoded-modulus",
+      "e": "AQAB",
       "kid": "key-id-1",
       "use": "sig",
-      "alg": "EdDSA"
-    },
-    {
-      "kty": "OKP",
-      "crv": "Ed25519",
-      "x": "base64url-encoded-public-key-previous",
-      "kid": "key-id-0",
-      "use": "sig",
-      "alg": "EdDSA"
+      "alg": "RS256"
     }
   ]
 }
 ```
 
-Multiple keys may be present during rotation. Validate using `kid` header.
+Multiple keys may be present during rotation. Validate using the `kid` header.
 
 ---
 

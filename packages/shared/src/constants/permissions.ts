@@ -101,6 +101,14 @@ export const TENANT_PERMISSIONS = {
   // ─────────────────────────────────────────────────────────────────────────────
   /** Configure SSO providers */
   SSO_MANAGE: 'tenant:sso:manage',
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Audit Log
+  // ─────────────────────────────────────────────────────────────────────────────
+  /** View the tenant audit log */
+  AUDIT_VIEW: 'audit:view',
+  /** Export the tenant audit log (e.g. CSV) */
+  AUDIT_EXPORT: 'audit:export',
 } as const;
 
 /**
@@ -150,6 +158,9 @@ export const ADMIN_PERMISSIONS: TenantPermission[] = [
   TENANT_PERMISSIONS.APP_ACCESS_VIEW,
   TENANT_PERMISSIONS.APP_ACCESS_MANAGE,
   TENANT_PERMISSIONS.SSO_MANAGE,
+  // Admins can read the audit trail. Export is intentionally NOT granted by
+  // default (a heavier, exfil-adjacent capability) — grant it explicitly.
+  TENANT_PERMISSIONS.AUDIT_VIEW,
 ];
 
 /**
@@ -162,4 +173,24 @@ export const MEMBER_PERMISSIONS: TenantPermission[] = [
   TENANT_PERMISSIONS.MEMBERS_VIEW,
   TENANT_PERMISSIONS.LICENSES_VIEW,
   TENANT_PERMISSIONS.APP_ACCESS_VIEW,
+];
+
+/**
+ * Billing Admin permissions - owns the money side without full tenant control.
+ *
+ * A billing admin can provision/purchase subscriptions, assign license seats,
+ * and manage billing + app access, but CANNOT manage members, domains, SSO, or
+ * delete the tenant. Intended for finance/procurement folks who shouldn't have
+ * god rights but must control spend and seat allocation.
+ */
+export const BILLING_ADMIN_PERMISSIONS: TenantPermission[] = [
+  TENANT_PERMISSIONS.TENANT_VIEW,
+  TENANT_PERMISSIONS.MEMBERS_VIEW,
+  TENANT_PERMISSIONS.LICENSES_VIEW,
+  TENANT_PERMISSIONS.LICENSES_MANAGE,
+  TENANT_PERMISSIONS.LICENSES_PROVISION,
+  TENANT_PERMISSIONS.BILLING_VIEW,
+  TENANT_PERMISSIONS.BILLING_MANAGE,
+  TENANT_PERMISSIONS.APP_ACCESS_VIEW,
+  TENANT_PERMISSIONS.APP_ACCESS_MANAGE,
 ];

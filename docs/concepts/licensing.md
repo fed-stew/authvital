@@ -2,6 +2,22 @@
 
 > AuthVital's flexible license pool system for SaaS monetization.
 
+!!! warning "Code samples: the `authvital.licenses.*` / `authvital.admin.*` API is not real"
+    The concepts on this page are accurate, but the SDK snippets use a fluent
+    request-scoped API (`authvital.licenses.check`, `authvital.licenses.grant`,
+    `authvital.admin.createSubscription`, `authvital.getCurrentUser`) that **does
+    not exist**. Map them to the real API:
+
+    - `authvital.licenses.check` -> `createServerClient(...).checkLicense({ userId, applicationId })` (a `ServerClient` method on the **user token**; `tenantId` comes from the JWT — **not** `client.integration.*`)
+    - `authvital.licenses.hasFeature` -> `client.checkLicenseFeature({ userId, applicationId, featureKey })` (also a `ServerClient` user-token read)
+    - `authvital.licenses.grant` / `revoke` -> `client.integration.grantLicense(...)` / `revokeLicense(...)`
+    - `authvital.licenses.getTenantOverview` -> `client.integration.getUsageOverview({ tenantId })`
+    - `authvital.getCurrentUser` -> read claims via `verifyToken(...)` (the `license` claim carries type/name/features)
+    - Subscription create/update (`authvital.admin.*Subscription`) is **not** in the SDK — use the REST endpoints `/api/tenants/:tenantId/licenses/subscriptions*`.
+
+    See [Licensing API](../api/licensing-api.md) and the
+    [Licenses namespace](../sdk/server-sdk/namespaces/licenses.md).
+
 ## Overview
 
 AuthVital includes a sophisticated **license pool system** that enables:
@@ -229,10 +245,16 @@ const availableFeatures = [
   { key: 'audit-logs', name: 'Audit Logs', description: 'Activity tracking' },
 ];
 
-// Check feature in your app
-const { hasFeature } = await authvital.licenses.hasFeature(req, {
+import { createServerClient } from '@authvital/server';
+
+const client = createServerClient({ authVitalHost, clientId, clientSecret });
+
+// Check feature in your app (ServerClient entitlement read, user token).
+// tenantId is derived from the user's JWT — do not pass it.
+const { hasFeature } = await client.checkLicenseFeature({
+  userId,
   applicationId: 'app-123',
-  feature: 'advanced-reports',
+  featureKey: 'advanced-reports',
 });
 
 if (!hasFeature) {
@@ -265,15 +287,25 @@ License information is included in the JWT:
 Access in your code:
 
 ```typescript
-const { user } = await authvital.getCurrentUser(req);
+import { verifyToken } from '@authvital/server';
+
+// The license claim travels inside the access token — verify it and read the claim.
+const result = await verifyToken(accessToken, {
+  jwksUri: 'https://auth.yourapp.com/.well-known/jwks.json',
+});
+if (!result.valid) throw new Error(result.error);
+
+const license = result.payload.license as
+  | { type: string; name: string; features: string[] }
+  | undefined;
 
 // Check license type
-if (user.license?.type === 'enterprise') {
+if (license?.type === 'enterprise') {
   // Premium features
 }
 
 // Check specific feature
-if (user.license?.features.includes('sso')) {
+if (license?.features.includes('sso')) {
   // SSO enabled
 }
 ```
@@ -283,88 +315,85 @@ if (user.license?.features.includes('sso')) {
 ### Check License
 
 ```typescript
-// Check if user has any license
-const { hasLicense, licenseType, features } = await authvital.licenses.check(req, {
+// Check if a user has a license for an application (ServerClient, user token).
+// tenantId is derived from the JWT — do not pass it.
+const { hasLicense, licenseType } = await client.checkLicense({
+  userId,
   applicationId: 'app-123',
 });
 
 console.log(hasLicense);    // true
 console.log(licenseType);   // "pro"
-console.log(features);      // ["basic-reports", "api-access"]
 ```
 
 ### Check Feature
 
 ```typescript
-const { hasFeature } = await authvital.licenses.hasFeature(req, {
+const { hasFeature } = await client.checkLicenseFeature({
+  userId,
   applicationId: 'app-123',
-  feature: 'advanced-reports',
+  featureKey: 'advanced-reports',
 });
 ```
 
 ### Get Full License Details
 
 ```typescript
-const license = await authvital.licenses.getUserLicense(req, {
-  applicationId: 'app-123',
+// List all of a user's licenses in a tenant (M2M integration client)
+const { licenses } = await client.integration.getUserLicenses({
+  userId,
+  tenantId,
 });
-// {
-//   type: "pro",
-//   typeId: "lt-123",
-//   name: "Pro Plan",
-//   features: ["basic-reports", "api-access"],
-//   assignedAt: "2024-01-15T...",
-//   subscription: {
-//     id: "sub-456",
-//     status: "ACTIVE",
-//     currentPeriodEnd: "2024-02-15T..."
+// licenses: [
+//   {
+//     id: "ul-123",
+//     applicationId: "app-123",
+//     licenseTypeId: "lt-123",
+//     licenseTypeName: "Pro Plan",
+//     grantedAt: "2024-01-15T..."
 //   }
-// }
+// ]
 ```
 
 ### Admin: Grant License
 
 ```typescript
-await authvital.licenses.grant(req, {
+await client.integration.grantLicense({
   userId: 'user-123',
+  tenantId: 'tenant-456',
   applicationId: 'app-123',
   licenseTypeId: 'lt-pro',
-  tenantId: 'tenant-456',
 });
 ```
 
 ### Admin: Revoke License
 
 ```typescript
-await authvital.licenses.revoke(req, {
+await client.integration.revokeLicense({
   userId: 'user-123',
-  applicationId: 'app-123',
   tenantId: 'tenant-456',
+  applicationId: 'app-123',
 });
 ```
 
 ### Get Tenant License Overview
 
 ```typescript
-const overview = await authvital.licenses.getTenantOverview(req, {
+const overview = await client.integration.getUsageOverview({
   tenantId: 'tenant-456',
 });
 // {
-//   tenantId: "tenant-456",
-//   subscriptions: [
+//   totalSeats: 10,
+//   usedSeats: 7,
+//   availableSeats: 3,
+//   applications: [
 //     {
-//       id: "sub-1",
+//       applicationId: "app-123",
 //       applicationName: "Project Manager",
-//       licenseTypeName: "Pro Plan",
-//       quantityPurchased: 10,
-//       quantityAssigned: 7,
-//       quantityAvailable: 3,
-//       status: "ACTIVE",
-//       features: { "api-access": true, "sso": false }
+//       totalSeats: 10,
+//       usedSeats: 7
 //     }
-//   ],
-//   totalSeatsOwned: 10,
-//   totalSeatsAssigned: 7
+//   ]
 // }
 ```
 
@@ -374,7 +403,11 @@ const overview = await authvital.licenses.getTenantOverview(req, {
 
 ```typescript
 const requireLicense = (applicationId: string) => async (req, res, next) => {
-  const { hasLicense } = await authvital.licenses.check(req, {
+  // Derive identity from the session token claims (sub / tenant_id)
+  const claims = decodeToken(req.authVital.accessToken)?.payload;
+  // ServerClient entitlement read on the user token; tenantId from the JWT.
+  const { hasLicense } = await client.checkLicense({
+    userId: claims?.sub as string,
     applicationId,
   });
   
@@ -398,9 +431,11 @@ app.use('/api/premium', requireLicense('app-123'));
 ```typescript
 const requireFeature = (applicationId: string, feature: string) => {
   return async (req, res, next) => {
-    const { hasFeature } = await authvital.licenses.hasFeature(req, {
+    const claims = decodeToken(req.authVital.accessToken)?.payload;
+    const { hasFeature } = await client.checkLicenseFeature({
+      userId: claims?.sub as string,
       applicationId,
-      feature,
+      featureKey: feature,
     });
     
     if (!hasFeature) {
@@ -487,25 +522,25 @@ License changes trigger webhook events:
 | `license.revoked` | User's license removed |
 | `license.changed` | User's license type changed |
 
+There is no `AuthVitalEventHandler` base class — you define the handler yourself
+and switch on the event type (after verifying the webhook signature):
+
 ```typescript
-class MyEventHandler extends AuthVitalEventHandler {
-  async onLicenseAssigned(event) {
-    const { sub, license_type_slug, features } = event.data;
-    
-    // Provision resources
-    await provisionUserStorage(sub, {
-      quota: features.includes('unlimited-storage') ? 'unlimited' : '10GB',
-    });
-    
-    // Send upgrade email
-    await sendEmail(event.data.email, 'upgrade-complete', {
-      plan: license_type_slug,
-    });
-  }
-  
-  async onLicenseRevoked(event) {
-    // Cleanup or downgrade
-    await revokeApiKeys(event.data.sub);
+async function handleLicenseEvent(event: { type: string; data: any }) {
+  switch (event.type) {
+    case 'license.assigned': {
+      const { sub, license_type_slug, features, email } = event.data;
+      await provisionUserStorage(sub, {
+        quota: features.includes('unlimited-storage') ? 'unlimited' : '10GB',
+      });
+      await sendEmail(email, 'upgrade-complete', { plan: license_type_slug });
+      break;
+    }
+    case 'license.revoked': {
+      // Cleanup or downgrade
+      await revokeApiKeys(event.data.sub);
+      break;
+    }
   }
 }
 ```
@@ -538,29 +573,33 @@ app.post('/webhooks/stripe', async (req, res) => {
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object;
-      
-      // Create subscription in AuthVital
-      await authvital.admin.createSubscription({
-        tenantId: session.metadata.tenantId,
-        applicationId: session.metadata.applicationId,
-        licenseTypeId: session.metadata.licenseTypeId,
-        quantityPurchased: session.metadata.seats,
-        status: 'ACTIVE',
-        currentPeriodEnd: new Date(session.current_period_end * 1000),
+
+      // Create subscription via REST (not exposed on the Server SDK).
+      // `token` is an M2M token from client.getClientCredentialsToken().
+      await fetch(`${AV_HOST}/api/tenants/${session.metadata.tenantId}/licenses/subscriptions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          applicationId: session.metadata.applicationId,
+          licenseTypeId: session.metadata.licenseTypeId,
+          quantityPurchased: Number(session.metadata.seats),
+        }),
       });
       break;
     }
-    
+
     case 'customer.subscription.updated': {
       const subscription = event.data.object;
-      
-      // Update seats in AuthVital
-      await authvital.admin.updateSubscription(
-        subscription.metadata.authvitalSubscriptionId,
+      const { tenantId, authvitalSubscriptionId } = subscription.metadata;
+
+      // Update seat quantity via REST
+      await fetch(
+        `${AV_HOST}/api/tenants/${tenantId}/licenses/subscriptions/${authvitalSubscriptionId}/quantity`,
         {
-          quantityPurchased: subscription.items.data[0].quantity,
-          status: subscription.status.toUpperCase(),
-        }
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ quantityPurchased: subscription.items.data[0].quantity }),
+        },
       );
       break;
     }
@@ -577,9 +616,13 @@ app.post('/webhooks/stripe', async (req, res) => {
 For performance, cache JWT claims (they're self-contained):
 
 ```typescript
-// License info is in the JWT - no API call needed!
-const { user } = await authvital.getCurrentUser(req);
-const hasFeature = user.license?.features.includes('advanced-reports');
+import { decodeToken } from '@authvital/server';
+
+// License info is in the JWT - no API call needed! (The token's authenticity
+// is already established by your session/verification layer.)
+const decoded = decodeToken(accessToken);
+const license = decoded?.payload.license as { features: string[] } | undefined;
+const hasFeature = license?.features.includes('advanced-reports');
 ```
 
 ### 2. Handle Grace Periods
@@ -587,9 +630,10 @@ const hasFeature = user.license?.features.includes('advanced-reports');
 Allow access during payment failures:
 
 ```typescript
-const subscription = await authvital.licenses.getSubscription(req, {
+const subscription = await client.integration.getSubscriptionStatus({
+  tenantId,
   applicationId: 'app-123',
-});
+}) as { status: string };
 
 if (subscription.status === 'PAST_DUE') {
   // Show warning but allow access

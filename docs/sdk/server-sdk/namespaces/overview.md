@@ -1,79 +1,140 @@
-# SDK Namespaces Overview
+# Integration API (server-to-server)
 
-> Type-safe namespaced APIs for all AuthVital operations.
+> The real `client.integration.*` methods for backend operations.
 
-The AuthVital SDK organizes its methods into namespaces for clean, discoverable APIs.
+!!! warning "There is no fluent `authvital.tenants.*` namespace API"
+    Earlier drafts of these docs described a fluent, request-scoped namespace API
+    (`authvital.invitations.send(req, …)`, `authvital.memberships.listForTenant(req)`,
+    `authvital.tenants.get(id)`, etc.). **That API does not exist in the code.**
 
-## Available Namespaces
+    The real server-to-server surface is a single **integration client** reached
+    via `client.integration`, where `client = createServerClient(...)`. Every
+    method uses the OAuth **Client Credentials (M2M)** grant automatically — you
+    do not pass an Express `req`; you pass explicit params like `{ tenantId }` /
+    `{ userId }`.
 
-| Namespace | Description |
-|-----------|-------------|
-| [`auth`](./auth.md) | Register, login, password reset |
-| [`users`](./users.md) | User profile and account management |
-| [`mfa`](./mfa.md) | Multi-factor authentication setup and verification |
-| [`sso`](./sso.md) | Single Sign-On provider management |
-| [`tenants`](./tenants.md) | Tenant CRUD and SSO configuration |
-| [`invitations`](./invitations.md) | Send, list, and revoke invitations |
-| [`memberships`](./memberships.md) | Member management and role assignment |
-| [`permissions`](./permissions.md) | Permission checks (API-based) |
-| [`licenses`](./licenses.md) | License management and feature checks |
-| [`sessions`](./sessions.md) | Session management and logout |
-| [`entitlements`](./entitlements.md) | Quota and feature entitlements |
-| [`admin`](./admin.md) | Instance-level administration |
+    The per-topic pages in this section have been reconciled to the real API:
+    each maps to the verified `client.integration.*` methods, or explains what
+    the SDK genuinely does not provide (auth, sso, admin, session-listing). This
+    page and the source in `packages/sdk-server/src/client/integration.ts` remain
+    the canonical reference for method names, params and return shapes.
 
-## Usage Pattern
-
-All namespaces are accessed through the main `authvital` client:
+## Getting the integration client
 
 ```typescript
-import { createAuthVital } from '@authvital/sdk/server';
+import { createServerClient } from '@authvital/server';
 
-const authvital = createAuthVital({
+const client = createServerClient({
   authVitalHost: process.env.AV_HOST!,
   clientId: process.env.AV_CLIENT_ID!,
   clientSecret: process.env.AV_CLIENT_SECRET!,
 });
 
-// Access namespaces
-await authvital.invitations.send(req, { email: 'user@example.com' });
-await authvital.memberships.listForTenant(req);
-await authvital.licenses.check(req, undefined, 'app-123');
-await authvital.sessions.list(req);
+// M2M token is acquired + cached automatically on first call
+const { memberships } = await client.integration.listTenantMembers({ tenantId });
 ```
 
-## Authentication Patterns
+## Memberships
 
-Namespace methods use different authentication patterns:
-
-### JWT-Authenticated Methods
-
-Most methods validate the JWT from the incoming request:
+| Method | Signature (params) | Returns |
+|--------|--------------------|---------|
+| `validateMembership` | `{ userId, tenantId }` | `{ valid, membership? }` |
+| `listTenantMembers` | `{ tenantId, status?, includeRoles? }` | `{ memberships }` |
+| `listUserMemberships` | `{ userId?, tenantId?, clientId?, status?, includeRoles? }` | `{ memberships }` |
+| `listUserTenants` | `{ userId }` | tenants for the user |
 
 ```typescript
-// These extract user/tenant context from the JWT automatically
-await authvital.invitations.send(req, { email: 'user@example.com' });
-await authvital.memberships.listForTenant(req);
-await authvital.sessions.list(req);
+// Which tenants does a user belong to?
+const tenants = await client.integration.listUserTenants({ userId });
 ```
 
-### M2M (Machine-to-Machine) Methods
+## Roles
 
-Some methods use the SDK's client credentials for backend-to-backend calls:
+| Method | Signature (params) | Returns |
+|--------|--------------------|---------|
+| `getApplicationRoles` | `{ clientId, tenantId? }` | `ApplicationRolesResult` |
+| `getTenantRoles` | `{ tenantId? }` (optional) | `{ roles }` |
+| `setMemberRole` | `{ membershipId, roleId, applicationId }` | result (sets an **app** role) |
+
+## Permissions & entitlements
+
+| Method | Signature (params) | Returns |
+|--------|--------------------|---------|
+| `checkPermission` | `{ userId, tenantId, permission, applicationId? }` | `PermissionCheckResult` |
+| `checkPermissions` | `{ userId, tenantId, permissions, applicationId? }` | `BulkPermissionCheckResult` |
+| `getUserPermissions` | `{ userId, tenantId }` | `{ permissions }` |
+| `checkFeature` | `{ tenantId, feature, applicationId? }` | `{ hasAccess, licenseType, reason? }` |
+| `checkSeats` | `{ tenantId, applicationId? }` | `SeatCheckResult` |
+| `getSubscriptionStatus` | `{ tenantId, applicationId? }` | subscription status |
 
 ```typescript
-// These use client_credentials, no user JWT needed
-const tenant = await authvital.tenants.get('tenant-123');
-const roles = await authvital.memberships.getTenantRoles();
-const overview = await authvital.licenses.getTenantOverview('tenant-123');
+const { allowed } = await client.integration.checkPermission({
+  userId, tenantId, permission: 'projects:create',
+});
 ```
 
-### Unauthenticated Methods
+## Invitations
 
-A few methods don't require authentication:
+| Method | Signature (params) | Returns |
+|--------|--------------------|---------|
+| `sendInvitation` | `{ tenantId, email, roleId, clientId?, expiresInDays?, givenName?, familyName? }` | `{ sub, expiresAt }` |
+| `listInvitations` | `{ tenantId }` | `{ invitations }` |
+| `revokeInvitation` | `{ invitationId }` | `{ success, message }` |
+| `resendInvitation` | `{ invitationId }` | `{ expiresAt }` |
 
 ```typescript
-// Public endpoints
-await authvital.auth.register({ email, password });
-await authvital.auth.forgotPassword(email);
-const providers = await authvital.sso.getAvailableProviders();
+await client.integration.sendInvitation({ tenantId, email: 'new@corp.com' });
+const { invitations } = await client.integration.listInvitations({ tenantId });
 ```
+
+## Licensing
+
+| Method | Signature (params) | Returns |
+|--------|--------------------|---------|
+| `grantLicense` | `{ userId, tenantId, applicationId, licenseTypeId }` | result |
+| `revokeLicense` | `{ userId, tenantId, applicationId }` | result |
+| `changeLicenseType` | `{ userId, tenantId, applicationId, newLicenseTypeId }` | result |
+| `getUserLicenses` | `{ userId, tenantId }` | `{ licenses }` |
+| `getLicenseHolders` | `{ tenantId, applicationId }` | `{ holders }` |
+| `getUsageOverview` | `{ tenantId }` | `LicenseUsageOverview` |
+
+```typescript
+const { licenses } = await client.integration.getUserLicenses({ userId, tenantId });
+const overview = await client.integration.getUsageOverview({ tenantId });
+```
+
+> The per-user **entitlement reads** (`checkLicense`, `checkLicenseFeature`,
+> `getAppLicensedUsers`, `countLicensedUsers`) are **not** on `client.integration`.
+> They live directly on `ServerClient` and use the user's access token (see the
+> next section and [Licenses](./licenses.md)).
+
+## MFA
+
+| Method | Signature (params) | Returns |
+|--------|--------------------|---------|
+| `getUserMfaStatus` | `{ userId }` | `{ enabled, methods? }` |
+
+## Non-integration convenience methods
+
+These live directly on the `ServerClient` (they use the session's user access
+token, not M2M):
+
+| Method | Description |
+|--------|-------------|
+| `client.getCurrentUser()` | `GET /api/users/me` -> `User \| null` |
+| `client.getTenantMemberships()` | `GET /api/tenants/memberships` |
+| `client.hasPermission(permission)` | fail-closed check via `POST /api/integration/check-permission` (identity read from the access token) -> `boolean` |
+| `client.checkLicense({ userId, applicationId })` | entitlement read; `tenantId` from the user JWT -> `LicenseCheckResult` |
+| `client.checkLicenseFeature({ userId, applicationId, featureKey })` | entitlement read -> `{ hasFeature }` |
+| `client.getAppLicensedUsers({ applicationId })` | entitlement read -> `LicensedUser[]` |
+| `client.countLicensedUsers({ applicationId })` | entitlement read -> `{ count }` |
+| `client.introspectToken(token?)` | RFC 7662 introspection |
+| `client.revokeToken(token?, hint?)` | RFC 7009 revocation |
+| `client.getClientCredentialsToken(scope?)` | Raw M2M token |
+
+!!! tip "Tenant-admin UI = hosted console, not the SDK"
+    Managing members, app access, SSO, domains, billing and audit for humans is
+    done in the **hosted console** (`/tenant/:tenantId/*`). Deep-link into it
+    with the `@authvital/core` helpers (`getManagementUrls`, `getAppPickerUrl`,
+    `getOrgPickerUrl`, `getAccountSettingsUrl`) — see [OAuth Flow](../oauth-flow.md).
+    The SDK's job is auth + gating + entitlement reads + M2M automation.

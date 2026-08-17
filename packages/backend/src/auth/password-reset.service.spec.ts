@@ -30,8 +30,15 @@ describe("PasswordResetService", () => {
     sendPasswordResetEmail: jest.fn(),
   };
 
+  const mockBreachCheckService = {
+    checkPassword: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
+    mockBreachCheckService.checkPassword.mockResolvedValue({
+      isBreached: false,
+    });
     process.env = {
       ...originalEnv,
       BASE_URL: "https://idp.example.com",
@@ -46,7 +53,11 @@ describe("PasswordResetService", () => {
   });
 
   const createService = () =>
-    new PasswordResetService(mockPrisma as any, mockEmailService as any);
+    new PasswordResetService(
+      mockPrisma as any,
+      mockEmailService as any,
+      mockBreachCheckService as any,
+    );
 
   it("throws at construction when BASE_URL is missing", () => {
     delete process.env.BASE_URL;
@@ -188,6 +199,39 @@ describe("PasswordResetService", () => {
       ).rejects.toThrow(
         new BadRequestException("Password must be at least 8 characters"),
       );
+    });
+
+    it("throws when new password exceeds 128 characters", async () => {
+      const service = createService();
+
+      await expect(
+        service.resetPassword({
+          token: "token",
+          newPassword: "x".repeat(129),
+        }),
+      ).rejects.toThrow(
+        new BadRequestException("Password must be at most 128 characters"),
+      );
+    });
+
+    it("rejects a new password found in a known data breach", async () => {
+      const service = createService();
+      mockBreachCheckService.checkPassword.mockResolvedValue({
+        isBreached: true,
+        breachCount: 7,
+      });
+
+      await expect(
+        service.resetPassword({
+          token: "token",
+          newPassword: "long-enough-password",
+        }),
+      ).rejects.toThrow(
+        new BadRequestException(
+          "This password has appeared in a known data breach; please choose a different password.",
+        ),
+      );
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
     });
 
     it("resets password, clears token, and invalidates sessions on match", async () => {

@@ -1,157 +1,138 @@
 # JWT Validation
 
-> Extract, validate, and query user claims from incoming requests.
+> Verify tokens and read user claims on the server.
 
-The SDK provides multiple methods for JWT validation, from soft checks to strict validation with guaranteed claims.
+!!! warning "No `validateRequest` / `getCurrentUser(req)` / `hasAppPermission` on the SDK"
+    Earlier drafts documented request-scoped helpers like
+    `authvital.validateRequest(req)`, `authvital.getCurrentUser(req)` returning
+    `{ authenticated, user, error }`, and claim helpers such as
+    `authvital.hasTenantPermission(req, …)`. **None of those exist.**
 
-## getCurrentUser()
+    The real primitives are `verifyToken()` and `decodeToken()` (re-exported from
+    `@authvital/core`). Claim-based permission checks are a couple of lines you
+    write against the decoded payload (shown below). `ServerClient.getCurrentUser()`
+    exists too, but takes **no** request and returns `User | null` (it calls
+    `GET /api/users/me` with the client's stored access token).
 
-**Soft validation** - Returns a result object rather than throwing.
+## verifyToken()
+
+Cryptographically verifies a JWT against the IdP's JWKS.
 
 ```typescript
-import { createAuthVital } from '@authvital/sdk/server';
+import { verifyToken } from '@authvital/server';
 
-const authvital = createAuthVital({ /* config */ });
+const result = await verifyToken(accessToken, {
+  jwksUri: `${process.env.AV_HOST}/.well-known/jwks.json`,
+  issuer: process.env.AV_HOST,       // optional but recommended
+  audience: process.env.AV_CLIENT_ID, // optional but recommended
+});
 
-app.get('/api/me', async (req, res) => {
-  const { authenticated, user, error } = await authvital.getCurrentUser(req);
-  
-  if (!authenticated) {
-    return res.status(401).json({ error: error || 'Unauthorized' });
-  }
-  
-  // User object contains all JWT claims
-  res.json({
-    id: user.sub,
-    email: user.email,
-    name: `${user.given_name} ${user.family_name}`,
-    tenant: user.tenant_id,
-    roles: user.app_roles,
+if (!result.valid) {
+  // result.error is a string describing why
+  throw new Error(`Invalid token: ${result.error}`);
+}
+
+const claims = result.payload; // verified JwtPayload
+```
+
+### VerifyOptions
+
+```typescript
+interface VerifyOptions {
+  jwksUri: string;                 // required
+  issuer?: string;
+  audience?: string | string[];
+  clockTolerance?: number;         // seconds, default 0
+  maxAge?: number;                 // seconds (iat check)
+  jwksClient?: JWKSClient;         // reuse a cached client instead of jwksUri
+}
+```
+
+### VerifyResult
+
+```typescript
+type VerifyResult =
+  | { valid: true; payload: JwtPayload }
+  | { valid: false; error: string };
+```
+
+### A reusable request validator
+
+The SDK doesn't ship one, so wrap `verifyToken` yourself (this mirrors the
+`bff-express` example):
+
+```typescript
+import { verifyToken } from '@authvital/server';
+
+async function validateRequest(accessToken: string | null) {
+  if (!accessToken) return { valid: false as const, reason: 'no token' };
+  const result = await verifyToken(accessToken, {
+    jwksUri: `${process.env.AV_HOST}/.well-known/jwks.json`,
+    issuer: process.env.AV_HOST,
+    audience: process.env.AV_CLIENT_ID,
   });
-});
-```
-
-### Return Type
-
-```typescript
-interface GetCurrentUserResult {
-  authenticated: boolean;
-  user: EnhancedJwtPayload | null;
-  error?: string;
+  return result.valid
+    ? { valid: true as const, claims: result.payload }
+    : { valid: false as const, reason: result.error };
 }
 ```
 
----
+## decodeToken()
 
-## validateRequest()
-
-**Strict validation** - Throws if not authenticated or missing required claims.
-
-!!! warning "Throws on failure"
-    Unlike `getCurrentUser()`, this method **throws** if validation fails. Use try/catch.
+Decodes a JWT **without** verifying the signature — for inspecting claims when
+you've already verified elsewhere (or for debugging). Never authorize on this
+alone.
 
 ```typescript
-interface ValidatedClaims {
-  sub: string;              // User ID - always present
-  tenantId: string;         // Tenant ID - REQUIRED, throws if missing!
-  tenantSubdomain?: string; // Tenant subdomain (if available)
-  email?: string;           // User's email
-  tenant_roles?: string[];  // Tenant-level roles
-  payload: JwtPayload;      // Full JWT payload for advanced use
+import { decodeToken } from '@authvital/server';
+
+const decoded = decodeToken(token); // { header, payload } | null
+if (decoded) {
+  console.log(decoded.header.alg, decoded.payload.sub);
 }
 ```
 
-### Usage Example
+## JWKSClient
+
+For high-throughput services, reuse a cached JWKS client instead of re-passing
+`jwksUri` every call:
 
 ```typescript
-app.get('/api/tenant-data', async (req, res) => {
-  try {
-    // This THROWS if not authenticated or missing tenant_id
-    const claims = await authvital.validateRequest(req);
-    
-    // claims.tenantId is guaranteed to exist here!
-    console.log('User:', claims.sub);
-    console.log('Tenant:', claims.tenantId);
-    console.log('Email:', claims.email);
-    
-    // Access full JWT if needed
-    console.log('License:', claims.payload.license);
-    
-    const data = await fetchTenantData(claims.tenantId);
-    res.json(data);
-  } catch (error) {
-    res.status(401).json({ error: error.message });
-  }
+import { JWKSClient, verifyToken } from '@authvital/server';
+
+const jwksClient = new JWKSClient({ jwksUri: `${process.env.AV_HOST}/.well-known/jwks.json` });
+
+const result = await verifyToken(token, {
+  jwksClient,
+  issuer: process.env.AV_HOST,
+  audience: process.env.AV_CLIENT_ID,
 });
 ```
 
-### Error Messages
-
-| Error | Cause |
-|-------|-------|
-| `No authentication token found` | Missing Bearer token or auth cookie |
-| `Invalid or expired token` | JWT signature invalid or expired |
-| `Token missing required tenant_id claim` | User not scoped to a tenant |
-
-### When to Use Which
-
-| Method | Use Case |
-|--------|----------|
-| `getCurrentUser()` | Soft check, custom error handling, optional auth |
-| `validateRequest()` | Strict check, guaranteed claims, tenant-required endpoints |
-
----
-
-## Token Extraction
-
-The SDK automatically extracts JWTs from:
-
-1. `Authorization: Bearer <token>` header
-2. `access_token` cookie
-3. `auth_token` cookie
-
-```typescript
-// All of these work:
-fetch('/api/me', {
-  headers: { 'Authorization': 'Bearer eyJ...' }
-});
-
-// Or with cookies (set by AuthVital login)
-fetch('/api/me', {
-  credentials: 'include'
-});
-```
-
----
-
-## JWT Claims Structure
+## JWT claims structure
 
 ```typescript
 interface EnhancedJwtPayload {
   // Identity
-  sub: string;              // User ID
-  email: string;
-  given_name: string;
-  family_name: string;
+  sub: string;
+  email?: string;
+  given_name?: string;
+  family_name?: string;
   picture?: string;
-  
+
   // Tenant (if scoped)
   tenant_id?: string;
-  tenant_slug?: string;
-  
+  tenant_subdomain?: string;
+
   // Authorization
-  tenant_roles?: string[];   // ['owner', 'admin', 'member']
-  tenant_permissions?: string[]; // ['members:invite', 'billing:manage']
-  app_roles?: string[];      // ['admin', 'editor']
-  app_permissions?: string[]; // ['projects:create', 'reports:view']
-  
+  tenant_roles?: string[];
+  tenant_permissions?: string[];
+  app_roles?: string[];
+  app_permissions?: string[];
+
   // License
-  license?: {
-    type: string;           // 'pro'
-    name: string;           // 'Pro Plan'
-    features: string[];     // ['sso', 'api-access']
-  };
-  
+  license?: { type: string; name: string; features: string[] };
+
   // Standard JWT claims
   iss: string;
   aud: string | string[];
@@ -160,177 +141,61 @@ interface EnhancedJwtPayload {
 }
 ```
 
----
+## Claim-based permission checks (write these yourself)
 
-## Permission Helpers
-
-!!! success "Zero API Calls"
-    All permission helpers read directly from JWT claims - no network requests!
-
-### hasTenantPermission()
-
-Check tenant-level permissions (from IDP tenant roles). Supports wildcards!
+There are **no** `hasAppPermission` / `hasTenantPermission` / `hasFeatureFromJwt`
+methods in the SDK. They're trivial to implement against the decoded payload —
+this is exactly what the `bff-express` example does:
 
 ```typescript
-// Exact permission check
-if (await authvital.hasTenantPermission(req, 'members:invite')) {
-  // User can invite members to the tenant
+import type { EnhancedJwtPayload } from '@authvital/shared';
+
+export function hasAppPermission(claims: EnhancedJwtPayload | null, permission: string): boolean {
+  return Boolean(claims?.app_permissions?.includes(permission));
 }
 
-// Wildcard matching
-if (await authvital.hasTenantPermission(req, 'licenses:*')) {
-  // User has some license permission (licenses:view, licenses:manage, etc.)
-}
-```
-
-**Wildcard Rules:**
-
-- `licenses:*` matches `licenses:view`, `licenses:manage`, `licenses:assign`
-- `*:manage` matches `billing:manage`, `members:manage`, etc.
-- Exact match is tried first, then wildcard expansion
-
-### hasAppPermission()
-
-Check application-level permissions (from your app's custom roles).
-
-```typescript
-if (await authvital.hasAppPermission(req, 'projects:create')) {
-  // User can create projects in your app
+export function hasAppRole(claims: EnhancedJwtPayload | null, role: string): boolean {
+  return Boolean(claims?.app_roles?.includes(role));
 }
 
-// Also supports wildcards
-if (await authvital.hasAppPermission(req, 'admin:*')) {
-  // User has some admin permission
+export function hasTenantPermission(claims: EnhancedJwtPayload | null, permission: string): boolean {
+  return Boolean(claims?.tenant_permissions?.includes(permission));
+}
+
+export function hasFeatureFromJwt(claims: EnhancedJwtPayload | null, feature: string): boolean {
+  return Boolean(claims?.license?.features?.includes(feature));
 }
 ```
 
-**Tenant vs App Permissions:**
+!!! tip "Need an authoritative, live check?"
+    JWT-based checks reflect the claims baked into the token at issue time. For a
+    real-time server-to-server check that isn't bound to a specific token, use the
+    [integration client](./namespaces/overview.md): `client.integration.checkPermission(...)`,
+    `checkFeature(...)`, or `getUserPermissions(...)`.
 
-| Type | Source | Examples |
-|------|--------|----------|
-| Tenant Permissions | IDP tenant roles (owner, admin, member) | `members:invite`, `billing:manage` |
-| App Permissions | Your app's custom roles | `projects:create`, `reports:export` |
-
-### hasFeatureFromJwt()
-
-Check if the tenant's license includes a specific feature.
+## Complete example (Express, session middleware)
 
 ```typescript
-if (await authvital.hasFeatureFromJwt(req, 'sso')) {
-  // Show SSO configuration options
-}
+import { verifyToken } from '@authvital/server';
 
-// Feature gating example
-if (await authvital.hasFeatureFromJwt(req, 'advanced-analytics')) {
-  return renderAdvancedDashboard();
-} else {
-  return renderBasicDashboard();
-}
-```
+app.get('/api/analytics/advanced', requireAuth(), async (req, res) => {
+  const token = req.authVital!.accessToken;
 
-### getLicenseTypeFromJwt()
+  const result = await verifyToken(token, {
+    jwksUri: `${process.env.AV_HOST}/.well-known/jwks.json`,
+    issuer: process.env.AV_HOST,
+    audience: process.env.AV_CLIENT_ID,
+  });
+  if (!result.valid) return res.status(401).json({ error: result.error });
 
-Get the license type slug directly from the JWT.
-
-```typescript
-const licenseType = await authvital.getLicenseTypeFromJwt(req);
-
-switch (licenseType) {
-  case 'enterprise':
-    // Full feature access
-    break;
-  case 'pro':
-    // Pro features only
-    break;
-  default:
-    // Basic features
-    break;
-}
-```
-
-### Bulk Getters
-
-Get all permissions/roles at once:
-
-```typescript
-// All tenant permissions
-const tenantPermissions = await authvital.getTenantPermissions(req);
-// ['members:invite', 'members:remove', 'settings:view', ...]
-
-// All app permissions
-const appPermissions = await authvital.getAppPermissions(req);
-// ['projects:create', 'projects:delete', 'reports:view', ...]
-
-// Tenant roles
-const tenantRoles = await authvital.getTenantRoles(req);
-// ['owner'] or ['admin'] or ['member']
-
-// App roles
-const appRoles = await authvital.getAppRoles(req);
-// ['editor', 'viewer']
-```
-
----
-
-## Management URLs
-
-Generate URLs to AuthVital management pages:
-
-### getManagementUrls()
-
-```typescript
-const urls = await authvital.getManagementUrls(req);
-
-console.log(urls);
-// {
-//   overview: 'https://auth.example.com/tenant/abc/overview',
-//   members: 'https://auth.example.com/tenant/abc/members',
-//   applications: 'https://auth.example.com/tenant/abc/applications',
-//   settings: 'https://auth.example.com/tenant/abc/settings',
-//   accountSettings: 'https://auth.example.com/account/settings',
-// }
-```
-
-### Individual URL Methods
-
-```typescript
-// Tenant-scoped URLs (require req for tenant context)
-const membersUrl = await authvital.getMembersUrl(req);
-const applicationsUrl = await authvital.getApplicationsUrl(req);
-const settingsUrl = await authvital.getSettingsUrl(req);
-const overviewUrl = await authvital.getOverviewUrl(req);
-
-// Account settings URL (no req needed - user-specific)
-const accountUrl = authvital.getAccountSettingsUrl();
-```
-
----
-
-## Complete Example
-
-```typescript
-app.get('/api/analytics/advanced', async (req, res) => {
-  // 1. Validate authentication (throws if invalid)
-  const claims = await authvital.validateRequest(req);
-  
-  // 2. Check license feature (no API call!)
-  if (!await authvital.hasFeatureFromJwt(req, 'advanced-analytics')) {
-    return res.status(402).json({
-      error: 'Feature requires Pro license',
-      feature: 'advanced-analytics',
-      upgradeUrl: await authvital.getSettingsUrl(req),
-    });
+  const claims = result.payload as any;
+  if (!claims.license?.features?.includes('advanced-analytics')) {
+    return res.status(402).json({ error: 'Feature requires Pro license' });
   }
-  
-  // 3. Check permission (no API call!)
-  if (!await authvital.hasAppPermission(req, 'analytics:view')) {
-    return res.status(403).json({
-      error: 'Missing permission: analytics:view',
-    });
+  if (!claims.app_permissions?.includes('analytics:view')) {
+    return res.status(403).json({ error: 'Missing permission: analytics:view' });
   }
-  
-  // 4. All checks passed!
-  const data = await fetchAdvancedAnalytics(claims.tenantId);
-  res.json(data);
+
+  res.json(await fetchAdvancedAnalytics(claims.tenant_id));
 });
 ```

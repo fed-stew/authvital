@@ -17,17 +17,22 @@
 # Lifecycle:
 #   postgres (healthcheck) → migrate (runs once, exits) → api (starts)
 #
+# Postgres data lives in the NAMED VOLUME `authvital-pgdata` (declared at the
+# bottom of this file), not a host bind mount. That makes resets idiomatic:
+#   - `docker compose down`      -> stops containers, KEEPS the volume (data)
+#   - `docker compose down -v`   -> stops containers AND removes the volume
+#   - next `up` re-runs the idempotent bootstrap seed against a fresh DB
+#
 # Commands:
 #   docker compose up -d              # Start all services
 #   docker compose up -d --build      # Rebuild and start
 #   docker compose logs -f api        # Follow API logs
 #   docker compose logs migrate       # Check migration output
-#   docker compose down               # Stop all services
+#   docker compose down               # Stop all services (data KEPT)
 #
 # Reset data (fresh start with new seed):
-#   docker compose down
-#   rm -rf data/
-#   docker compose up -d
+#   docker compose down -v            # drop the named volume
+#   docker compose up -d              # reseeds a fresh DB
 #
 # =============================================================================
 
@@ -39,13 +44,19 @@ services:
     image: postgres:16-alpine
     container_name: authvital-postgres
     ports:
-      - "5432:5432"
+      # Host-publish is a convenience for direct DB access; the app services
+      # reach Postgres in-network on postgres:5432 regardless. If host :5432 is
+      # already taken (another project's DB), override without editing compose:
+      #   POSTGRES_PORT=5433 docker compose ... up   (or set it in .env)
+      - "${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: ${DB_USERNAME:-authvital}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-authvital}
       POSTGRES_DB: ${DB_DATABASE:-authvital}
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      # NAMED VOLUME (not a host bind mount). `down` keeps it; `down -v` wipes
+      # it; next `up` reseeds fresh. Declared in the top-level `volumes:` below.
+      - authvital-pgdata:/var/lib/postgresql/data
     networks:
       - authvital
     healthcheck:
@@ -148,3 +159,12 @@ networks:
   authvital:
     name: authvital
     driver: bridge
+
+# =============================================================================
+# Volumes
+# =============================================================================
+# Postgres data. Explicitly named so it's predictable regardless of the compose
+# project name. Clean reset is `docker compose down -v` (see header).
+volumes:
+  authvital-pgdata:
+    name: authvital-pgdata

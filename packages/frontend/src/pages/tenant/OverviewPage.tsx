@@ -1,47 +1,14 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Users, AppWindow, Mail, ArrowRight } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
-import { useToast } from '@/components/ui/Toast';
-import { tenantApi } from '@/lib/api';
-
-interface Stats {
-  memberCount: number;
-  pendingInvites: number;
-  appCount: number;
-}
+import { useTenant } from '@/contexts/TenantContext';
 
 /**
- * OverviewPage - Tenant dashboard showing stats and quick actions
+ * OverviewPage - Tenant dashboard showing stats and quick actions.
+ * Stats come from the shared TenantContext (fetched once by the provider).
  */
 export function OverviewPage() {
-  const { tenantId } = useParams<{ tenantId: string }>();
-  const { toast } = useToast();
-
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const loadStats = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const data = await tenantApi.getOverview(tenantId!);
-      setStats(data);
-    } catch (err: any) {
-      toast({
-        variant: 'error',
-        title: 'Error',
-        message: err?.message || 'Failed to load overview',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [tenantId, toast]);
-
-  useEffect(() => {
-    loadStats();
-  }, [loadStats]);
-
-
+  const { tenantId, stats, isLoading } = useTenant();
 
   if (isLoading) {
     return (

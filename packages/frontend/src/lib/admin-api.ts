@@ -6,6 +6,12 @@ import {
   webhooksContract,
   pubsubContract,
 } from '@authvital/contracts';
+import type {
+  CreateApplicationInput,
+  UpdateApplicationInput,
+  AddClientInput,
+  UpdateClientInput,
+} from '@authvital/contracts';
 
 // =============================================================================
 // ts-rest CLIENT CONFIGURATION
@@ -275,13 +281,21 @@ export const superAdminApi = {
   // APPLICATIONS
   // ===========================================================================
 
+  // --- Application containers (app-client-split — Phase 2/3) ---------------
+
   getAllApplications: async () =>
     unwrap(await saClient.getApplications()),
 
-  createApplication: async (appData: { name: string; [key: string]: any }) =>
-    unwrap(await saClient.createApplication({ body: appData })),
+  /** Container detail + clients[] (canonical AppWithClients shape). */
+  getApplication: async (appId: string) =>
+    unwrap(await saClient.getApplication({ params: { id: appId } })),
 
-  updateApplication: async (appId: string, updates: Record<string, any>) =>
+  /** Create a container + its FIRST credential in one call. */
+  createApplication: async (input: CreateApplicationInput) =>
+    unwrap(await saClient.createApplication({ body: input })),
+
+  /** Update container-level fields only (credentials go through /clients). */
+  updateApplication: async (appId: string, updates: UpdateApplicationInput) =>
     unwrap(await saClient.updateApplication({ params: { id: appId }, body: updates })),
 
   deleteApplication: async (appId: string) =>
@@ -293,11 +307,33 @@ export const superAdminApi = {
   enableApplication: async (appId: string) =>
     unwrap(await saClient.enableApplication({ params: { id: appId }, body: {} })),
 
-  regenerateClientSecret: async (appId: string) =>
-    unwrap(await saClient.regenerateClientSecret({ params: { id: appId }, body: {} })),
+  // --- Credentials (ApplicationClient): <=1 SPA + <=1 MACHINE per app ------
 
-  revokeClientSecret: async (appId: string) =>
-    unwrap(await saClient.revokeClientSecret({ params: { id: appId }, body: {} })),
+  /** Add a SPA or MACHINE credential. MACHINE responses carry a one-time secret. */
+  addClient: async (appId: string, input: AddClientInput) =>
+    unwrap(await saClient.addApplicationClient({ params: { id: appId }, body: input })),
+
+  /** Patch a credential's editable fields (type is immutable). */
+  updateClient: async (appId: string, clientId: string, updates: UpdateClientInput) =>
+    unwrap(await saClient.updateApplicationClient({ params: { id: appId, clientId }, body: updates })),
+
+  deleteClient: async (appId: string, clientId: string) =>
+    unwrap(await saClient.deleteApplicationClient({ params: { id: appId, clientId }, body: {} })),
+
+  /** Rotate a MACHINE credential secret — plaintext returned once. */
+  rotateClientSecret: async (appId: string, clientId: string) =>
+    unwrap(await saClient.rotateApplicationClientSecret({ params: { id: appId, clientId }, body: {} })),
+
+  // --- M2M authorization: tenant grants per MACHINE credential -------------
+
+  listClientTenantGrants: async (appId: string, clientId: string) =>
+    unwrap(await saClient.listClientTenantGrants({ params: { id: appId, clientId } })),
+
+  addClientTenantGrant: async (appId: string, clientId: string, tenantId: string) =>
+    unwrap(await saClient.addClientTenantGrant({ params: { id: appId, clientId }, body: { tenantId } })),
+
+  removeClientTenantGrant: async (appId: string, clientId: string, tenantId: string) =>
+    unwrap(await saClient.removeClientTenantGrant({ params: { id: appId, clientId, tenantId }, body: {} })),
 
   // ===========================================================================
   // ROLES

@@ -1,0 +1,23 @@
+{
+  "name": "@authvital/example-bff-express",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AuthVital example: Express BFF (PKCE, encrypted sessions, webhooks, M2M) using @authvital/server",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/index.js",
+    "dev": "tsc -p tsconfig.json && node dist/index.js"
+  },
+  "dependencies": {
+    "@authvital/server": "*",
+    "@authvital/core": "*",
+    "@authvital/shared": "*",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.4"
+  }
+}

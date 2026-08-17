@@ -1,222 +1,74 @@
-# Users Namespace
+# Users
 
-> User profile and account management operations.
+> Reading the current user and a user's MFA status.
 
-## Overview
+!!! info "There is no fluent `authvital.users.*` namespace"
+    Earlier drafts described `authvital.users.updateCurrentUser()`,
+    `.changePassword()`, `.getSessions()`, `.deleteAccount()`, etc. **The server
+    SDK does not expose those methods.** Profile editing, password changes and
+    account deletion are handled by AuthVital's hosted account UI and the backend
+    REST API — not by the SDK.
 
-The users namespace provides methods for managing user profiles, passwords, sessions, and account settings.
+    What the SDK **does** give you is:
 
-```typescript
-const users = authvital.users;
-```
+    - `client.getCurrentUser()` — the signed-in user's profile
+    - `client.integration.getUserMfaStatus({ userId })` — MFA status (M2M)
 
----
+## Get the current user
 
-## Profile Management
-
-### getCurrentUser()
-
-Get the current authenticated user's profile.
-
-```typescript
-const user = await authvital.users.getCurrentUser(request);
-
-console.log(user);
-// {
-//   id: 'user-123',
-//   email: 'user@example.com',
-//   givenName: 'John',
-//   familyName: 'Doe',
-//   pictureUrl: 'https://...',
-//   mfaEnabled: true,
-//   ...
-// }
-```
-
----
-
-### updateCurrentUser()
-
-Update the current user's profile.
+`getCurrentUser()` lives directly on the `ServerClient` and uses the session's
+user access token.
 
 ```typescript
-const updated = await authvital.users.updateCurrentUser(request, {
-  displayName: 'John D.',
-  givenName: 'John',
-  familyName: 'Doe',
-  zoneinfo: 'America/New_York',
-  locale: 'en-US',
-});
-```
+import { createServerClient } from '@authvital/server';
 
-**Updatable Fields:**
+const client = createServerClient(
+  { authVitalHost: process.env.AV_HOST!, clientId: process.env.AV_CLIENT_ID!, clientSecret: '' },
+  tokens, // SessionTokens from the validated session cookie
+);
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `displayName` | `string` | Display name |
-| `givenName` | `string` | First name |
-| `familyName` | `string` | Last name |
-| `middleName` | `string` | Middle name |
-| `nickname` | `string` | Nickname |
-| `pictureUrl` | `string` | Profile picture URL |
-| `website` | `string` | Personal website |
-| `zoneinfo` | `string` | Timezone (IANA) |
-| `locale` | `string` | Locale (e.g., 'en-US') |
-
----
-
-## Password Management
-
-### changePassword()
-
-Change the current user's password.
-
-```typescript
-await authvital.users.changePassword(request, {
-  currentPassword: 'old-password',
-  newPassword: 'new-secure-password',
-});
-```
-
----
-
-### requestEmailChange()
-
-Request email change (sends verification to new email).
-
-```typescript
-await authvital.users.requestEmailChange(request, {
-  newEmail: 'newemail@example.com',
-  password: 'current-password',
-});
-// Verification email sent to new address
-```
-
----
-
-## Session Management
-
-### getSessions()
-
-Get active sessions for the current user.
-
-```typescript
-const sessions = await authvital.users.getSessions(request);
-
-sessions.forEach(s => {
-  console.log(`${s.userAgent} - ${s.isCurrent ? 'Current' : s.lastActive}`);
-});
-```
-
----
-
-### revokeSession()
-
-Revoke a specific session.
-
-```typescript
-await authvital.users.revokeSession(request, 'session-123');
-```
-
----
-
-### revokeAllSessions()
-
-Revoke all sessions except the current one.
-
-```typescript
-const { count } = await authvital.users.revokeAllSessions(request);
-console.log(`Revoked ${count} sessions`);
-```
-
----
-
-## MFA Status
-
-### getMfaStatus()
-
-Get MFA status for a user.
-
-```typescript
-const { mfaEnabled, mfaVerifiedAt } = await authvital.users.getMfaStatus('user-123');
-
-if (!mfaEnabled && tenantPolicy === 'REQUIRED') {
-  // Redirect to MFA setup
+const user = await client.getCurrentUser(); // GET /api/users/me -> User | null
+if (!user) {
+  return res.status(401).json({ error: 'Unauthorized' });
 }
+res.json(user);
 ```
 
----
-
-## Account Deletion
-
-### deleteAccount()
-
-Delete the current user's account.
+Prefer reading identity attributes straight from the verified JWT claims when you
+can — it avoids a network round-trip:
 
 ```typescript
-await authvital.users.deleteAccount(request, {
-  password: 'current-password',
-  confirmation: 'DELETE MY ACCOUNT',
+import { verifyToken } from '@authvital/server';
+
+const { valid, payload } = await verifyToken(tokens.accessToken, {
+  jwksUri: `${process.env.AV_HOST}/.well-known/jwks.json`,
+  issuer: process.env.AV_HOST,
+  audience: process.env.AV_CLIENT_ID,
 });
+// payload.sub, payload.email, payload.given_name, ...
 ```
 
----
-
-## Complete Example
+## Get a user's MFA status (M2M)
 
 ```typescript
-import { createAuthVital } from '@authvital/sdk/server';
-import express from 'express';
-
-const authvital = createAuthVital({ /* config */ });
-const app = express();
-
-// Get current user profile
-app.get('/api/me', async (req, res) => {
-  const user = await authvital.users.getCurrentUser(req);
-  res.json(user);
-});
-
-// Update profile
-app.patch('/api/me', async (req, res) => {
-  const updated = await authvital.users.updateCurrentUser(req, req.body);
-  res.json(updated);
-});
-
-// Change password
-app.post('/api/me/password', async (req, res) => {
-  await authvital.users.changePassword(req, {
-    currentPassword: req.body.currentPassword,
-    newPassword: req.body.newPassword,
-  });
-  res.json({ success: true });
-});
-
-// Get active sessions
-app.get('/api/me/sessions', async (req, res) => {
-  const sessions = await authvital.users.getSessions(req);
-  res.json(sessions);
-});
-
-// Revoke session
-app.delete('/api/me/sessions/:id', async (req, res) => {
-  await authvital.users.revokeSession(req, req.params.id);
-  res.json({ success: true });
-});
-
-// Logout everywhere
-app.delete('/api/me/sessions', async (req, res) => {
-  const { count } = await authvital.users.revokeAllSessions(req);
-  res.json({ revoked: count });
-});
-
-// Delete account
-app.delete('/api/me', async (req, res) => {
-  await authvital.users.deleteAccount(req, {
-    password: req.body.password,
-    confirmation: req.body.confirmation,
-  });
-  res.clearCookie('access_token');
-  res.json({ success: true });
+const { enabled, methods } = await client.integration.getUserMfaStatus({
+  userId: 'user-123',
 });
 ```
+
+| Method | Params | Returns |
+|--------|--------|---------|
+| `client.getCurrentUser()` | – | `User \| null` |
+| `client.integration.getUserMfaStatus` | `{ userId }` | `{ enabled: boolean; methods?: string[] }` |
+
+## Profile edits, password changes, account deletion
+
+These are **not** part of the SDK. Options:
+
+1. Send users to AuthVital's hosted account pages, or
+2. Call the backend REST endpoints yourself with `client.get()/post()/patch()`
+   (see [API Reference → User API](../../../api/user-api.md) for the real routes).
+
+## See also
+
+- [Auth](./auth.md) · [MFA](./mfa.md) · [Integration API (overview)](./overview.md)

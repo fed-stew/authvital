@@ -12,6 +12,10 @@ import {
 import { TenantRolesService } from './tenant-roles.service';
 import { PermissionsService } from './permissions.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionGuard } from './guards/permission.guard';
+import { MembershipTenantGuard } from './guards/membership-tenant.guard';
+import { RequirePermission } from './decorators/require-permission.decorator';
+import { TENANT_PERMISSIONS } from './constants';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AssignTenantRoleDto } from './dto';
 
@@ -49,6 +53,8 @@ export class TenantRolesController {
    * Get a membership's tenant roles
    */
   @Get('memberships/:membershipId/tenant-roles')
+  @UseGuards(MembershipTenantGuard, PermissionGuard)
+  @RequirePermission(TENANT_PERMISSIONS.MEMBERS_VIEW)
   async getMembershipTenantRoles(
     @Param('membershipId') membershipId: string,
   ) {
@@ -60,6 +66,8 @@ export class TenantRolesController {
    * Assign a tenant role to a membership
    */
   @Post('memberships/:membershipId/tenant-roles')
+  @UseGuards(MembershipTenantGuard, PermissionGuard)
+  @RequirePermission(TENANT_PERMISSIONS.MEMBERS_MANAGE_ROLES)
   async assignTenantRole(
     @Param('membershipId') membershipId: string,
     @Body() dto: AssignTenantRoleDto,
@@ -82,6 +90,8 @@ export class TenantRolesController {
    * Remove a tenant role from a membership
    */
   @Delete('memberships/:membershipId/tenant-roles/:roleSlug')
+  @UseGuards(MembershipTenantGuard, PermissionGuard)
+  @RequirePermission(TENANT_PERMISSIONS.MEMBERS_MANAGE_ROLES)
   @HttpCode(HttpStatus.OK)
   async removeTenantRole(
     @Param('membershipId') membershipId: string,
@@ -96,6 +106,8 @@ export class TenantRolesController {
    * Get resolved tenant permissions for a membership
    */
   @Get('memberships/:membershipId/permissions')
+  @UseGuards(MembershipTenantGuard, PermissionGuard)
+  @RequirePermission(TENANT_PERMISSIONS.MEMBERS_VIEW)
   async getMembershipPermissions(
     @Param('membershipId') membershipId: string,
   ) {
@@ -158,6 +170,8 @@ export class TenantRolesController {
    * Get all permissions for a user in a tenant
    */
   @Get('users/:userId/tenants/:tenantId/permissions')
+  @UseGuards(MembershipTenantGuard, PermissionGuard)
+  @RequirePermission(TENANT_PERMISSIONS.MEMBERS_VIEW)
   async getUserPermissions(
     @Param('userId') userId: string,
     @Param('tenantId') tenantId: string,

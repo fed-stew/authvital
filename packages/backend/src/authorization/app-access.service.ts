@@ -33,21 +33,47 @@ export class AppAccessService {
   // ===========================================================================
 
   async grantAccess(input: GrantAccessInput): Promise<AppAccessInfoInternal> {
+    const accessType = input.accessType ?? AccessType.GRANTED;
+    this.logger.log(`Granting ${accessType} access: user=${input.userId}, app=${input.applicationId}`);
+
+    const { record, shouldDispatch } = await this.grantAccessTx(this.prisma, input);
+
+    if (shouldDispatch) {
+      this.dispatchAccessGrantedEvent({
+        tenantId: input.tenantId,
+        userId: input.userId,
+        applicationId: input.applicationId,
+        accessType,
+        grantedById: input.grantedById,
+        licenseAssignmentId: input.licenseAssignmentId,
+      }).catch((err) => this.logger.warn(`Failed to dispatch tenant.app.granted: ${err.message}`));
+    }
+
+    return record;
+  }
+
+  /**
+   * Grant access inside a CALLER-MANAGED transaction. DB write ONLY.
+   * The caller MUST dispatch the granted event AFTER the txn commits (using the
+   * returned `shouldDispatch`) so we never emit phantom events on a rollback.
+   */
+  async grantAccessTx(
+    tx: Prisma.TransactionClient,
+    input: GrantAccessInput,
+  ): Promise<{ record: AppAccessInfoInternal; shouldDispatch: boolean }> {
     const {
       tenantId, userId, applicationId,
       accessType = AccessType.GRANTED,
       grantedById, licenseAssignmentId,
     } = input;
 
-    this.logger.log(`Granting ${accessType} access: user=${userId}, app=${applicationId}`);
-
-    const existing = await this.prisma.appAccess.findUnique({
+    const existing = await tx.appAccess.findUnique({
       where: { userId_tenantId_applicationId: { userId, tenantId, applicationId } },
     });
 
     if (existing) {
       if (existing.status === AccessStatus.REVOKED || existing.status === AccessStatus.SUSPENDED) {
-        const reactivated = await this.prisma.appAccess.update({
+        const reactivated = await tx.appAccess.update({
           where: { id: existing.id },
           data: {
             status: AccessStatus.ACTIVE,
@@ -59,27 +85,23 @@ export class AppAccessService {
             licenseAssignmentId,
           },
         });
-        this.logger.log(`Reactivated access: ${reactivated.id}`);
-        this.dispatchAccessGrantedEvent({ tenantId, userId, applicationId, accessType, grantedById, licenseAssignmentId });
-        return reactivated;
+        return { record: reactivated, shouldDispatch: true };
       }
       if (licenseAssignmentId && existing.licenseAssignmentId !== licenseAssignmentId) {
-        return this.prisma.appAccess.update({
+        const relinked = await tx.appAccess.update({
           where: { id: existing.id },
           data: { licenseAssignmentId },
         });
+        return { record: relinked, shouldDispatch: false };
       }
-      return existing;
+      return { record: existing, shouldDispatch: false };
     }
 
-    const accessRecord = await this.prisma.appAccess.create({
+    const created = await tx.appAccess.create({
       data: { userId, tenantId, applicationId, accessType, status: AccessStatus.ACTIVE, grantedById, licenseAssignmentId },
     });
 
-    this.logger.log(`Created access: ${accessRecord.id}`);
-    this.dispatchAccessGrantedEvent({ tenantId, userId, applicationId, accessType, grantedById, licenseAssignmentId });
-
-    return accessRecord;
+    return { record: created, shouldDispatch: true };
   }
 
   async bulkGrantAccess(input: BulkGrantAccessInput): Promise<number> {
@@ -112,26 +134,47 @@ export class AppAccessService {
   // ===========================================================================
 
   async revokeAccess(input: RevokeAccessInput): Promise<AppAccessInfoInternal> {
+    this.logger.log(`Revoking access: user=${input.userId}, app=${input.applicationId}`);
+
+    const { record, shouldDispatch } = await this.revokeAccessTx(this.prisma, input);
+    if (!record) throw new NotFoundException('Access record not found');
+
+    if (shouldDispatch) {
+      this.dispatchAccessRevokedEvent({
+        tenantId: input.tenantId,
+        userId: input.userId,
+        applicationId: input.applicationId,
+        revokedById: input.revokedById,
+      }).catch((err) => this.logger.warn(`Failed to dispatch tenant.app.revoked: ${err.message}`));
+    }
+
+    return record;
+  }
+
+  /**
+   * Revoke access inside a CALLER-MANAGED transaction. DB write ONLY. Returns
+   * `record: null` when there was nothing to revoke (caller decides whether
+   * that's an error). Caller MUST dispatch the revoked event post-commit.
+   */
+  async revokeAccessTx(
+    tx: Prisma.TransactionClient,
+    input: RevokeAccessInput,
+  ): Promise<{ record: AppAccessInfoInternal | null; shouldDispatch: boolean }> {
     const { tenantId, userId, applicationId, revokedById } = input;
 
-    this.logger.log(`Revoking access: user=${userId}, app=${applicationId}`);
-
-    const existing = await this.prisma.appAccess.findUnique({
+    const existing = await tx.appAccess.findUnique({
       where: { userId_tenantId_applicationId: { userId, tenantId, applicationId } },
     });
 
-    if (!existing) throw new NotFoundException('Access record not found');
-    if (existing.status === AccessStatus.REVOKED) return existing;
+    if (!existing) return { record: null, shouldDispatch: false };
+    if (existing.status === AccessStatus.REVOKED) return { record: existing, shouldDispatch: false };
 
-    const revoked = await this.prisma.appAccess.update({
+    const revoked = await tx.appAccess.update({
       where: { id: existing.id },
       data: { status: AccessStatus.REVOKED, revokedAt: new Date(), revokedById },
     });
 
-    this.logger.log(`Revoked access: ${revoked.id}`);
-    this.dispatchAccessRevokedEvent({ tenantId, userId, applicationId, revokedById });
-
-    return revoked;
+    return { record: revoked, shouldDispatch: true };
   }
 
   async bulkRevokeAccess(tenantId: string, applicationId: string, userIds: string[], revokedById?: string): Promise<number> {
@@ -227,6 +270,103 @@ export class AppAccessService {
   }
 
   // ===========================================================================
+  // ACCESS MATRIX (members x apps in one shot)
+  // ===========================================================================
+
+  /**
+   * Build the members x apps access grid for a tenant in a SINGLE call, so the
+   * frontend matrix page can render without N per-app requests.
+   *
+   * The app set is the tenant's *relevant* apps: any app it has a subscription
+   * for OR any app that already has an access grant in this tenant. For each
+   * (member, app) cell we surface: hasAccess, the app-scoped role (if any) and
+   * the license type (if a seat is assigned).
+   *
+   * Tenant-scoped throughout: every query is filtered by tenantId (supplied by
+   * the caller from the authenticated context).
+   */
+  async getAccessMatrix(tenantId: string) {
+    // 1. Members (active + invited).
+    const memberships = await this.prisma.membership.findMany({
+      where: { tenantId, status: { in: ['ACTIVE', 'INVITED'] } },
+      include: {
+        user: { select: { id: true, email: true, givenName: true, familyName: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    // 2. Determine the relevant app set (subscriptions + existing access).
+    const [subs, accessRows, roleRows, licenseRows] = await Promise.all([
+      this.prisma.appSubscription.findMany({
+        where: { tenantId },
+        select: { applicationId: true },
+      }),
+      this.prisma.appAccess.findMany({
+        where: { tenantId },
+        select: { userId: true, applicationId: true, status: true },
+      }),
+      this.prisma.membershipRole.findMany({
+        where: { membership: { tenantId } },
+        select: {
+          membershipId: true,
+          role: { select: { name: true, applicationId: true } },
+        },
+      }),
+      this.prisma.licenseAssignment.findMany({
+        where: { tenantId },
+        select: { userId: true, applicationId: true, licenseTypeName: true },
+      }),
+    ]);
+
+    const appIds = new Set<string>();
+    subs.forEach((s) => appIds.add(s.applicationId));
+    accessRows.forEach((a) => appIds.add(a.applicationId));
+
+    const apps = await this.prisma.application.findMany({
+      where: { id: { in: [...appIds] } },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+
+    // 3. Index the supporting data for O(1) cell lookups.
+    const accessByUserApp = new Map<string, boolean>();
+    accessRows.forEach((a) =>
+      accessByUserApp.set(`${a.userId}:${a.applicationId}`, a.status === AccessStatus.ACTIVE),
+    );
+
+    const roleByMembershipApp = new Map<string, string>();
+    roleRows.forEach((r) =>
+      roleByMembershipApp.set(`${r.membershipId}:${r.role.applicationId}`, r.role.name),
+    );
+
+    const licenseByUserApp = new Map<string, string>();
+    licenseRows.forEach((l) =>
+      licenseByUserApp.set(`${l.userId}:${l.applicationId}`, l.licenseTypeName),
+    );
+
+    // 4. Assemble the grid.
+    const members = memberships.map((m) => ({
+      userId: m.user.id,
+      email: m.user.email,
+      name:
+        [m.user.givenName, m.user.familyName].filter(Boolean).join(' ') || m.user.email,
+      apps: apps.map((app) => ({
+        appId: app.id,
+        appName: app.name,
+        hasAccess: accessByUserApp.get(`${m.user.id}:${app.id}`) ?? false,
+        role: roleByMembershipApp.get(`${m.id}:${app.id}`) ?? null,
+        licenseType: licenseByUserApp.get(`${m.user.id}:${app.id}`) ?? null,
+      })),
+    }));
+
+    return {
+      tenantId,
+      apps: apps.map((a) => ({ appId: a.id, appName: a.name })),
+      members,
+    };
+  }
+
+  // ===========================================================================
   // AUTO-GRANT HELPERS (Delegated)
   // ===========================================================================
 
@@ -250,7 +390,7 @@ export class AppAccessService {
   // PRIVATE HELPERS
   // ===========================================================================
 
-  private async dispatchAccessGrantedEvent(params: {
+  async dispatchAccessGrantedEvent(params: {
     tenantId: string; userId: string; applicationId: string; accessType: AccessType; grantedById?: string; licenseAssignmentId?: string;
   }): Promise<void> {
     const { tenantId, userId, applicationId, accessType, grantedById, licenseAssignmentId } = params;
@@ -275,7 +415,7 @@ export class AppAccessService {
     });
   }
 
-  private async dispatchAccessRevokedEvent(params: {
+  async dispatchAccessRevokedEvent(params: {
     tenantId: string; userId: string; applicationId: string; revokedById?: string;
   }): Promise<void> {
     const { tenantId, userId, applicationId, revokedById } = params;

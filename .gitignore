@@ -33,6 +33,7 @@ node_modules/
 dist/
 build/
 out/
+*.tgz
 .next/
 .nuxt/
 .output/

@@ -14,19 +14,29 @@ Returns OIDC discovery document.
 {
   "issuer": "https://auth.example.com",
   "authorization_endpoint": "https://auth.example.com/oauth/authorize",
-  "token_endpoint": "https://auth.example.com/api/oauth/token",
-  "userinfo_endpoint": "https://auth.example.com/api/oauth/userinfo",
-  "jwks_uri": "https://auth.example.com/api/oauth/jwks",
-  "end_session_endpoint": "https://auth.example.com/api/oauth/logout",
+  "token_endpoint": "https://auth.example.com/oauth/token",
+  "userinfo_endpoint": "https://auth.example.com/oauth/userinfo",
+  "jwks_uri": "https://auth.example.com/.well-known/jwks.json",
+  "revocation_endpoint": "https://auth.example.com/oauth/revoke",
+  "introspection_endpoint": "https://auth.example.com/oauth/introspect",
+  "end_session_endpoint": "https://auth.example.com/oauth/logout",
+  "check_session_iframe": "https://auth.example.com/oauth/check-session",
   "scopes_supported": ["openid", "profile", "email", "offline_access"],
   "response_types_supported": ["code"],
+  "response_modes_supported": ["query"],
   "grant_types_supported": ["authorization_code", "refresh_token", "client_credentials"],
-  "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post", "none"],
+  "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
   "subject_types_supported": ["public"],
   "id_token_signing_alg_values_supported": ["RS256"],
-  "code_challenge_methods_supported": ["S256", "plain"]
+  "code_challenge_methods_supported": ["S256"]
 }
 ```
+
+!!! note "Endpoint paths are NOT under `/api`"
+    OAuth endpoints live at `/oauth/*` and discovery at `/.well-known/*` — the
+    backend explicitly **excludes** these from its global `/api` prefix
+    (`main.ts`). Only `S256` PKCE is supported (no `plain`), and public clients
+    authenticate with PKCE (there is no `none` auth method advertised).
 
 ---
 
@@ -91,7 +101,7 @@ https://app.example.com/callback?
 
 ## Token Endpoint
 
-### POST /api/oauth/token
+### POST /oauth/token
 
 Exchange authorization code for tokens.
 
@@ -102,7 +112,7 @@ Exchange authorization code for tokens.
 **Request:**
 
 ```
-POST /api/oauth/token
+POST /oauth/token
 Content-Type: application/x-www-form-urlencoded
 
 grant_type=authorization_code&
@@ -122,14 +132,21 @@ code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk
 | `client_secret` | string | Yes** | For confidential clients |
 
 *Required if `code_challenge` was sent.
-**Required for MACHINE type clients.
+**Required for a MACHINE credential.
+
+!!! note "Which credential handles which grant"
+    `authorization_code` (+ PKCE) is served by an app's **SPA credential**;
+    `client_credentials` is served by its **MACHINE credential**. A single App
+    (container) may hold both — a BFF holds a SPA credential for user login and a
+    MACHINE credential for server-to-server. See
+    [Data Models: ApplicationClient](../reference/data-models.md#applicationclient-credential).
 
 ### Refresh Token Grant
 
 **Request:**
 
 ```
-POST /api/oauth/token
+POST /oauth/token
 Content-Type: application/x-www-form-urlencoded
 
 grant_type=refresh_token&
@@ -139,12 +156,12 @@ client_id=your-client-id
 
 ### Client Credentials Grant
 
-For MACHINE type clients only.
+For a **MACHINE credential** only (not a SPA credential).
 
 **Request:**
 
 ```
-POST /api/oauth/token
+POST /oauth/token
 Content-Type: application/x-www-form-urlencoded
 
 grant_type=client_credentials&
@@ -190,7 +207,7 @@ scope=api:read+api:write
 
 ## UserInfo Endpoint
 
-### GET /api/oauth/userinfo
+### GET /oauth/userinfo
 
 Get user profile information.
 
@@ -224,9 +241,9 @@ Claims returned depend on requested scopes:
 
 ## JWKS Endpoint
 
-### GET /api/oauth/jwks
+### GET /.well-known/jwks.json
 
-Get JSON Web Key Set for verifying tokens.
+Get the JSON Web Key Set (RSA public keys) for verifying tokens.
 
 **Response:**
 
@@ -249,7 +266,7 @@ Get JSON Web Key Set for verifying tokens.
 
 ## Logout Endpoint
 
-### GET/POST /api/oauth/logout
+### GET/POST /oauth/logout
 
 End session and revoke tokens.
 
@@ -264,7 +281,7 @@ End session and revoke tokens.
 **Example:**
 
 ```
-GET /api/oauth/logout?
+GET /oauth/logout?
   id_token_hint=eyJ...&
   post_logout_redirect_uri=https://app.example.com&
   state=abc123
@@ -278,14 +295,14 @@ Redirects to `post_logout_redirect_uri` if provided and valid, otherwise shows l
 
 ## Revoke Token
 
-### POST /api/oauth/revoke
+### POST /oauth/revoke
 
 Revoke a refresh token.
 
 **Request:**
 
 ```
-POST /api/oauth/revoke
+POST /oauth/revoke
 Content-Type: application/x-www-form-urlencoded
 
 token=eyJ...&
@@ -307,14 +324,14 @@ Always returns 200 (even if token was already invalid) per RFC 7009.
 
 ## Introspect Token
 
-### POST /api/oauth/introspect
+### POST /oauth/introspect
 
 Check if token is valid (for resource servers).
 
 **Request:**
 
 ```
-POST /api/oauth/introspect
+POST /oauth/introspect
 Content-Type: application/x-www-form-urlencoded
 Authorization: Basic <client_credentials>
 
@@ -355,124 +372,152 @@ token=eyJ...
 
 ---
 
-## SDK Examples
+## Using the SDK
 
-The `@authvital/sdk` handles PKCE, state management, and token exchange automatically:
+The real server SDK (`@authvital/server`) wraps this flow with the **`OAuthFlow`**
+class — it generates PKCE + state, builds the authorize URL, and exchanges the
+code. (There are no `generatePKCE` / `buildAuthorizeUrl` / `exchangeCodeForTokens`
+/ `refreshAccessToken` / `createAuthVital` free functions.)
 
 ```bash
-npm install @authvital/sdk
+npm install @authvital/server
 ```
 
-### Authorization Code Flow with PKCE
+### Authorization Code + PKCE (Express)
 
 ```typescript
-import {
-  generatePKCE,
-  buildAuthorizeUrl,
-  generateState,
-} from '@authvital/sdk/server';
+import { OAuthFlow } from '@authvital/server';
 
-// === SERVER-SIDE (Express/Node.js) ===
+const flow = new OAuthFlow({
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  redirectUri: 'https://app.example.com/callback',
+  // clientSecret is optional — omit it for public (PKCE) clients
+});
 
-// Step 1: Generate PKCE and state
+// Step 1: start the flow
 app.get('/auth/login', (req, res) => {
-  const { codeVerifier, codeChallenge } = generatePKCE();
-  const state = generateState();
-
-  // Store in server-side session (Express session, Redis, etc.)
-  req.session.pkce_verifier = codeVerifier;
-  req.session.oauth_state = state;
-
-  // Build and redirect to authorization URL
-  const authorizeUrl = buildAuthorizeUrl({
-    authVitalHost: 'https://auth.example.com',
-    clientId: 'your-client-id',
-    redirectUri: 'https://app.example.com/callback',
-    codeChallenge,
-    codeChallengeMethod: 'S256',
-    scope: 'openid profile email offline_access',
-    state,
+  const { authorizeUrl, state, codeVerifier } = flow.startFlow({
+    // appState is round-tripped back to you on callback
+    appState: { returnTo: '/dashboard' },
   });
-
+  req.session.oauth_state = state;
+  req.session.pkce_verifier = codeVerifier;
   res.redirect(authorizeUrl);
 });
 
-// === BROWSER-SIDE (SPA) ===
-// If building a pure SPA without a backend session:
-
-// Store in sessionStorage (cleared on tab close - more secure than localStorage)
-sessionStorage.setItem('pkce_verifier', codeVerifier);
-sessionStorage.setItem('oauth_state', state);
-
-// Redirect to authorize URL
-window.location.href = authorizeUrl;
-```
-
-### Handle Callback and Exchange Code
-
-```typescript
-import { exchangeCodeForTokens } from '@authvital/sdk/server';
-
-// In your callback handler
+// Step 2: handle the callback
 app.get('/callback', async (req, res) => {
-  const { code, state } = req.query;
-
-  // Verify state matches (CSRF protection)
-  if (state !== req.session.oauth_state) {
-    return res.status(400).json({ error: 'State mismatch' });
-  }
-
-  // Exchange code for tokens (SDK handles PKCE automatically)
-  const tokens = await exchangeCodeForTokens({
-    authVitalHost: process.env.AV_HOST!,
-    clientId: process.env.AV_CLIENT_ID!,
-    code: code as string,
-    codeVerifier: req.session.pkce_verifier,
-    redirectUri: 'https://app.example.com/callback',
-  });
-
-  // Set httpOnly cookie and redirect
+  const { tokens, appState } = await flow.handleCallback(
+    String(req.query.code),
+    String(req.query.state),
+    req.session.oauth_state,      // expected state (CSRF check)
+    req.session.pkce_verifier,    // PKCE verifier
+  );
   res.cookie('access_token', tokens.access_token, { httpOnly: true, secure: true });
-  res.redirect('/dashboard');
+  res.redirect(appState?.returnTo ?? '/dashboard');
 });
 ```
 
-### Token Refresh
+### Token refresh
 
 ```typescript
-import { refreshAccessToken } from '@authvital/sdk/server';
-
-const newTokens = await refreshAccessToken({
-  authVitalHost: process.env.AV_HOST!,
-  clientId: process.env.AV_CLIENT_ID!,
-  refreshToken: storedRefreshToken,
-});
-
-// Important: Store the new refresh token (AuthVital rotates them)
+const newTokens = await flow.refreshTokens(storedRefreshToken);
+// AuthVital rotates refresh tokens — persist the new one:
 storeRefreshToken(newTokens.refresh_token);
 ```
 
 ### Client Credentials (M2M)
 
-```typescript
-import { createAuthVital } from '@authvital/sdk/server';
+Use `createServerClient` — its `.integration.*` methods obtain and cache an M2M
+token automatically (there is no `authvital.memberships`/`admin`/`licenses`
+fluent namespace):
 
-// The SDK handles client_credentials automatically for M2M calls
-const authvital = createAuthVital({
+```typescript
+import { createServerClient } from '@authvital/server';
+
+const client = createServerClient({
   authVitalHost: process.env.AV_HOST!,
   clientId: process.env.AV_CLIENT_ID!,
   clientSecret: process.env.AV_CLIENT_SECRET!,
 });
 
-// For user-context operations, pass the request (JWT is extracted automatically):
-const members = await authvital.memberships.listForTenant(req);
-
-// For admin/M2M operations without user context, use the admin namespace:
-const settings = await authvital.admin.getInstanceSettings();
-
-// Or for tenant-specific M2M operations, use the licenses admin methods:
-const overview = await authvital.licenses.getTenantOverview('tenant-123');
+const { memberships } = await client.integration.listTenantMembers({ tenantId: 'tenant-123' });
 ```
+
+See [Server SDK: OAuth Flow](../sdk/server-sdk/oauth-flow.md) and the
+[integration namespace overview](../sdk/server-sdk/namespaces/overview.md).
+
+### Integration API authorization (deny-by-default)
+
+The Integration API (`/api/integration/*`) is exclusively M2M
+(`client_credentials`) and is **deny-by-default**. A valid M2M token is
+*necessary but not sufficient* — every request must **also** (a) carry the
+required scope and (b) be authorized for the tenant it targets.
+
+> **These settings live on the MACHINE credential of an app.**
+> `m2mTrustedAllTenants`, `m2mTenantGrants`, and the allowed scopes are
+> properties of the app's **MACHINE credential** (`ApplicationClient`), not the
+> App container and not any sibling SPA credential. The SPA credential of the
+> same app (used for `authorization_code` + PKCE login) is unaffected by M2M
+> authorization.
+
+!!! warning "Breaking change — existing MACHINE clients are denied until configured"
+    After upgrading and running the DB migration, **all existing MACHINE clients
+    are deny-by-default**. Until a client is given `allowed_scopes` **and**
+    either "trusted for all tenants" or explicit per-tenant grants, it will
+    receive empty-scope tokens and `403` on every integration call. The old
+    implicit `system:admin` default is **gone**. The bundled `examples`
+    `backend-api` client is seeded with `m2m_trusted_all_tenants: true` and
+    `allowed_scopes: [integration:read, integration:write]`, so the Web BFF keeps
+    working after `make fresh`.
+
+#### Scope enforcement
+
+The token endpoint now validates the requested `scope` against the
+application's configured **Allowed Scopes**:
+
+- Requesting a scope **not** in the allow-list → `400 invalid_scope`.
+- Requesting **no** scope → the token receives the app's **full** allowed-scope
+  set. (The SDK's `client.integration.*` requests no explicit scope, so it
+  automatically receives the app's allowed scopes.)
+
+Two scopes gate the integration endpoints:
+
+| Scope | Grants access to |
+|-------|------------------|
+| `integration:read` | All read endpoints, plus permission / feature / seat checks |
+| `integration:write` | Mutations: invite, revoke/resend invitation, grant/revoke/change-license, set-member-role |
+
+#### Tenant authorization
+
+Each integration endpoint checks that the client is authorized for the tenant it
+targets. Authorization is granted two ways on a **MACHINE credential**:
+
+- **Trusted for all tenants** (`m2mTrustedAllTenants`) — for first-party
+  operator backends; grants access to *every* tenant.
+- **Explicit per-tenant grants** (`m2mTenantGrants`) — the client may only act
+  on the listed tenants.
+
+Special cases:
+
+- **Cross-tenant endpoints** that target no single tenant — `user-tenants`,
+  `user-mfa-status`, and `application-memberships` (without a `tenantId`) —
+  **require "trusted for all tenants"**.
+- **Tenant-agnostic endpoints** — `roles/:clientId`, `tenant-roles` — require
+  only the scope (no tenant authorization).
+
+#### Possible errors
+
+| Status | Error | Meaning |
+|--------|-------|---------|
+| `400` | `invalid_scope: ...` | Requested a scope outside the app's Allowed Scopes |
+| `403` | `insufficient_scope: requires [...]` | Token lacks the scope the endpoint needs |
+| `403` | `M2M client is not authorized for tenant '<id>'` | No trusted-all and no grant for that tenant |
+| `403` | `M2M client is not authorized for cross-tenant access` | Cross-tenant endpoint without trusted-all |
+
+Configure all of the above per application — see
+[Application Setup: M2M Authorization](../admin/application-setup.md#m2m-authorization-machine-credentials).
 
 ---
 

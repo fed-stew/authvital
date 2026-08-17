@@ -204,15 +204,24 @@ export class IntegrationTenantsService {
     // Get instance branding for initiateLoginUri fallback
     const instanceBranding = await this.instanceService.getBrandingConfig();
 
-    // Get the application
-    const application = await this.prisma.application.findUnique({
+    // clientId identifies an ApplicationClient; flatten to the container shape.
+    const client = await this.prisma.applicationClient.findUnique({
       where: { clientId },
-      select: { id: true, name: true, clientId: true },
+      select: {
+        clientId: true,
+        application: { select: { id: true, name: true } },
+      },
     });
 
-    if (!application) {
+    if (!client) {
       throw new NotFoundException('Application not found');
     }
+
+    const application = {
+      id: client.application.id,
+      name: client.application.name,
+      clientId: client.clientId,
+    };
 
     // Build the query - find memberships that have roles for this application
     const whereClause: Prisma.MembershipWhereInput = {

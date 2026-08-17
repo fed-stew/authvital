@@ -2,6 +2,24 @@
 
 > Configure Google and Microsoft SSO for your AuthVital instance.
 
+!!! warning "Code samples: the `authvital.admin.*` / `authvital.tenants.*` / `authvital.sso.*` API is not real"
+    The SSO concepts and setup steps here are accurate, but the SDK snippets use
+    a fluent API that **does not exist**. SSO configuration is an admin operation
+    and is **not** part of the Server SDK. Reality:
+
+    - `authvital.admin.configureSso(...)` / `authvital.tenants.configureSso(...)`
+      / `authvital.tenants.getSsoConfig(...)` -> use the **AuthVital Admin
+      Console**, or the REST endpoints under `/api/tenants/:tenantId/sso/*`.
+    - `authvital.sso.getAvailableProviders()` /
+      `authvital.sso.getProvidersForTenant(slug)` -> `GET /api/auth/sso/providers?tenant_slug=<slug>`
+      returns `{ providers: [{ provider, name, enforced }] }`.
+    - `authvital.sso.initiateLink(...)` / `authvital.sso.getLoginUrl(...)` ->
+      redirect the browser to `GET /api/auth/sso/:provider/authorize?tenant_slug=<slug>&redirect_uri=<uri>`.
+    - `authvital.sso.unlink(...)` -> there is no SDK method; manage links via the
+      Admin Console / REST.
+
+    React hooks (`useAuth`) come from `@authvital/browser/react`.
+
 ## Overview
 
 AuthVital supports SSO with:
@@ -293,14 +311,15 @@ Show SSO options on login page:
 
 ```tsx
 import { useState, useEffect } from 'react';
-import { useAuth } from '@authvital/sdk/client';
+import { useAuth } from '@authvital/browser/react';
 
-// NOTE: SSO provider information comes from your backend.
-// Server-side (your API route):
-//   const providers = await authvital.sso.getAvailableProviders();
+// NOTE: SSO provider information comes from your backend, which proxies
+// AuthVital's public endpoint:
+//   GET /api/auth/sso/providers?tenant_slug=<slug>
+//     -> { providers: [{ provider, name, enforced }] }
 //
-// For SSO login, redirect to the provider URL:
-//   const loginUrl = await authvital.sso.getLoginUrl(provider, { redirectUri, ... });
+// For SSO login, redirect the browser to:
+//   GET /api/auth/sso/:provider/authorize?tenant_slug=<slug>&redirect_uri=<uri>
 
 function LoginPage() {
   const [ssoProviders, setSsoProviders] = useState([]);
@@ -355,18 +374,19 @@ function SsoButtons({ providers }) {
 
 For tenant-scoped login pages, you'll need a backend endpoint to fetch SSO config:
 
-**Backend (using SDK):**
+**Backend (proxy AuthVital's public SSO endpoint):**
 
 ```typescript
-import { createAuthVital } from '@authvital/sdk/server';
-
-const authvital = createAuthVital({ /* config */ });
-
-// Public endpoint to get tenant SSO info
+// There is no createAuthVital / authvital.sso.* API. Proxy AuthVital's real
+// public endpoint from your backend:
 app.get('/api/tenants/:slug/sso-info', async (req, res) => {
   try {
-    const providers = await authvital.sso.getProvidersForTenant(req.params.slug);
-    res.json(providers);
+    const response = await fetch(
+      `${process.env.AV_HOST}/api/auth/sso/providers?tenant_slug=${encodeURIComponent(req.params.slug)}`,
+    );
+    if (!response.ok) throw new Error('Tenant not found');
+    const { providers } = await response.json();
+    res.json(providers); // [{ provider, name, enforced }]
   } catch (error) {
     res.status(404).json({ error: 'Tenant not found' });
   }

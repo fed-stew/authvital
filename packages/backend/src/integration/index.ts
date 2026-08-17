@@ -12,3 +12,4 @@
 export * from './integration.module';
 export * from './services';
 export * from './types';
+export * from './m2m-authz';

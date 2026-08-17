@@ -26,7 +26,7 @@ export class LicenseAssignmentBulkService {
   async revokeAllUserLicenses(tenantId: string, userId: string): Promise<number> {
     const assignments = await this.prisma.licenseAssignment.findMany({
       where: { tenantId, userId },
-      select: { id: true, subscriptionId: true },
+      select: { id: true, subscriptionId: true, applicationId: true },
     });
 
     if (assignments.length === 0) return 0;
@@ -66,6 +66,18 @@ export class LicenseAssignmentBulkService {
         })
         .catch((err) =>
           this.logger.warn(`Failed to emit app_access.revoked for app ${access.applicationId}: ${err.message}`),
+        );
+    }
+
+    for (const assignment of assignments) {
+      this.syncEventService
+        .emit(SYNC_EVENT_TYPES.LICENSE_REVOKED, tenantId, assignment.applicationId, {
+          assignment_id: assignment.id,
+          sub: userId,
+          email: user?.email,
+        })
+        .catch((err) =>
+          this.logger.warn(`Failed to emit license.revoked for app ${assignment.applicationId}: ${err.message}`),
         );
     }
 

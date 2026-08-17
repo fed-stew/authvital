@@ -7,6 +7,9 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../../audit/audit.service';
+import { AUDIT_ACTIONS, AUDIT_TARGET_TYPES } from '../../audit/audit-actions';
+import { M2mTenantAuthService } from '../m2m-authz';
 import * as crypto from 'crypto';
 
 /**
@@ -24,6 +27,8 @@ export class IntegrationInvitationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly auditService: AuditService,
+    private readonly m2mTenantAuth: M2mTenantAuthService,
   ) {
     this.idpBaseUrl = this.configService.getOrThrow<string>('BASE_URL');
   }
@@ -175,6 +180,20 @@ export class IntegrationInvitationsService {
     this.logger.log(`🔗 ${inviteUrl}`);
     this.logger.log(`${'='.repeat(60)}\n`);
 
+    // M2M-initiated (no human actor); tenant + target are still recorded.
+    await this.auditService.log({
+      tenantId,
+      action: AUDIT_ACTIONS.INVITE_CREATED,
+      targetType: AUDIT_TARGET_TYPES.INVITATION,
+      targetId: result.invitation.id,
+      metadata: {
+        email: result.invitation.email,
+        roleId,
+        membershipId: result.membership.id,
+        clientId: clientId ?? null,
+      },
+    });
+
     // Only return sub and expiresAt - no sensitive info
     return {
       sub: user.id,
@@ -252,6 +271,7 @@ export class IntegrationInvitationsService {
    */
   async resendInvitation(
     invitationId: string,
+    clientId: string,
     options?: { expiresInDays?: number },
   ): Promise<{ expiresAt: Date }> {
     const invitation = await this.prisma.invitation.findUnique({
@@ -271,6 +291,9 @@ export class IntegrationInvitationsService {
     if (!invitation) {
       throw new NotFoundException('Invitation not found');
     }
+
+    // Record-derived tenant: enforce M2M client access before any mutation.
+    await this.m2mTenantAuth.assertTenantAccess(clientId, invitation.tenantId);
 
     if (invitation.consumedAt) {
       throw new BadRequestException('This invitation has already been consumed');
@@ -318,7 +341,10 @@ export class IntegrationInvitationsService {
    * Revoke an invitation
    * Deletes the invitation record entirely
    */
-  async revokeInvitation(invitationId: string): Promise<{ success: boolean; message: string }> {
+  async revokeInvitation(
+    invitationId: string,
+    clientId: string,
+  ): Promise<{ success: boolean; message: string }> {
     const invitation = await this.prisma.invitation.findUnique({
       where: { id: invitationId },
     });
@@ -327,12 +353,23 @@ export class IntegrationInvitationsService {
       throw new NotFoundException('Invitation not found');
     }
 
+    // Record-derived tenant: enforce M2M client access before any mutation.
+    await this.m2mTenantAuth.assertTenantAccess(clientId, invitation.tenantId);
+
     if (invitation.consumedAt) {
       throw new BadRequestException('Cannot revoke an already consumed invitation');
     }
 
     await this.prisma.invitation.delete({
       where: { id: invitationId },
+    });
+
+    await this.auditService.log({
+      tenantId: invitation.tenantId,
+      action: AUDIT_ACTIONS.INVITE_REVOKED,
+      targetType: AUDIT_TARGET_TYPES.INVITATION,
+      targetId: invitationId,
+      metadata: { email: invitation.email },
     });
 
     return { success: true, message: 'Invitation revoked successfully' };

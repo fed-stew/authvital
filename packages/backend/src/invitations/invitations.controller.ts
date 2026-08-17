@@ -6,9 +6,10 @@ import {
   Patch,
   Body,
   Param,
-  Req,
   Res,
   Logger,
+  UseGuards,
+  applyDecorators,
 } from "@nestjs/common";
 import { Response } from "express";
 import {
@@ -22,9 +23,33 @@ import {
 import { InvitationsService } from "./invitations.service";
 import { AuthService } from "../auth/auth.service";
 import { getSessionCookieOptions } from "../common/utils/cookie.utils";
+import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
+import { TenantIdentifierGuard } from "../tenants/guards";
+import { PermissionGuard } from "../authorization/guards/permission.guard";
+import { RequirePermission } from "../authorization/decorators/require-permission.decorator";
+import { TENANT_PERMISSIONS } from "../authorization/constants";
+import { CurrentUser } from "../auth/decorators/current-user.decorator";
 
 // Alias for clarity
 const getIdpCookieOptions = getSessionCookieOptions;
+
+/**
+ * Tenant-admin auth stack for invitation MANAGEMENT routes, declared once (DRY):
+ *   JwtAuthGuard         -> authenticate the caller (Authorization: Bearer)
+ *   TenantIdentifierGuard -> normalise any tenant slug in params/body to its id
+ *   PermissionGuard      -> enforce @RequirePermission against the caller's
+ *                           tenant permissions AND that any tenantId referenced
+ *                           in the request matches the caller's JWT tenant.
+ *
+ * This mirrors how MembersController guards itself. It is applied per-handler so
+ * the PUBLIC invitee routes (token lookup + accept) stay unauthenticated.
+ */
+function RequireInvitationPermission(permission: string) {
+  return applyDecorators(
+    UseGuards(JwtAuthGuard, TenantIdentifierGuard, PermissionGuard),
+    RequirePermission(permission),
+  );
+}
 
 // =============================================================================
 // DTOs
@@ -125,17 +150,22 @@ export class InvitationsController {
   // ===========================================================================
 
   /**
-   * Create an invitation
-   * TODO: Re-add auth once working
+   * Create an invitation (tenant-admin only).
+   *
+   * Tenant is pinned from the authenticated JWT context, never blindly trusted
+   * from the body. PermissionGuard already rejects a body `tenantId` that does
+   * not match the caller's JWT tenant; overriding it here is defence-in-depth.
    */
   @Post()
+  @RequireInvitationPermission(TENANT_PERMISSIONS.MEMBERS_INVITE)
   async createInvitation(
     @Body() dto: CreateInvitationDto,
-    @Req() req: { user?: { sub: string } },
+    @CurrentUser() user: { sub: string; tenant_id?: string },
   ) {
     return this.invitationsService.createInvitation({
       ...dto,
-      invitedById: req.user?.sub,
+      tenantId: user.tenant_id ?? dto.tenantId,
+      invitedById: user.sub,
     });
   }
 
@@ -200,39 +230,54 @@ export class InvitationsController {
   }
 
   /**
-   * List pending invitations for a tenant
-   * TODO: Re-add auth once working
+   * List pending invitations for a tenant (tenant-admin only).
+   * The :tenantId is normalised to an id and validated against the caller's
+   * JWT tenant by PermissionGuard.
    */
   @Get("tenant/:tenantId")
+  @RequireInvitationPermission(TENANT_PERMISSIONS.MEMBERS_VIEW)
   async listTenantInvitations(@Param("tenantId") tenantId: string) {
     return this.invitationsService.listTenantInvitations(tenantId);
   }
 
   /**
-   * Resend invitation email
+   * Resend invitation email (tenant-admin only).
+   * Scoped to the caller's tenant to prevent cross-tenant invitation IDOR.
    */
   @Post(":id/resend")
-  async resendInvitation(@Param("id") id: string) {
-    return this.invitationsService.resendInvitationEmail(id);
+  @RequireInvitationPermission(TENANT_PERMISSIONS.MEMBERS_INVITE)
+  async resendInvitation(
+    @Param("id") id: string,
+    @CurrentUser("tenant_id") tenantId: string,
+  ) {
+    return this.invitationsService.resendInvitationEmail(id, tenantId);
   }
 
   /**
-   * Update invitation (e.g., change role)
+   * Update invitation (e.g., change role) (tenant-admin only).
+   * Changing a role is a role-management operation, matching MembersController's
+   * changeMemberRole permission. Scoped to the caller's tenant.
    */
   @Patch(":id")
+  @RequireInvitationPermission(TENANT_PERMISSIONS.MEMBERS_MANAGE_ROLES)
   async updateInvitation(
     @Param("id") id: string,
     @Body() dto: UpdateInvitationDto,
+    @CurrentUser("tenant_id") tenantId: string,
   ) {
-    return this.invitationsService.updateInvitation(id, dto);
+    return this.invitationsService.updateInvitation(id, dto, tenantId);
   }
 
   /**
-   * Revoke an invitation
-   * TODO: Re-add auth once working
+   * Revoke an invitation (tenant-admin only).
+   * Scoped to the caller's tenant to prevent cross-tenant invitation IDOR.
    */
   @Delete(":id")
-  async revokeInvitation(@Param("id") id: string) {
-    return this.invitationsService.revokeInvitation(id);
+  @RequireInvitationPermission(TENANT_PERMISSIONS.MEMBERS_INVITE)
+  async revokeInvitation(
+    @Param("id") id: string,
+    @CurrentUser("tenant_id") tenantId: string,
+  ) {
+    return this.invitationsService.revokeInvitation(id, tenantId);
   }
 }

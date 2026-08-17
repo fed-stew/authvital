@@ -2,15 +2,60 @@
 
 > Managing your organization's AuthVital tenant.
 
+!!! warning "Code samples: the fluent `authvital.*` API on this page is NOT real"
+    This guide predates the real SDK and shows a fictional request-scoped API
+    (`authvital.getCurrentUser(req)`, `authvital.memberships.*(req, …)`,
+    `authvital.invitations.*(req, …)`, `authvital.licenses.*(req, …)`,
+    `authvital.tenants.*`). **None of those methods exist.** Treat every snippet
+    below as illustrative pseudocode. The real equivalents (verified against
+    `packages/sdk-server/src/client/integration.ts`) are:
+
+    | Fictional call | Real approach |
+    |----------------|---------------|
+    | `authvital.getCurrentUser(req)` | `verifyToken(token, …)` then read claims — [JWT Validation](../sdk/server-sdk/jwt-validation.md) |
+    | `authvital.memberships.listForTenant(req, …)` | `client.integration.listTenantMembers({ tenantId, status?, includeRoles? })` |
+    | `authvital.memberships.getTenantRoles()` | `client.integration.getTenantRoles({ tenantId? })` |
+    | `authvital.memberships.setMemberRole(req, id, slug)` | `client.integration.setMemberRole({ membershipId, roleId, applicationId })` (sets an **application** role) |
+    | `authvital.invitations.send(req, …)` | `client.integration.sendInvitation({ tenantId, email, roleId, clientId? })` (`roleId` required — a TenantRole id) |
+    | `authvital.invitations.listPending(req)` | `client.integration.listInvitations({ tenantId })` |
+    | `authvital.invitations.resend(req, …)` | `client.integration.resendInvitation({ invitationId })` |
+    | `authvital.invitations.revoke(req, id)` | `client.integration.revokeInvitation({ invitationId })` |
+    | `authvital.licenses.getTenantOverview(id)` / `getUsageOverview(req)` | `client.integration.getUsageOverview({ tenantId })` |
+    | `authvital.licenses.getHolders(req, appId)` | `client.integration.getLicenseHolders({ tenantId, applicationId })` |
+    | `authvital.licenses.listForUser(req, userId)` | `client.integration.getUserLicenses({ userId, tenantId })` |
+    | `authvital.licenses.grant(req, …)` | `client.integration.grantLicense({ userId, tenantId, applicationId, licenseTypeId })` |
+    | `authvital.licenses.revoke(req, …)` | `client.integration.revokeLicense({ userId, tenantId, applicationId })` |
+
+    **No SDK equivalent — done in the hosted console (`/tenant/:tenantId/*`) or
+    via REST, not the SDK):** `authvital.tenants.configureSso(...)`,
+    `authvital.tenants.getSsoConfig(...)` (SSO page → `/tenant/:id/sso`;
+    `GET /api/auth/sso/providers`), tenant settings
+    (`/tenant/:id/general`), **usage trends**
+    (`GET /api/tenants/:id/licenses/usage-trends`, Billing page) and the
+    **audit log** (`GET /api/tenants/:id/audit[/export]`, Audit page). Deep-link
+    into these with the `@authvital/core` helpers
+    (`getManagementUrls`/`getSsoUrl`/`getBillingUrl`/`getAuditUrl`).
+    _Tenant-scoped branding is not implemented (see the
+    [authorization model gap appendix](../sdk/authorization-model.md#6-gap-remediation-appendix))._
+
+    Get the M2M client with
+    `const client = createServerClient({ authVitalHost, clientId, clientSecret })`.
+
 ## Overview
 
-Tenant Admins (with `admin` role) can:
+Tenant Admins (with the `admin` role) manage their org in the **hosted console**
+(`/tenant/:tenantId/*`). Depending on their permissions they can:
 
-- Invite and manage members
-- Configure tenant SSO settings
+- Invite and manage members and their app roles
+- Manage app/product access (including the cross-app **Access Matrix**)
+- Configure tenant SSO settings and verified domains
+- View subscriptions, licenses and seat **usage trends** (Billing)
+- View the tenant **audit log** (`audit:view`; Owner can also export to CSV)
 - Manage MFA policies
-- View tenant subscription and licenses
-- Configure tenant branding
+
+> _Tenant-scoped branding is not yet available — instance/app branding is a
+> Super-Admin (platform) capability. See the
+> [authorization model](../sdk/authorization-model.md)._
 
 ## Accessing Tenant Settings
 
@@ -89,11 +134,10 @@ await authvital.invitations.revoke(req, 'invitation-id');
 ### Changing Member Roles
 
 ```typescript
-// Change to admin
-// Signature: setMemberRole(request, membershipId, roleSlug)
+// PSEUDOCODE (fictional fluent API — see the warning at the top of this page).
+// Real API sets an APPLICATION role:
+//   client.integration.setMemberRole({ membershipId, roleId, applicationId })
 await authvital.memberships.setMemberRole(req, 'membership-id', 'admin');
-
-// Demote to member
 await authvital.memberships.setMemberRole(req, 'membership-id', 'member');
 ```
 
@@ -173,14 +217,16 @@ const googleSso = await authvital.tenants.getSsoConfig('tenant-id', 'GOOGLE');
 ### Setting MFA Requirements
 
 ```typescript
-// Require MFA for all members
+// Require MFA for all members (immediate — no grace window)
 await authvital.tenants.update('tenant-id', {
   mfaPolicy: 'REQUIRED',
+  mfaGracePeriodDays: 0,
 });
 
-// Require after grace period
+// Require after a grace period (REQUIRED + gracePeriodDays > 0 —
+// there is no separate "enforced after grace" policy value)
 await authvital.tenants.update('tenant-id', {
-  mfaPolicy: 'ENFORCED_AFTER_GRACE',
+  mfaPolicy: 'REQUIRED',
   mfaGracePeriodDays: 14, // 2 weeks to enable MFA
 });
 
@@ -188,6 +234,8 @@ await authvital.tenants.update('tenant-id', {
 await authvital.tenants.update('tenant-id', {
   mfaPolicy: 'OPTIONAL',
 });
+
+// Other values: 'ENCOURAGED' (prompt but don't require), 'DISABLED'
 ```
 
 ### Viewing MFA Status
@@ -304,7 +352,9 @@ const usage = await authvital.licenses.getUsageOverview(req);
 //   ...
 // }
 
-// Get usage trends over time
+// Get usage trends over time (PSEUDOCODE — no such SDK method).
+// Real: GET /api/tenants/:tenantId/licenses/usage-trends?days=30 (billing:view),
+// surfaced on the hosted console Billing page (deep-link with getBillingUrl).
 const trends = await authvital.licenses.getUsageTrends(req, 30); // Last 30 days
 ```
 
@@ -361,28 +411,29 @@ After transfer:
 
 ## Audit Trail
 
-View recent activity in your tenant:
+The tenant audit log lives in the hosted console **Audit** page
+(`/tenant/:tenantId/audit`) — deep-link into it with `getAuditUrl`.
 
-!!! note "Audit Logs"
-    **License audit logs** are available via the SDK:
-    
+!!! note "Audit Logs (real endpoints)"
+    There is **no** `authvital.licenses.getAuditLog(...)` SDK method. The real,
+    guarded endpoints are:
+
     ```typescript
-    // License-specific audit log
-    const auditLog = await authvital.licenses.getAuditLog(req, {
-      limit: 50,
-      offset: 0,
+    // Read the tenant audit log (paginated/filterable). Permission: audit:view.
+    const res = await fetch(`${authVitalHost}/api/tenants/${tenantId}/audit`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    // Export to CSV. Permission: audit:export (Owner only by default).
+    const csv = await fetch(`${authVitalHost}/api/tenants/${tenantId}/audit/export`, {
+      headers: { Authorization: `Bearer ${token}` },
     });
     ```
-    
-    **General audit logs** are available via the REST API:
-    
-    ```typescript
-    // Direct API call for general audit events
-    const response = await fetch(`${authVitalHost}/api/tenants/${tenantId}/audit-log`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    const events = await response.json();
-    ```
+
+    Instrumented actions today cover members, invitations, app-access and
+    licenses; subscription/SSO/domain/tenant-settings mutations are not yet
+    recorded (see the
+    [authorization model gap appendix](../sdk/authorization-model.md#6-gap-remediation-appendix)).
 
 ## Building an Admin UI
 

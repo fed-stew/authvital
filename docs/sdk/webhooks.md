@@ -2,6 +2,22 @@
 
 > Handle real-time events from AuthVital to keep your systems in sync.
 
+!!! warning "The SDK does not ship webhook helper classes"
+    Earlier drafts imported `AuthVitalEventHandler`, `WebhookRouter`, and
+    `AuthVitalWebhooks` from `@authvital/sdk/webhooks`. **That package/subpath and
+    those classes do not exist.**
+
+    What is real:
+
+    - The **signature scheme** (RSA-SHA256 over `{timestamp}.{body}`, verified via
+      JWKS) documented here and in [Manual Verification](./webhooks-verification.md)
+      is accurate — the manual-verification code is the intended approach.
+    - The **event TypeScript types** (`SubjectCreatedEvent`, `MemberJoinedEvent`,
+      `WebhookEvent`, etc.) are real and imported from **`@authvital/shared`**.
+    - You implement the endpoint + dispatch yourself (see the `examples/bff-express`
+      app, which does exactly this using `verifyToken` / JWKS from
+      `@authvital/server`).
+
 ## Overview
 
 AuthVital emits webhooks for key events across your identity system:
@@ -20,7 +36,7 @@ AuthVital emits webhooks for key events across your identity system:
 | Guide | Description |
 |-------|-------------|
 | [Event Types & Payloads](./webhooks-events.md) | All event types with full payload examples |
-| [Event Handler Reference](./webhooks-handler.md) | AuthVitalEventHandler class & examples |
+| [Event Handler Reference](./webhooks-handler.md) | Verification + your own handler class & examples |
 | [Framework Integration](./webhooks-frameworks.md) | Express, Next.js, NestJS setup |
 | [Manual Verification](./webhooks-verification.md) | Low-level API & manual RSA verification |
 | [Best Practices](./webhooks-advanced.md) | Error handling, idempotency, testing |
@@ -129,84 +145,66 @@ interface BaseEvent<T extends string, D> {
 
 ## Quick Start
 
-### 1. Install the SDK
+### 1. Install
+
+You need the event types (`@authvital/shared`) and, if you want ready-made JWKS
+verification primitives, `@authvital/server`:
 
 ```bash
-npm install @authvital/sdk
-# or
-yarn add @authvital/sdk
-# or
-pnpm add @authvital/sdk
+npm install @authvital/shared @authvital/server
 ```
 
-### 2. Create an Event Handler
+### 2. Verify + dispatch in your endpoint
 
-```typescript
-import { AuthVitalEventHandler } from '@authvital/sdk/webhooks';
-import type {
-  SubjectCreatedEvent,
-  MemberJoinedEvent,
-  LicenseAssignedEvent,
-} from '@authvital/sdk/webhooks';
-
-class MyEventHandler extends AuthVitalEventHandler {
-  async onSubjectCreated(event: SubjectCreatedEvent): Promise<void> {
-    console.log('New user:', event.data.email);
-    // Sync to your database...
-  }
-
-  async onMemberJoined(event: MemberJoinedEvent): Promise<void> {
-    console.log(`${event.data.email} joined with roles:`, event.data.tenant_roles);
-  }
-
-  async onLicenseAssigned(event: LicenseAssignedEvent): Promise<void> {
-    console.log(`License ${event.data.license_type_name} assigned`);
-  }
-}
-```
-
-### 3. Configure the WebhookRouter
-
-```typescript
-import { WebhookRouter } from '@authvital/sdk/webhooks';
-
-const router = new WebhookRouter({
-  // AuthVital host - used to derive JWKS URL automatically
-  // Falls back to AV_HOST environment variable if not provided
-  authVitalHost: process.env.AV_HOST,
-  
-  // Your event handler implementation
-  handler: new MyEventHandler(),
-  
-  // Replay protection: reject events older than this (seconds)
-  // Default: 300 (5 minutes)
-  maxTimestampAge: 300,
-  
-  // How long to cache JWKS keys (milliseconds)
-  // Default: 3600000 (1 hour)
-  keysCacheTtl: 3600000,
-});
-```
-
-### 4. Add the Webhook Endpoint (Express)
+There is no router/handler class to instantiate. Verify the signature (see
+[Manual Verification](./webhooks-verification.md) for the full `verifyWebhook`
+helper) and switch on `event.type`:
 
 ```typescript
 import express from 'express';
+import type {
+  WebhookEvent,
+  SubjectCreatedEvent,
+  MemberJoinedEvent,
+  LicenseAssignedEvent,
+} from '@authvital/shared';
+import { verifyWebhook } from './verify-webhook'; // your helper (see Manual Verification)
 
 const app = express();
 
-// IMPORTANT: Use express.raw() for signature verification!
-// The body must be the raw buffer, not parsed JSON.
-app.post(
-  '/webhooks/authvital',
-  express.raw({ type: 'application/json' }),
-  router.expressHandler()
-);
+// IMPORTANT: use express.raw() so the body is the exact bytes that were signed.
+app.post('/webhooks/authvital', express.raw({ type: 'application/json' }), async (req, res) => {
+  const raw = req.body.toString('utf-8');
+  const ok = await verifyWebhook({
+    body: raw,
+    signature: req.headers['x-authvital-signature'] as string,
+    keyId: req.headers['x-authvital-key-id'] as string,
+    timestamp: req.headers['x-authvital-timestamp'] as string,
+    authVitalHost: process.env.AV_HOST!,
+  });
+  if (!ok) return res.status(401).json({ error: 'invalid signature' });
 
-app.listen(3000, () => {
-  console.log('Webhook endpoint ready at http://localhost:3000/webhooks/authvital');
+  const event = JSON.parse(raw) as WebhookEvent;
+  switch (event.type) {
+    case 'subject.created':
+      console.log('New user:', (event as SubjectCreatedEvent).data.email);
+      break;
+    case 'member.joined':
+      console.log('Member joined:', (event as MemberJoinedEvent).data.membership_id);
+      break;
+    case 'license.assigned':
+      console.log('License:', (event as LicenseAssignedEvent).data.license_type_name);
+      break;
+  }
+
+  res.status(200).json({ received: true });
 });
 ```
+
+!!! tip "Prefer a class-based dispatcher?"
+    You can absolutely wrap the switch in your own base class (see
+    [Event Handler pattern](./webhooks-handler.md)) — just remember it's your
+    code, not an SDK export.
 
 ➡️ **See [Framework Integration](./webhooks-frameworks.md) for Next.js, NestJS, and more.**
 
@@ -239,8 +237,9 @@ curl -X POST https://your-authvital-host/api/admin/webhooks \
   }'
 ```
 
-!!! note "SDK Support Coming Soon"
-    Programmatic webhook management via the SDK (`@authvital/sdk/admin`) is planned for a future release. For now, use the Admin UI or REST API directly.
+!!! note "No programmatic webhook management in the SDK"
+    There is no `@authvital/sdk/admin` webhook-management API. Configure webhooks
+    via the Admin UI or the Admin REST API shown above.
 
 ---
 
@@ -249,11 +248,10 @@ curl -X POST https://your-authvital-host/api/admin/webhooks \
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
 | `authVitalHost` | `string` | No* | `process.env.AV_HOST` | AuthVital host URL |
-| `handler` | `AuthVitalEventHandler` | Yes | - | Your event handler instance |
-| `maxTimestampAge` | `number` | No | `300` | Max age in seconds for replay protection |
-| `keysCacheTtl` | `number` | No | `3600000` | JWKS cache TTL in milliseconds |
+| `maxTimestampAge` | `number` | No | `300` | Max age in seconds for replay protection (your check) |
+| `keysCacheTtl` | `number` | No | `3600000` | Suggested JWKS cache TTL (your cache) |
 
-*Either `authVitalHost` or `AV_HOST` environment variable must be set.
+These are conventions for the verification helper you write, not SDK config.
 
 ---
 
@@ -298,9 +296,9 @@ curl -X POST https://your-authvital-host/api/admin/webhooks \
 ## Related Documentation
 
 - [Event Types & Payloads](./webhooks-events.md) - All events with TypeScript types and JSON examples
-- [Event Handler Reference](./webhooks-handler.md) - AuthVitalEventHandler class documentation
+- [Event Handler Reference](./webhooks-handler.md) - webhook verification & your own handler
 - [Framework Integration](./webhooks-frameworks.md) - Express, Next.js, NestJS examples
-- [Manual Verification](./webhooks-verification.md) - Low-level AuthVitalWebhooks class
+- [Manual Verification](./webhooks-verification.md) - Real JWKS/RSA-SHA256 verification
 - [Best Practices](./webhooks-advanced.md) - Error handling, retries, idempotency, testing
 - [Identity Sync](./identity-sync/index.md) - Patterns for syncing users to your database
 - [Organization Sync](./organization-sync/index.md) - Sync tenant, app, and SSO config locally

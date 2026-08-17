@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { hasTenantPermission } from './constants/default-tenant-roles';
+import {
+  resolveEffectiveTenantPermissions,
+  membershipIsOwner,
+} from './utils/tenant-permissions.util';
 
 /**
  * PermissionsService - Centralized Permission Checking
@@ -65,16 +69,13 @@ export class PermissionsService {
       return { allowed: false, reason: 'User is not a member of this tenant' };
     }
 
-    // 2. Check tenant roles (owner has all permissions via wildcard)
-    const tenantPermissions = membership.membershipTenantRoles.flatMap(
-      (mtr) => mtr.tenantRole.permissions,
-    );
+    // 2. Check tenant roles (owner is expanded to the full permission set)
+    const roles = membership.membershipTenantRoles.map((mtr) => mtr.tenantRole);
+    const tenantPermissions = resolveEffectiveTenantPermissions(roles);
 
     if (hasTenantPermission(tenantPermissions, permission)) {
       // Check if owner (for logging/auditing)
-      const isOwner = membership.membershipTenantRoles.some(
-        (mtr) => mtr.tenantRole.slug === 'owner',
-      );
+      const isOwner = membershipIsOwner(roles);
       return {
         allowed: true,
         reason: isOwner ? 'User is tenant owner' : 'Permission granted via tenant role',
@@ -135,9 +136,9 @@ export class PermissionsService {
       return results;
     }
 
-    // Get all tenant permissions
-    const tenantPermissions = membership.membershipTenantRoles.flatMap(
-      (mtr) => mtr.tenantRole.permissions,
+    // Get all tenant permissions (owner expanded to full set)
+    const tenantPermissions = resolveEffectiveTenantPermissions(
+      membership.membershipTenantRoles.map((mtr) => mtr.tenantRole),
     );
 
     const hasAppRoles = membership.membershipRoles.length > 0;
@@ -206,18 +207,10 @@ export class PermissionsService {
       };
     }
 
-    // Collect tenant permissions
-    const permissionSet = new Set<string>();
-    let isOwner = false;
-    let isAdmin = false;
-
-    for (const mtr of membership.membershipTenantRoles) {
-      if (mtr.tenantRole.slug === 'owner') isOwner = true;
-      if (mtr.tenantRole.slug === 'admin') isAdmin = true;
-      for (const permission of mtr.tenantRole.permissions) {
-        permissionSet.add(permission);
-      }
-    }
+    // Collect tenant permissions (owner expanded to the full set)
+    const roles = membership.membershipTenantRoles.map((mtr) => mtr.tenantRole);
+    const isOwner = membershipIsOwner(roles);
+    const isAdmin = roles.some((r) => r.slug === 'admin');
 
     // Collect app roles
     const appRoles = membership.membershipRoles.map((mr) => ({
@@ -228,7 +221,7 @@ export class PermissionsService {
     }));
 
     return {
-      tenantPermissions: Array.from(permissionSet),
+      tenantPermissions: resolveEffectiveTenantPermissions(roles),
       appRoles,
       isOwner,
       isAdmin,

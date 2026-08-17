@@ -11,13 +11,20 @@ import {
 } from '@nestjs/common';
 import { M2MAuthGuard } from '../../oauth/m2m-auth.guard';
 import { IntegrationPermissionsService, IntegrationEntitlementsService } from '../services';
+import {
+  RequireScopes,
+  IntegrationScope,
+  M2mTenantFrom,
+  M2mScopeGuard,
+  M2mTenantGuard,
+} from '../m2m-authz';
 
 /**
  * Integration Permissions Controller
  * Handles permission checks and entitlements
  */
 @Controller('integration')
-@UseGuards(M2MAuthGuard)
+@UseGuards(M2MAuthGuard, M2mScopeGuard, M2mTenantGuard)
 export class IntegrationPermissionsController {
   constructor(
     private readonly permissionsService: IntegrationPermissionsService,
@@ -29,6 +36,8 @@ export class IntegrationPermissionsController {
    */
   @Post('check-permission')
   @HttpCode(HttpStatus.OK)
+  @RequireScopes(IntegrationScope.READ)
+  @M2mTenantFrom('body')
   async checkPermission(
     @Body() dto: { userId: string; tenantId: string; permission: string },
   ) {
@@ -43,6 +52,8 @@ export class IntegrationPermissionsController {
    */
   @Post('check-permissions')
   @HttpCode(HttpStatus.OK)
+  @RequireScopes(IntegrationScope.READ)
+  @M2mTenantFrom('body')
   async checkPermissions(
     @Body() dto: { userId: string; tenantId: string; permissions: string[] },
   ) {
@@ -56,6 +67,8 @@ export class IntegrationPermissionsController {
    * Get all permissions for a user in a tenant
    */
   @Get('user-permissions')
+  @RequireScopes(IntegrationScope.READ)
+  @M2mTenantFrom('query')
   async getUserPermissions(
     @Query('userId') userId: string,
     @Query('tenantId') tenantId: string,
@@ -70,6 +83,8 @@ export class IntegrationPermissionsController {
    * Check if a tenant has access to a feature
    */
   @Get('check-feature')
+  @RequireScopes(IntegrationScope.READ)
+  @M2mTenantFrom('query')
   async checkFeature(
     @Query('tenantId') tenantId: string,
     @Query('feature') feature: string,
@@ -85,6 +100,8 @@ export class IntegrationPermissionsController {
    * Get subscription status for a tenant
    */
   @Get('subscription-status')
+  @RequireScopes(IntegrationScope.READ)
+  @M2mTenantFrom('query')
   async getSubscriptionStatus(
     @Query('tenantId') tenantId: string,
     @Query('applicationId') applicationId?: string,
@@ -99,6 +116,8 @@ export class IntegrationPermissionsController {
    * Check seats availability for a tenant
    */
   @Get('check-seats')
+  @RequireScopes(IntegrationScope.READ)
+  @M2mTenantFrom('query')
   async checkSeats(
     @Query('tenantId') tenantId: string,
     @Query('applicationId') applicationId?: string,

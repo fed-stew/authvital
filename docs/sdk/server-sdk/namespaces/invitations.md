@@ -1,213 +1,92 @@
-# Invitations Namespace
+# Invitations
 
-> Manage tenant invitations: send, list pending, resend, and revoke.
+> Send, list, resend and revoke tenant invitations via `client.integration`.
 
-## Overview
-
-The invitations namespace provides methods for managing team invitations. All methods automatically extract the tenant ID from the authenticated user's JWT.
-
-```typescript
-const invitations = authvital.invitations;
-```
-
----
+!!! info "There is no fluent `authvital.invitations.*(req, …)` namespace"
+    Earlier drafts described `authvital.invitations.send(req, …)`,
+    `.listPending(req)`, `.resend(req, …)`, `.revoke(req, id)` that read the
+    tenant from the JWT. **That API does not exist.** Use the M2M integration
+    client below; you pass `tenantId` / `invitationId` explicitly.
 
 ## Methods
 
-### send()
+Verified against `packages/sdk-server/src/client/integration.ts`:
 
-Send an invitation to join a tenant.
+| Method | Params | Returns |
+|--------|--------|---------|
+| `sendInvitation` | `{ tenantId, email, roleId, clientId?, expiresInDays?, givenName?, familyName? }` | `{ sub, expiresAt }` |
+| `listInvitations` | `{ tenantId }` | `{ invitations: Invitation[] }` |
+| `revokeInvitation` | `{ invitationId }` | `{ success: boolean; message: string }` |
+| `resendInvitation` | `{ invitationId }` | `{ expiresAt: string }` |
+
+!!! info "`roleId` is required and is a **TenantRole** id"
+    `sendInvitation` requires a singular `roleId` — a **TenantRole** id (from
+    `getTenantRoles`), the role the invitee gets on joining. `clientId` (the
+    OAuth client the invite is for) drives the accept redirect. Verified against
+    `SendInvitationDto` + `IntegrationInvitationsService`.
 
 ```typescript
-const result = await authvital.invitations.send(request, {
-  email: 'newuser@example.com',
-  givenName: 'John',        // Optional
-  familyName: 'Doe',        // Optional
-  roleId: 'role-id',        // Optional: tenant role ID
-  clientId: 'my-app-id',    // Optional: defaults to SDK clientId
+import { createServerClient } from '@authvital/server';
+
+const client = createServerClient({
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
 });
 
-console.log(result);
-// { sub: 'user-uuid', expiresAt: '2024-01-15T00:00:00Z' }
+// Send an invitation
+const { roles } = await client.integration.getTenantRoles();
+const { sub, expiresAt } = await client.integration.sendInvitation({
+  tenantId: 'tenant-abc',
+  email: 'new@corp.com',
+  roleId: roles.find((r) => r.slug === 'member')!.slug, // a TenantRole id
+  clientId: process.env.AV_CLIENT_ID!,
+  expiresInDays: 7,
+  givenName: 'Jordan',
+  familyName: 'Lee',
+});
+
+// List pending invitations
+const { invitations } = await client.integration.listInvitations({
+  tenantId: 'tenant-abc',
+});
+
+// Resend / revoke by invitation id
+await client.integration.resendInvitation({ invitationId: 'inv-123' });
+await client.integration.revokeInvitation({ invitationId: 'inv-123' });
 ```
 
-**Parameters:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `request` | `RequestLike` | Yes | Incoming HTTP request (for JWT extraction) |
-| `email` | `string` | Yes | Email address to invite |
-| `givenName` | `string` | No | Invitee's first name |
-| `familyName` | `string` | No | Invitee's last name |
-| `roleId` | `string` | No | Tenant role ID to assign |
-| `clientId` | `string` | No | Application client ID (defaults to SDK config) |
-
-**Return Type:**
+`Invitation` shape (from the SDK types):
 
 ```typescript
-interface InvitationResponse {
-  sub: string;       // User ID (created or existing)
-  expiresAt: string; // Invitation expiration date
+interface Invitation {
+  id: string;
+  email: string;
+  status: string;
+  roleId?: string;
+  expiresAt?: string;
+  createdAt?: string;
 }
 ```
 
-**Example: Invite with Role**
+!!! note "Human-facing invitations live in the hosted console"
+    `client.integration.sendInvitation` is the **M2M automation** path. For the
+    interactive tenant-admin flow (invite/resend/revoke with a UI), send admins
+    to the hosted console at `/tenant/:tenantId/members` — deep-link with the
+    [`@authvital/core` management-url helpers](../oauth-flow.md).
+
+## Example: gate invites on seat availability
 
 ```typescript
-app.post('/api/team/invite', async (req, res) => {
-  // First, get available roles
-  const { roles } = await authvital.memberships.getTenantRoles();
-  const adminRole = roles.find(r => r.slug === 'admin');
-  
-  const { sub, expiresAt } = await authvital.invitations.send(req, {
-    email: req.body.email,
-    givenName: req.body.firstName,
-    familyName: req.body.lastName,
-    roleId: adminRole?.id,
-  });
-  
-  res.json({ userId: sub, expiresAt });
-});
-```
-
----
-
-### listPending()
-
-Get all pending invitations for the authenticated user's tenant.
-
-```typescript
-const { invitations, totalCount } = await authvital.invitations.listPending(request);
-
-invitations.forEach(inv => {
-  console.log(`${inv.email} - expires ${inv.expiresAt}`);
-});
-```
-
-**Return Type:**
-
-```typescript
-interface PendingInvitationsResponse {
-  invitations: Array<{
-    id: string;
-    email: string;
-    givenName?: string;
-    familyName?: string;
-    expiresAt: string;
-    createdAt: string;
-    role?: {
-      id: string;
-      name: string;
-      slug: string;
-    };
-  }>;
-  totalCount: number;
+const seats = await client.integration.checkSeats({ tenantId: 'tenant-abc' });
+if (!seats.allowed) {
+  throw new Error(seats.reason ?? 'No seats available');
 }
-```
-
-**Example: List Pending Invitations**
-
-```typescript
-app.get('/api/team/invitations', async (req, res) => {
-  const { invitations, totalCount } = await authvital.invitations.listPending(req);
-  
-  res.json({
-    invitations: invitations.map(inv => ({
-      id: inv.id,
-      email: inv.email,
-      name: `${inv.givenName || ''} ${inv.familyName || ''}`.trim(),
-      expiresAt: inv.expiresAt,
-      role: inv.role?.name,
-    })),
-    total: totalCount,
-  });
+await client.integration.sendInvitation({
+  tenantId: 'tenant-abc', email, roleId, clientId: process.env.AV_CLIENT_ID!,
 });
 ```
 
----
+## See also
 
-### resend()
-
-Resend an invitation (generates new token, extends expiry).
-
-```typescript
-const { expiresAt } = await authvital.invitations.resend(request, {
-  invitationId: 'inv-123',
-  expiresInDays: 7, // Optional, default 7
-});
-
-console.log('New expiry:', expiresAt);
-```
-
-**Parameters:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `request` | `RequestLike` | Yes | Incoming HTTP request |
-| `invitationId` | `string` | Yes | ID of invitation to resend |
-| `expiresInDays` | `number` | No | Days until expiry (default: 7) |
-
----
-
-### revoke()
-
-Revoke an invitation.
-
-```typescript
-await authvital.invitations.revoke(request, 'inv-123');
-```
-
-**Example: Revoke Invitation Endpoint**
-
-```typescript
-app.delete('/api/team/invitations/:id', async (req, res) => {
-  await authvital.invitations.revoke(req, req.params.id);
-  res.json({ success: true });
-});
-```
-
----
-
-## Complete Example: Invitation Management
-
-```typescript
-import { createAuthVital } from '@authvital/sdk/server';
-import express from 'express';
-
-const authvital = createAuthVital({ /* config */ });
-const app = express();
-
-// Send invitation
-app.post('/api/invitations', async (req, res) => {
-  try {
-    const result = await authvital.invitations.send(req, {
-      email: req.body.email,
-      givenName: req.body.firstName,
-      familyName: req.body.lastName,
-    });
-    res.status(201).json(result);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
-// List pending
-app.get('/api/invitations', async (req, res) => {
-  const result = await authvital.invitations.listPending(req);
-  res.json(result);
-});
-
-// Resend
-app.post('/api/invitations/:id/resend', async (req, res) => {
-  const result = await authvital.invitations.resend(req, {
-    invitationId: req.params.id,
-  });
-  res.json(result);
-});
-
-// Revoke
-app.delete('/api/invitations/:id', async (req, res) => {
-  await authvital.invitations.revoke(req, req.params.id);
-  res.status(204).send();
-});
-```
+- [Memberships & Roles](./memberships.md) · [Entitlements](./entitlements.md) · [Integration API (overview)](./overview.md)

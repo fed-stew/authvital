@@ -20,7 +20,7 @@ import { DomainsController } from './domains/domains.controller';
 import { TenantSsoController } from './sso/tenant-sso.controller';
 
 // Guards
-import { TenantAccessGuard } from './guards';
+import { TenantAccessGuard, TenantIdentifierGuard } from './guards';
 
 /**
  * TenantsModule - Unified tenant management module
@@ -53,6 +53,7 @@ import { TenantAccessGuard } from './guards';
     MemberAppAccessService,
     DomainsService,
     TenantAccessGuard,
+    TenantIdentifierGuard,
   ],
   exports: [
     TenantsService,

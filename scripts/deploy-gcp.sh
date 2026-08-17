@@ -71,6 +71,7 @@ DB_NAME="authvital"
 SUPER_ADMIN_EMAIL="admin@localhost.com"
 SKIP_INFRA=false
 SKIP_MIGRATE=false
+ROTATE_DB_PASSWORD=false
 
 #######################################################################
 # Parse Arguments
@@ -114,6 +115,10 @@ while [[ $# -gt 0 ]]; do
             SKIP_MIGRATE=true
             shift
             ;;
+        --rotate-db-password)
+            ROTATE_DB_PASSWORD=true
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 --project <gcp-project-id> --base-url <url> [options]"
             echo ""
@@ -129,7 +134,16 @@ while [[ $# -gt 0 ]]; do
             echo "  --super-admin-email <email>   Super admin email (default: admin@localhost.com)"
             echo "  --skip-infra                  Skip CloudSQL + Secret Manager creation"
             echo "  --skip-migrate                Skip running the migration job"
+            echo "  --rotate-db-password          Force regeneration of the postgres password"
+            echo "                                (default: keep the existing secret so running"
+            echo "                                services stay in sync until redeployed)"
             echo "  -h, --help                    Show this help message"
+            echo ""
+            echo "Notes:"
+            echo "  The master secret (authvital-master-secret) is generated only on first"
+            echo "  run and is NEVER rotated by this script. Rotating it invalidates all"
+            echo "  sessions and stored signing keys — treat rotation as a deliberate"
+            echo "  manual operation via Secret Manager."
             exit 0
             ;;
         *)
@@ -335,15 +349,31 @@ else
         log_success "Created database '${DB_NAME}'"
     fi
 
-    # --- Generate DB Password ---
-    log_step "Setting postgres user password..."
-    DB_PASSWORD=$(openssl rand -base64 24)
-    gcloud sql users set-password postgres \
-        --instance="$CLOUDSQL_INSTANCE" \
-        --project="$GCP_PROJECT" \
-        --password="$DB_PASSWORD" \
-        --quiet
-    log_success "Postgres password set"
+    # --- Postgres Password (generated only on first run or forced rotation) ---
+    # Rotating on every rerun adds a new secret version and desyncs running
+    # services (they hold the old password) until the next redeploy.
+    log_step "Setting up postgres user password..."
+    DB_PASSWORD=""
+    DB_SECRET_EXISTS=false
+    if gcloud secrets describe "$SECRET_DB_PASSWORD" \
+        --project="$GCP_PROJECT" &> /dev/null 2>&1; then
+        DB_SECRET_EXISTS=true
+    fi
+
+    if [[ "$DB_SECRET_EXISTS" == true && "$ROTATE_DB_PASSWORD" != true ]]; then
+        log_info "DB password secret already exists (not rotating). Use --rotate-db-password to force rotation."
+    else
+        if [[ "$DB_SECRET_EXISTS" == true ]]; then
+            log_warn "Rotating postgres password (--rotate-db-password)"
+        fi
+        DB_PASSWORD=$(openssl rand -base64 24)
+        gcloud sql users set-password postgres \
+            --instance="$CLOUDSQL_INSTANCE" \
+            --project="$GCP_PROJECT" \
+            --password="$DB_PASSWORD" \
+            --quiet
+        log_success "Postgres password set"
+    fi
 
     # --- Secret Manager Secrets ---
     log_step "Setting up Secret Manager secrets..."
@@ -370,12 +400,24 @@ else
         log_success "Secret '${SECRET_ID}' ready"
     }
 
-    # DB password
-    create_or_update_secret "$SECRET_DB_PASSWORD" "$DB_PASSWORD"
+    # DB password — only written when a new password was generated above
+    if [[ -n "$DB_PASSWORD" ]]; then
+        create_or_update_secret "$SECRET_DB_PASSWORD" "$DB_PASSWORD"
+    else
+        log_success "Secret '${SECRET_DB_PASSWORD}' unchanged (existing version kept)"
+    fi
 
-    # Master secret
-    MASTER_SECRET_VALUE=$(openssl rand -hex 32)
-    create_or_update_secret "$SECRET_MASTER" "$MASTER_SECRET_VALUE"
+    # Master secret — generated ONCE, never rotated by this script.
+    # It encrypts (AES) the signing keys stored in the DB; rotating it makes
+    # those keys undecryptable, forcing regeneration and invalidating every
+    # session/token. Rotation is a deliberate manual operation.
+    if gcloud secrets describe "$SECRET_MASTER" \
+        --project="$GCP_PROJECT" &> /dev/null 2>&1; then
+        log_info "Master secret already exists (not rotating — rotation would invalidate all sessions and stored signing keys)."
+    else
+        MASTER_SECRET_VALUE=$(openssl rand -hex 32)
+        create_or_update_secret "$SECRET_MASTER" "$MASTER_SECRET_VALUE"
+    fi
 
     # SendGrid API key (empty placeholder)
     if gcloud secrets describe "$SECRET_SENDGRID" \

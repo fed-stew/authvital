@@ -1,110 +1,75 @@
-# Client SDK Components
+# Client SDK Components & Gating Patterns
 
-> Pre-built React components for authentication flows.
+> Route protection and role/permission gating built on the real hooks.
 
-## Protected Routes
+!!! important "The SDK ships hooks, not pre-built UI components"
+    `@authvital/browser/react` exports the `AuthVitalProvider` and a set of hooks
+    — it does **not** ship `ProtectedRoute`, `SignUpForm`, `CompleteSignupForm`,
+    or `VerifyEmail` components. The small components below are examples you write
+    yourself on top of the hooks. (Signup/email-verification are handled on
+    AuthVital's hosted pages via the OAuth redirect — see
+    [Patterns & Types](./patterns.md).)
 
-### Using ProtectedRoute Component
+## Protecting a route
+
+The idiomatic approach is the `useProtectedRoute` hook, which redirects
+unauthenticated users and optionally checks tenant roles.
 
 ```tsx
-import { ProtectedRoute } from '@authvital/sdk/client';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { useProtectedRoute } from '@authvital/browser/react';
 
-function App() {
-  return (
-    <AuthVitalProvider {...config}>
-      <BrowserRouter>
-        <Routes>
-          {/* Public routes */}
-          <Route path="/" element={<Home />} />
-          <Route path="/pricing" element={<Pricing />} />
-          
-          {/* Protected routes */}
-          <Route 
-            path="/dashboard" 
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            } 
-          />
-          
-          {/* Role-protected route */}
-          <Route 
-            path="/admin" 
-            element={
-              <ProtectedRoute requiredRoles={['admin', 'owner']}>
-                <AdminPanel />
-              </ProtectedRoute>
-            } 
-          />
-          
-          {/* Permission-protected route */}
-          <Route 
-            path="/users" 
-            element={
-              <ProtectedRoute requiredPermissions={['users:read']}>
-                <UserList />
-              </ProtectedRoute>
-            } 
-          />
-        </Routes>
-      </BrowserRouter>
-    </AuthVitalProvider>
-  );
+function Dashboard() {
+  const { isChecking, isAllowed, user } = useProtectedRoute({
+    redirectTo: '/login',
+  });
+
+  if (isChecking) return <LoadingSpinner />;
+  if (!isAllowed) return null; // redirect happens automatically
+
+  return <div>Welcome, {user?.email}</div>;
 }
 ```
 
-### ProtectedRoute Props
+### A reusable `RequireAuth` wrapper
 
-| Prop | Type | Description |
-|------|------|-------------|
-| `children` | `ReactNode` | Content to render when authorized |
-| `requiredRoles` | `string[]` | Roles required (ANY match) |
-| `requiredPermissions` | `string[]` | Permissions required (ALL match) |
-| `fallback` | `ReactNode` | Custom loading component |
-| `unauthorizedComponent` | `ReactNode` | Shown when access denied |
-
-### Custom Protected Route
+If you prefer a wrapper component (e.g. for React Router), build one from
+`useAuth`:
 
 ```tsx
-import { useAuth } from '@authvital/sdk/client';
+import { useAuth } from '@authvital/browser/react';
 import { Navigate, useLocation } from 'react-router-dom';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading, login } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
 
-  if (isLoading) {
-    return <LoadingSpinner />;
-  }
-
+  if (isLoading) return <LoadingSpinner />;
   if (!isAuthenticated) {
-    // Save location for redirect after login
-    sessionStorage.setItem('redirectAfterLogin', location.pathname);
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
-
   return <>{children}</>;
 }
 ```
 
+!!! note "Type-only exports"
+    The React entry point exports the *type* `RequireAuthProps` (and
+    `AuthCallbackProps`) for convenience, but there is no bundled `RequireAuth`
+    or `AuthCallback` component — you implement them as shown here.
+
 ---
 
-## Permission & Role Checks
+## Role & permission gating
 
-### Direct Permission Check
+Use `usePermissions()`, which reads the current token's tenant roles/permissions
+(no network call).
 
 ```tsx
-import { useAuth } from '@authvital/sdk/client';
+import { usePermissions } from '@authvital/browser/react';
 
-function AdminFeature() {
-  const { user, currentTenant } = useAuth();
-  
-  // Check tenant role
-  const isAdmin = currentTenant?.role === 'admin' || currentTenant?.role === 'owner';
+function AdminArea() {
+  const { hasRole, hasPermission } = usePermissions();
 
-  if (!isAdmin) {
+  if (!hasRole('admin') && !hasRole('owner')) {
     return <p>You don't have permission to access this feature.</p>;
   }
 
@@ -112,25 +77,23 @@ function AdminFeature() {
 }
 ```
 
-### HasRole Component
+### A `HasRole` gate component
 
 ```tsx
-function HasRole({ 
-  role, 
+import { usePermissions } from '@authvital/browser/react';
+
+function HasRole({
+  role,
   children,
   fallback = null,
-}: { 
+}: {
   role: string | string[];
   children: React.ReactNode;
   fallback?: React.ReactNode;
 }) {
-  const { currentTenant } = useAuth();
-  
+  const { hasAnyRole } = usePermissions();
   const roles = Array.isArray(role) ? role : [role];
-  const hasRole = currentTenant && roles.includes(currentTenant.role);
-  
-  if (!hasRole) return <>{fallback}</>;
-  return <>{children}</>;
+  return hasAnyRole(roles) ? <>{children}</> : <>{fallback}</>;
 }
 
 // Usage
@@ -139,20 +102,40 @@ function HasRole({
 </HasRole>
 ```
 
----
-
-## License & Feature Checks
-
-!!! note
-    License information should be checked server-side and passed to the client via the user object. The client SDK doesn't have direct access to license data.
-
-### Check License Type
+### A `HasPermission` gate component
 
 ```tsx
+import { usePermissions } from '@authvital/browser/react';
+
+function HasPermission({
+  permission,
+  children,
+  fallback = null,
+}: {
+  permission: string | string[];
+  children: React.ReactNode;
+  fallback?: React.ReactNode;
+}) {
+  const { hasPermission, hasAllPermissions } = usePermissions();
+  const ok = Array.isArray(permission)
+    ? hasAllPermissions(permission)
+    : hasPermission(permission);
+  return ok ? <>{children}</> : <>{fallback}</>;
+}
+```
+
+---
+
+## License & feature checks
+
+License info is carried on the decoded user object (`user.license`), populated
+from the JWT `license` claim.
+
+```tsx
+import { useUser } from '@authvital/browser/react';
+
 function PremiumFeature() {
-  const { user } = useAuth();
-  
-  // Assuming your server includes license info in the user object
+  const user = useUser();
   const isPro = user?.license?.type === 'pro' || user?.license?.type === 'enterprise';
 
   if (!isPro) {
@@ -163,134 +146,67 @@ function PremiumFeature() {
       </div>
     );
   }
-
   return <AdvancedAnalytics />;
 }
 ```
 
-### FeatureGate Component
+### A `FeatureGate` component
 
 ```tsx
-function FeatureGate({ 
-  feature, 
+import { useUser } from '@authvital/browser/react';
+
+function FeatureGate({
+  feature,
   children,
   fallback,
-}: { 
+}: {
   feature: string;
   children: React.ReactNode;
   fallback?: React.ReactNode;
 }) {
-  const { user } = useAuth();
-  const hasFeature = user?.license?.features?.includes(feature);
-
+  const user = useUser();
+  const hasFeature = user?.license?.features?.includes(feature) ?? false;
   if (!hasFeature) {
-    return fallback || (
-      <div className="feature-locked">
-        <p>Upgrade to unlock {feature}</p>
-        <a href="/pricing">View Plans</a>
-      </div>
-    );
+    return <>{fallback ?? <a href="/pricing">Upgrade to unlock {feature}</a>}</>;
   }
-
   return <>{children}</>;
 }
-
-// Usage
-<FeatureGate feature="advanced-reports">
-  <ReportBuilder />
-</FeatureGate>
 ```
 
 ---
 
-## Pre-Built Form Components
+## Signup & email verification
 
-### SignUpForm
-
-```tsx
-import { SignUpForm } from '@authvital/sdk/client';
-
-function SignUpPage() {
-  return (
-    <SignUpForm 
-      onSuccess={(user) => {
-        console.log('Signed up:', user);
-        navigate('/dashboard');
-      }}
-      onError={(error) => {
-        console.error('Signup failed:', error);
-      }}
-      fields={['email', 'password', 'givenName', 'familyName']}
-    />
-  );
-}
-```
-
-### CompleteSignupForm
-
-For completing signup after invitation:
-
-```tsx
-import { CompleteSignupForm } from '@authvital/sdk/client';
-
-function CompleteSignupPage() {
-  const { token } = useParams(); // Invitation token from URL
-
-  return (
-    <CompleteSignupForm 
-      invitationToken={token}
-      onSuccess={(user) => {
-        navigate('/dashboard');
-      }}
-    />
-  );
-}
-```
-
-### VerifyEmail
-
-```tsx
-import { VerifyEmail } from '@authvital/sdk/client';
-
-function VerifyEmailPage() {
-  const { token } = useParams();
-
-  return (
-    <VerifyEmail 
-      token={token}
-      onSuccess={() => navigate('/dashboard')}
-      onError={(error) => console.error(error)}
-    />
-  );
-}
-```
+There are no client components for these. `signup()` (or `login({ screen:
+'signup' })`) redirects to AuthVital's hosted signup, and email verification is
+handled there too. Invitation acceptance is
+`client.login({ inviteToken })` — see [Patterns & Types](./patterns.md).
 
 ---
 
-## Error Handling
+## Error handling
 
 ```tsx
+import { useAuth } from '@authvital/browser/react';
+
 function Dashboard() {
-  const { error, isAuthenticated, clearAuthState } = useAuth();
+  const { error, login } = useAuth();
 
   if (error) {
     return (
       <div className="error">
         <h2>Authentication Error</h2>
-        <p>{error}</p>
-        <button onClick={() => {
-          clearAuthState();
-          window.location.href = '/login';
-        }}>
-          Try Again
-        </button>
+        <p>{error.message}</p>
+        <button onClick={() => login()}>Try Again</button>
       </div>
     );
   }
-
   // ...
 }
 ```
+
+Note that `error` is an `AuthError` object (`{ code, message, originalError? }`),
+not a bare string.
 
 ---
 
@@ -298,4 +214,4 @@ function Dashboard() {
 
 - [Client SDK Overview](./index.md)
 - [Hooks Reference](./hooks.md)
-- [Patterns](./patterns.md)
+- [Patterns & Types](./patterns.md)

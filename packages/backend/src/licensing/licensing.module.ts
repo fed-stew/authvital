@@ -14,10 +14,17 @@ import { LicenseAssignmentService } from './services/license-assignment.service'
 import { LicenseAssignmentBulkService } from './services/license-assignment-bulk.service';
 import { LicenseCheckService } from './services/license-check.service';
 import { LicenseProvisioningService } from './services/license-provisioning.service';
+import { LicenseLifecycleService } from './services/license-lifecycle.service';
+import { LicenseUsageService } from './services/license-usage.service';
 
 // Controllers
 import { LicenseAdminController } from './controllers/license-admin.controller';
 import { LicenseCheckController } from './controllers/license-check.controller';
+import { TenantLicensesController } from './controllers/tenant-licenses.controller';
+
+// Guards
+import { TenantAccessGuard } from '../tenants/guards/tenant-access.guard';
+import { TenantIdentifierGuard } from '../tenants/guards/tenant-identifier.guard';
 
 /**
  * LicensingModule - License Pool System 🎫
@@ -42,6 +49,7 @@ import { LicenseCheckController } from './controllers/license-check.controller';
   controllers: [
     LicenseAdminController,
     LicenseCheckController,
+    TenantLicensesController,
   ],
   providers: [
     LicenseTypeService,
@@ -51,6 +59,12 @@ import { LicenseCheckController } from './controllers/license-check.controller';
     LicenseAssignmentBulkService,
     LicenseCheckService,
     LicenseProvisioningService,
+    LicenseLifecycleService,
+    LicenseUsageService,
+    // Provided locally so TenantLicensesController can use it without importing
+    // the whole TenantsModule (the guard only needs PrismaService).
+    TenantAccessGuard,
+    TenantIdentifierGuard,
   ],
   exports: [
     LicenseTypeService,
@@ -60,6 +74,8 @@ import { LicenseCheckController } from './controllers/license-check.controller';
     LicenseAssignmentBulkService,
     LicenseCheckService,
     LicenseProvisioningService,
+    LicenseLifecycleService,
+    LicenseUsageService,
   ],
 })
 export class LicensingModule {}

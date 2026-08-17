@@ -77,6 +77,15 @@ export interface MemberLicenseRow extends MemberWithLicenses {
 // License action type
 export type LicenseAction = 'grant' | 'revoke' | 'change';
 
+// Selected license context used by the revoke confirmation modal
+export interface SelectedLicenseForRevoke {
+  userId: string;
+  userDisplayName: string;
+  applicationId: string;
+  applicationName: string;
+  licenseTypeName: string;
+}
+
 // License status for display
 export type LicenseStatusType = 'assigned' | 'unassigned' | 'pending';
 

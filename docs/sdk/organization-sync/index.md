@@ -1,275 +1,135 @@
-# Organization Sync Guide
+# Organization Sync
 
-> Mirror AuthVital tenant, application, and SSO configuration to your local database for audit trails, billing integration, and provisioning workflows.
+> Mirror **tenant, application, and SSO** lifecycle changes into your own systems
+> using AuthVital's **system webhooks**.
 
-!!! tip "Looking for Identity Sync?"
-    This guide covers **organization-level** data (tenants, apps, SSO providers).
-    
-    For **user-level** data (identities, sessions, memberships), see [Identity Sync](../identity-sync/index.md).
+!!! warning "This uses the *system webhook*, and there's no SDK handler for it"
+    Two things earlier drafts got wrong:
 
----
+    1. **The events are real.** `tenant.*`, `application.*`, and `sso.*` events
+       are emitted by AuthVital's **system webhook** (source of truth:
+       `packages/backend/src/webhooks/system-webhook.service.ts`,
+       `SYSTEM_WEBHOOK_EVENTS`). This is a **separate** channel from the
+       per-application *sync events* used by [Identity Sync](../identity-sync/index.md).
+    2. **`OrganizationSyncHandler` / `WebhookRouter` / `CompositeHandler` are not
+       shipped.** You verify and dispatch these yourself, just like every other
+       webhook.
 
-## Overview
+    The payloads, headers, and signing scheme below are what the backend actually
+    sends — the older `plan` / `settings` / `previous_values` / `attribute_mapping`
+    payloads were fictional.
 
-### Why Sync Organization Data Locally?
+## Two webhook channels, don't mix them up
 
-| Benefit | Description |
-|---------|-------------|
-| **Audit Trails** | Track all tenant and app configuration changes with full history |
-| **Billing Integration** | Sync tenant plan changes directly to Stripe, Paddle, or your billing system |
-| **Provisioning Workflows** | Auto-create resources (databases, namespaces, storage buckets) when tenants are created |
-| **Multi-Region Sync** | Replicate organization config across regions for low-latency access |
-| **Compliance** | Maintain immutable records of SSO configuration changes for security audits |
-| **Offline Access** | Organization data available even if AuthVital is temporarily unreachable |
+| | Sync events (Identity/Org data) | **System webhook (this page)** |
+|---|---|---|
+| Configured by | Per **application** (app owner) | **Super admin**, global |
+| Events | `subject.*`, `member.*`, `app_access.*`, `invite.*`, `license.*` | `tenant.*`, `tenant.app.*`, `application.*`, `sso.*` |
+| Envelope | `{ id, type, timestamp, tenant_id, application_id, data }` | `{ event, timestamp, data }` |
+| Signature header | `X-AuthVital-Signature` | `X-Webhook-Signature` |
+| Key id header | `X-AuthVital-Key-Id` | `X-Webhook-Key-Id` |
+| Signed input | `` `${timestamp}.${rawBody}` `` | **the raw body only** |
+| Retries | Yes (5 attempts, backoff) | **No** — fire-and-forget (delivery + `failureCount` logged) |
 
-### How It Works
+Both sign with RSA-SHA256 using the same JWKS keys (`/.well-known/jwks.json`).
+
+## The real event catalog
+
+From `SYSTEM_WEBHOOK_EVENTS`:
 
 ```
-┌─────────────┐    Webhook Events    ┌─────────────┐    Sync    ┌──────────────────┐
-│  AuthVital  │ ─────────────────▶  │  Your API   │ ────────▶ │  Your Database   │
-│    (IDP)    │                      │  (Handler)  │           │ (av_organizations│
-└─────────────┘                      └─────────────┘           │  av_applications │
-     │                                                         │  av_sso_providers│
-     │                                                         └──────────────────┘
-     │                                                                  ▲
-     └───────────────────── Real-time sync via webhooks ────────────────┘
+tenant.created  tenant.updated  tenant.deleted  tenant.suspended
+tenant.app.granted  tenant.app.revoked
+application.created  application.updated  application.deleted
+sso.provider_added  sso.provider_updated  sso.provider_removed
 ```
 
-The `OrganizationSyncHandler` receives webhook events from AuthVital and automatically creates, updates, or deletes organization records in your database.
+!!! note "`tenant.suspended` is declared but not currently emitted"
+    It's in the subscribable list and typed, but no backend code dispatches it
+    today. Subscribe if you like, but don't rely on receiving it yet.
 
----
+See [Event Details](./events.md) for the exact `data` of each.
 
-## Events Covered
+## Delivery & headers
 
-Organization Sync handles three categories of events:
+Each delivery is a `POST` (JSON body) with:
 
-### Tenant Events
+| Header | Meaning |
+|--------|---------|
+| `X-Webhook-Signature` | base64 RSA-SHA256 of the **raw body** |
+| `X-Webhook-Key-Id` | signing key `kid` (look up in JWKS) |
+| `X-Webhook-Event` | e.g. `tenant.created` |
+| `X-Webhook-Timestamp` | ISO 8601 timestamp (also inside the body) |
 
-| Event | Description |
-|-------|-------------|
-| `tenant.created` | New tenant provisioned in AuthVital |
-| `tenant.updated` | Tenant settings or plan changed |
-| `tenant.deleted` | Tenant permanently removed |
-| `tenant.suspended` | Tenant deactivated (soft disable) |
+Plus any custom headers configured on the webhook. Timeout is 30s.
 
-### Application Events
+## Verifying a system webhook
 
-| Event | Description |
-|-------|-------------|
-| `application.created` | New application registered to tenant |
-| `application.updated` | App config changed (redirect URIs, scopes, etc.) |
-| `application.deleted` | Application removed from tenant |
-
-### SSO Events
-
-| Event | Description |
-|-------|-------------|
-| `sso.provider_added` | SSO provider configured for tenant |
-| `sso.provider_updated` | SSO settings changed |
-| `sso.provider_removed` | SSO provider disconnected |
-
-!!! info "Event Details"
-    For complete event payloads with TypeScript types and JSON examples, see [Organization Sync Events](./events.md).
-
----
-
-## Quick Start
-
-### Step 1: Add Prisma Schema
-
-Add the organization models to your `schema.prisma` file (see [full schema](./prisma-schema.md)):
-
-```prisma
-model Organization {
-  id            String   @id
-  name          String
-  slug          String   @unique
-  plan          String   @default("free")
-  // ... see full schema
-  @@map("av_organizations")
-}
-
-model Application {
-  id              String   @id
-  organizationId  String   @map("organization_id")
-  name            String
-  // ... see full schema
-  @@map("av_applications")
-}
-
-model SsoProvider {
-  id              String   @id
-  organizationId  String   @map("organization_id")
-  providerType    String   @map("provider_type")
-  // ... see full schema
-  @@map("av_sso_providers")
-}
-```
-
-Run migrations:
-
-```bash
-npx prisma migrate dev --name add-organization-sync
-```
-
-### Step 2: Create Webhook Handler
+Signing here is over the **raw body only** (not `timestamp.body`), so it needs its
+own verifier (the [`verifyWebhook` helper](../webhooks-verification.md) is for the
+`X-AuthVital-*` sync webhook):
 
 ```typescript
-// webhooks/authvital-org.ts
-import { OrganizationSyncHandler, WebhookRouter } from '@authvital/sdk/server';
-import { prisma } from '../lib/prisma';
+import crypto from 'crypto';
 
-// Create the sync handler with your Prisma client
-const syncHandler = new OrganizationSyncHandler(prisma);
+interface JWK { kty: string; kid: string; n: string; e: string }
 
-// Create the webhook router
-const router = new WebhookRouter({
-  handler: syncHandler,
-  authVitalHost: process.env.AV_HOST!,
-});
+async function getKey(host: string, kid: string) {
+  const { keys } = await fetch(`${host}/.well-known/jwks.json`).then((r) => r.json());
+  const jwk = (keys as JWK[]).find((k) => k.kid === kid);
+  if (!jwk) throw new Error(`Unknown kid ${kid}`);
+  return crypto.createPublicKey({ key: jwk, format: 'jwk' });
+}
 
-export default router;
+export async function verifySystemWebhook(params: {
+  rawBody: string; signature: string; keyId: string; authVitalHost: string;
+}): Promise<boolean> {
+  const key = await getKey(params.authVitalHost, params.keyId);
+  const verifier = crypto.createVerify('RSA-SHA256');
+  verifier.update(params.rawBody);          // raw body only
+  return verifier.verify(key, params.signature, 'base64');
+}
 ```
 
-### Step 3: Mount Webhook Endpoint
-
-**Express:**
+## Endpoint (Express)
 
 ```typescript
 import express from 'express';
-import webhookRouter from './webhooks/authvital-org';
 
-const app = express();
+app.post('/webhooks/authvital/system', express.raw({ type: '*/*' }), async (req, res) => {
+  const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : String(req.body ?? '');
+  const ok = await verifySystemWebhook({
+    rawBody,
+    signature: String(req.headers['x-webhook-signature'] ?? ''),
+    keyId: String(req.headers['x-webhook-key-id'] ?? ''),
+    authVitalHost: process.env.AV_HOST!,
+  });
+  if (!ok) return res.status(400).json({ error: 'invalid signature' });
 
-// IMPORTANT: Use raw body for webhook signature verification
-app.post(
-  '/webhooks/authvital/organization',
-  express.raw({ type: 'application/json' }),
-  webhookRouter.expressHandler()
-);
-```
-
-**Next.js (App Router):**
-
-```typescript
-// app/api/webhooks/authvital/organization/route.ts
-import { OrganizationSyncHandler, WebhookRouter } from '@authvital/sdk/server';
-import { prisma } from '@/lib/prisma';
-
-const syncHandler = new OrganizationSyncHandler(prisma);
-const router = new WebhookRouter({
-  handler: syncHandler,
-  authVitalHost: process.env.AV_HOST!,
-});
-
-export async function POST(request: Request) {
-  return router.nextjsHandler()(request);
-}
-```
-
-!!! tip "Combine with Identity Sync"
-    You can handle both identity and organization events in a single webhook endpoint using the `CompositeHandler`:
-    
-    ```typescript
-    import { 
-      CompositeHandler, 
-      IdentitySyncHandler, 
-      OrganizationSyncHandler 
-    } from '@authvital/sdk/server';
-    
-    const handler = new CompositeHandler([
-      new IdentitySyncHandler(prisma),
-      new OrganizationSyncHandler(prisma),
-    ]);
-    ```
-
-### Step 4: Configure Webhook in AuthVital Dashboard
-
-1. Go to **AuthVital Admin Panel** → **Settings** → **Webhooks**
-2. Click **Add Webhook**
-3. Configure:
-   - **Name**: `Organization Sync`
-   - **URL**: `https://yourapp.com/api/webhooks/authvital/organization`
-4. Subscribe to events:
-
-```
-tenant.created
-tenant.updated
-tenant.deleted
-tenant.suspended
-application.created
-application.updated
-application.deleted
-sso.provider_added
-sso.provider_updated
-sso.provider_removed
-```
-
----
-
-## Querying Synced Data
-
-Once synced, you can query organization data locally:
-
-```typescript
-// Get all active organizations
-const activeOrgs = await prisma.organization.findMany({
-  where: { status: 'active' },
-  include: {
-    applications: true,
-    ssoProviders: true,
-  },
-});
-
-// Get organizations by plan
-const enterpriseOrgs = await prisma.organization.findMany({
-  where: { plan: 'enterprise' },
-});
-
-// Get organization with all relationships
-const org = await prisma.organization.findUnique({
-  where: { slug: 'acme-corp' },
-  include: {
-    applications: {
-      where: { isActive: true },
-    },
-    ssoProviders: {
-      where: { isEnabled: true },
-    },
-  },
+  const { event, data } = JSON.parse(rawBody);
+  await handleSystemEvent(event, data); // your dispatcher
+  res.status(200).json({ received: true });
 });
 ```
 
----
+!!! danger "No automatic retries"
+    Unlike sync events, a failed system-webhook delivery is **not** retried.
+    Make your handler resilient (queue the work, respond 2xx fast) if you can't
+    afford to miss an event.
 
-## Documentation Structure
+## Configuring the webhook
 
-<div class="grid cards" markdown>
+System webhooks are managed by a **super admin** (the controller is guarded by
+`SuperAdminGuard`). Create/update them via the super-admin API/console with a
+URL and the subset of events you want. They are global, not per-tenant.
 
--   :material-webhook:{ .lg .middle } **[Event Details](./events.md)**
+## In this section
 
-    ---
+- [Event Details](./events.md) — real payload for every event
+- [Use Cases](./use-cases.md) — provisioning, billing, audit
+- [Prisma Schema](./prisma-schema.md) — honest tables for what's actually delivered
 
-    Complete event payloads with TypeScript types and JSON examples.
+## Related
 
--   :material-database:{ .lg .middle } **[Prisma Schema](./prisma-schema.md)**
-
-    ---
-
-    Full schema for Organization, Application, and SsoProvider models.
-
--   :material-lightbulb:{ .lg .middle } **[Use Cases](./use-cases.md)**
-
-    ---
-
-    Common patterns: provisioning, billing, audit logging, multi-region sync.
-
-</div>
-
----
-
-## Related Documentation
-
-- [Identity Sync](../identity-sync/index.md) - Sync user identities
-- [Webhooks Overview](../webhooks.md) - General webhook setup
-- [Event Types & Payloads](../webhooks-events.md) - All webhook events
+- [Identity Sync](../identity-sync/index.md) — the per-application sync webhook
+- [Webhook Event Types](../webhooks-events.md)

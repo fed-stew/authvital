@@ -1,6 +1,24 @@
 # AuthVital SDK Documentation
 
-> **@authvital/sdk** - Official TypeScript SDK for integrating with AuthVital Identity Provider.
+> Official TypeScript SDKs for integrating with the AuthVital Identity Provider.
+
+> [!WARNING]
+> **This top-level reference is out of date and describes an API that does not
+> match the shipped code.** It is pending a full rewrite. Until then, treat the
+> per-package READMEs and the docs site as the source of truth:
+>
+> - Browser/React: [`packages/sdk-browser/README.md`](./packages/sdk-browser/README.md) (accurate)
+> - Server/BFF: [`packages/sdk-server/README.md`](./packages/sdk-server/README.md) (accurate)
+> - Docs site: `docs/sdk/client-sdk/**`, `docs/sdk/server-sdk/**`
+>
+> Known-fictional symbols referenced below that **do not exist** in the code:
+> `@authvital/sdk` (real packages are `@authvital/browser` and `@authvital/server`),
+> `createAuthVital()` (use `createServerClient()`),
+> `authvital.validateRequest()` / `authvital.hasAppPermission()` (use `verifyToken()`
+> and check claims yourself, or `client.integration.checkPermission()`),
+> `useOAuth` / `useInvitation` hooks (use `useAuth` + `client.login({ inviteToken })`),
+> `WebhookRouter` / `AuthVitalEventHandler` (verify webhooks via JWKS yourself),
+> `IdentitySyncHandler`, `printSchema`, `cleanupSessions`, and `getCleanupSQL`.
 
 ---
 
@@ -8,6 +26,7 @@
 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Examples / Local UAT](#examples--local-uat)
 - [Server SDK](#server-sdk)
   - [Creating the Client](#creating-the-client)
   - [JWT Validation](#jwt-validation)
@@ -104,6 +123,34 @@ function MyApp() {
   );
 }
 ```
+
+---
+
+## Examples / Local UAT
+
+Want to see all of this working end-to-end before wiring it into your own app?
+The [`examples/`](./examples) directory ships a one-command, subdomain-based,
+HTTPS-everywhere UAT playground: a React SPA, a per-seat licensing SPA, and an
+Express BFF, all fronted by Traefik behind `*.lvh.me` and talking to a local
+AuthVital IdP.
+
+```bash
+make up                            # cold start: builds images, auto certs, named volume + seed
+# make down    -> stop, KEEP data
+# make fresh   -> wipe DB volume (down -v) + reseed
+# make certs   -> optional: locally-TRUSTED mkcert cert (no browser warning)
+```
+
+**Docker is the only requirement — no host `npm install`/`npm run build`.** Every
+image (IdP + the three example apps) builds the workspace SDKs from source *inside*
+the container, so a cold `make up` on a fresh checkout just works: zero cert
+pre-step, no `POSTGRES_PORT`, no one-time reset (self-signed cert auto-generated;
+Postgres in the named volume `authvital-pgdata`). Then open `https://app.lvh.me`,
+`https://seat.lvh.me`, and `https://bff.lvh.me`.
+
+- **Full runbook:** [`examples/README.md`](./examples/README.md)
+- **Lifecycle guide:** [`docs/local-uat.md`](./docs/local-uat.md)
+- **Persona-by-persona pass/fail matrix:** [`examples/UAT-CHECKLIST.md`](./examples/UAT-CHECKLIST.md)
 
 ---
 
@@ -549,27 +596,39 @@ const settingsUrl = getAccountSettingsUrl('https://auth.myapp.com');
 
 ---
 
-### Management URLs
+### Management URLs (hosted-console deep-links)
 
-Get URLs for AuthVital's management pages (extracts tenantId from JWT):
+AuthVital is hosted-first: tenant admin lives in the console at
+`/tenant/:tenantId/*`. The `@authvital/core` helpers are **pure functions** that
+take `{ authVitalHost, tenantId }` (there is no fluent `authvital.*(req)`
+god-object):
 
 ```typescript
+import { getManagementUrls, getAccountSettingsUrl } from '@authvital/core';
+
 // Get all management URLs at once
-const urls = await authvital.getManagementUrls(req);
+const urls = getManagementUrls({ authVitalHost: 'https://auth.example.com', tenantId: 'abc' });
 // {
-//   overview: 'https://auth.example.com/tenant/abc/overview',
-//   members: 'https://auth.example.com/tenant/abc/members',
+//   root:         'https://auth.example.com/tenant/abc',
+//   overview:     'https://auth.example.com/tenant/abc/overview',
+//   members:      'https://auth.example.com/tenant/abc/members',
 //   applications: 'https://auth.example.com/tenant/abc/applications',
-//   settings: 'https://auth.example.com/tenant/abc/settings',
-//   accountSettings: 'https://auth.example.com/account/settings',
+//   accessMatrix: 'https://auth.example.com/tenant/abc/access-matrix',
+//   licenses:     'https://auth.example.com/tenant/abc/licenses',
+//   billing:      'https://auth.example.com/tenant/abc/billing',
+//   audit:        'https://auth.example.com/tenant/abc/audit',
+//   sso:          'https://auth.example.com/tenant/abc/sso',
+//   domains:      'https://auth.example.com/tenant/abc/domains',
+//   settings:     'https://auth.example.com/tenant/abc/general',
 // }
 
-// Or individually
-const membersUrl = await authvital.getMembersUrl(req);
-const applicationsUrl = await authvital.getApplicationsUrl(req);
-const settingsUrl = await authvital.getSettingsUrl(req);
-const overviewUrl = await authvital.getOverviewUrl(req);
-const accountUrl = authvital.getAccountSettingsUrl(); // No request needed
+// Or individually (each takes the same { authVitalHost, tenantId } config)
+import { getMembersUrl, getApplicationsUrl, getBillingUrl, getAuditUrl } from '@authvital/core';
+const membersUrl = getMembersUrl({ authVitalHost, tenantId });
+const billingUrl = getBillingUrl({ authVitalHost, tenantId });
+
+// Per-user account page (host string only — no tenant)
+const accountUrl = getAccountSettingsUrl('https://auth.example.com'); // /account/settings
 ```
 
 ---

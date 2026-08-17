@@ -95,11 +95,11 @@ URL builders and endpoint constants:
 
 ```ts
 import {
-  OAUTH_AUTHORIZE,        // /oauth2/authorize
-  OAUTH_TOKEN,            // /oauth2/token
-  OAUTH_USERINFO,         // /oauth2/userinfo
-  getTenantById,          // /admin/tenants/:id
-  getUserById,            // /admin/users/:id
+  OAUTH_AUTHORIZE,        // /oauth/authorize
+  OAUTH_TOKEN,            // /oauth/token
+  OAUTH_INTROSPECT,       // /oauth/introspect
+  getTenantById,          // /api/tenants/:id
+  getTenantMemberships,   // /api/tenants/:id/memberships
 } from '@authvital/core/api';
 ```
 
@@ -115,9 +115,37 @@ import {
   buildAuthorizeUrl,         // Build OAuth authorize URL
   buildTokenUrl,             // Build token endpoint URL
   getLoginUrl,               // Convenience for login redirect
+  getSignupUrl,              // Convenience for signup redirect
   getLogoutUrl,              // Convenience for logout redirect
-  getRegisterUrl,            // Convenience for register redirect
+  getAccountSettingsUrl,     // /account/settings (per-user account page)
 } from '@authvital/core/oauth';
+```
+
+#### Hosted-console deep-links (`management-urls`)
+
+AuthVital is hosted-first: the console at `/tenant/:tenantId/*` is the canonical
+tenant-admin UI. These pure helpers build verified deep-links into it (and the
+app/org switchers) so integrators never hand-assemble paths:
+
+```ts
+import {
+  getManagementUrls,   // { root, overview, members, applications, accessMatrix,
+                       //   licenses, billing, audit, sso, domains, settings }
+  getMembersUrl,       // /tenant/:tenantId/members
+  getApplicationsUrl,  // /tenant/:tenantId/applications
+  getAccessMatrixUrl,  // /tenant/:tenantId/access-matrix
+  getLicensesUrl,      // /tenant/:tenantId/licenses
+  getBillingUrl,       // /tenant/:tenantId/billing
+  getAuditUrl,         // /tenant/:tenantId/audit
+  getSsoUrl,           // /tenant/:tenantId/sso
+  getDomainsUrl,       // /tenant/:tenantId/domains
+  getSettingsUrl,      // /tenant/:tenantId/general
+  getAppPickerUrl,     // /auth/app-picker (switch app)
+  getOrgPickerUrl,     // /auth/org-picker (switch org)
+} from '@authvital/core/oauth';
+
+const urls = getManagementUrls({ authVitalHost: 'https://auth.example.com', tenantId: 't_123' });
+// urls.members -> https://auth.example.com/tenant/t_123/members
 ```
 
 ### `/errors` - Error Classes

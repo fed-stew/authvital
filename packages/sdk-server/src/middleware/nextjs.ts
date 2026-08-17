@@ -20,6 +20,7 @@ import {
   type CookieOptions,
 } from '../session/index.js';
 import { ServerClient, type ServerClientConfig } from '../client/index.js';
+import { parseInteractionRequired } from '../errors.js';
 
 // =============================================================================
 // TYPES
@@ -41,6 +42,14 @@ export interface NextAuthContext {
   client: ServerClient;
   /** Whether tokens were refreshed during this request */
   refreshed: boolean;
+  /**
+   * Machine-readable reason for an unauthenticated result.
+   * Set to 'interaction_required' when the IdP refused the token refresh
+   * because the user must re-authenticate interactively (e.g. tenant MFA
+   * policy). The app should clear the session and restart the authorize
+   * flow — retrying the refresh will never succeed.
+   */
+  failureReason?: 'interaction_required';
 }
 
 /**
@@ -82,6 +91,12 @@ export interface ServerComponentOptions {
  *
  * This middleware runs at the edge before requests reach your application.
  * It validates sessions and handles token refresh.
+ *
+ * If the IdP rejects the refresh with `interaction_required` (e.g. the
+ * tenant's MFA policy now blocks the session), the middleware treats the
+ * session as invalid: it clears the session cookie and redirects to the
+ * login page — with `?reason=interaction_required` appended so the login
+ * page can distinguish this from an ordinary expired session.
  *
  * @param config - Edge middleware configuration
  * @returns Next.js middleware function
@@ -161,11 +176,29 @@ export function createAuthMiddleware(config: EdgeMiddlewareConfig) {
       if (needsRefresh && tokens.refreshToken) {
         const refreshResult = await refreshTokens(tokens, clientConfig);
 
-        if (refreshResult) {
+        if (refreshResult.interactionRequired) {
+          // The IdP demands an interactive step (e.g. MFA enrollment).
+          // Retrying is pointless — treat like an invalid session: clear the
+          // cookie and send the user to login, flagging the reason.
+          let response: NextResponse;
+          if (isPublic) {
+            response = NextResponse.next();
+          } else {
+            const loginUrl = new URL(loginPath, request.url);
+            loginUrl.searchParams.set('redirect', pathname);
+            loginUrl.searchParams.set('reason', 'interaction_required');
+            response = NextResponse.redirect(loginUrl);
+          }
+          response.cookies.delete(cookieName);
+          return response;
+        }
+
+        const newTokens = refreshResult.tokens;
+        if (newTokens) {
           _currentTokens = {
-            accessToken: refreshResult.access_token,
-            refreshToken: refreshResult.refresh_token ?? tokens.refreshToken,
-            expiresAt: now + refreshResult.expires_in,
+            accessToken: newTokens.access_token,
+            refreshToken: newTokens.refresh_token ?? tokens.refreshToken,
+            expiresAt: now + newTokens.expires_in,
             sessionId: tokens.sessionId,
           };
           _refreshed = true;
@@ -173,7 +206,7 @@ export function createAuthMiddleware(config: EdgeMiddlewareConfig) {
           // Update cookie
           const newCookieValue = rotateSessionCookie(
             cookie.value,
-            refreshResult,
+            newTokens,
             config.secret
           );
 
@@ -191,7 +224,7 @@ export function createAuthMiddleware(config: EdgeMiddlewareConfig) {
           });
 
           if (config.onRefresh) {
-            config.onRefresh(refreshResult);
+            config.onRefresh(newTokens);
           }
 
           return response;
@@ -219,6 +252,10 @@ export function createAuthMiddleware(config: EdgeMiddlewareConfig) {
 
 /**
  * Get authentication context in a Server Component.
+ *
+ * If the IdP rejects the token refresh with `interaction_required`, the
+ * returned context is unauthenticated with `failureReason` set — redirect
+ * the user back through the authorize flow instead of retrying.
  *
  * @param cookieStore - Next.js cookie store (from cookies())
  * @param config - Server client configuration
@@ -263,14 +300,7 @@ export async function getServerAuth(
 
   // No session
   if (!sessionCookie) {
-    return {
-      isAuthenticated: false,
-      accessToken: null,
-      refreshToken: null,
-      sessionId: null,
-      client: new ServerClient(clientConfig),
-      refreshed: false,
-    };
+    return unauthenticatedContext(clientConfig);
   }
 
   try {
@@ -285,11 +315,19 @@ export async function getServerAuth(
     if (needsRefresh && tokens.refreshToken) {
       const refreshResult = await refreshTokens(tokens, clientConfig);
 
-      if (refreshResult) {
+      if (refreshResult.interactionRequired) {
+        // The IdP demands an interactive step (e.g. MFA enrollment).
+        // Treat as unauthenticated; the app should clear the session and
+        // restart the authorize flow (see failureReason).
+        return unauthenticatedContext(clientConfig, 'interaction_required');
+      }
+
+      const newTokens = refreshResult.tokens;
+      if (newTokens) {
         currentTokens = {
-          accessToken: refreshResult.access_token,
-          refreshToken: refreshResult.refresh_token ?? tokens.refreshToken,
-          expiresAt: now + refreshResult.expires_in,
+          accessToken: newTokens.access_token,
+          refreshToken: newTokens.refresh_token ?? tokens.refreshToken,
+          expiresAt: now + newTokens.expires_in,
           sessionId: tokens.sessionId,
         };
         refreshed = true;
@@ -306,14 +344,7 @@ export async function getServerAuth(
     };
   } catch {
     // Invalid session
-    return {
-      isAuthenticated: false,
-      accessToken: null,
-      refreshToken: null,
-      sessionId: null,
-      client: new ServerClient(clientConfig),
-      refreshed: false,
-    };
+    return unauthenticatedContext(clientConfig);
   }
 }
 
@@ -435,14 +466,7 @@ export async function getServerSideAuth(
   const sessionCookie = cookies[cookieName];
 
   if (!sessionCookie) {
-    return {
-      isAuthenticated: false,
-      accessToken: null,
-      refreshToken: null,
-      sessionId: null,
-      client: new ServerClient(clientConfig),
-      refreshed: false,
-    };
+    return unauthenticatedContext(clientConfig);
   }
 
   try {
@@ -457,26 +481,34 @@ export async function getServerSideAuth(
     if (needsRefresh && tokens.refreshToken) {
       const refreshResult = await refreshTokens(tokens, clientConfig);
 
-      if (refreshResult) {
+      const sessionStore = createSessionStore({
+        secret: config.secret,
+        authVitalHost: config.authVitalHost,
+        cookie: config.cookie,
+        isProduction: config.isProduction,
+      });
+
+      if (refreshResult.interactionRequired) {
+        // The IdP demands an interactive step (e.g. MFA enrollment).
+        // Clear the session cookie and report why via failureReason.
+        context.res.setHeader('Set-Cookie', sessionStore.createClearCookieHeader());
+        return unauthenticatedContext(clientConfig, 'interaction_required');
+      }
+
+      const newTokens = refreshResult.tokens;
+      if (newTokens) {
         currentTokens = {
-          accessToken: refreshResult.access_token,
-          refreshToken: refreshResult.refresh_token ?? tokens.refreshToken,
-          expiresAt: now + refreshResult.expires_in,
+          accessToken: newTokens.access_token,
+          refreshToken: newTokens.refresh_token ?? tokens.refreshToken,
+          expiresAt: now + newTokens.expires_in,
           sessionId: tokens.sessionId,
         };
         refreshed = true;
 
         // Update cookie in response
-        const sessionStore = createSessionStore({
-          secret: config.secret,
-          authVitalHost: config.authVitalHost,
-          cookie: config.cookie,
-          isProduction: config.isProduction,
-        });
-
         const rotation = sessionStore.rotateSession(
           sessionCookie,
-          refreshResult,
+          newTokens,
           {}
         );
 
@@ -495,14 +527,7 @@ export async function getServerSideAuth(
       refreshed,
     };
   } catch {
-    return {
-      isAuthenticated: false,
-      accessToken: null,
-      refreshToken: null,
-      sessionId: null,
-      client: new ServerClient(clientConfig),
-      refreshed: false,
-    };
+    return unauthenticatedContext(clientConfig);
   }
 }
 
@@ -512,6 +537,10 @@ export async function getServerSideAuth(
 
 /**
  * Get auth context in an API route handler.
+ *
+ * If the IdP rejects the token refresh with `interaction_required`, the
+ * returned context is unauthenticated with `failureReason` set — clear the
+ * session (clearRouteSession) and restart the authorize flow.
  *
  * @param request - Next.js API request
  * @param config - Server configuration
@@ -554,14 +583,7 @@ export async function getRouteAuth(
   };
 
   if (!sessionCookie) {
-    return {
-      isAuthenticated: false,
-      accessToken: null,
-      refreshToken: null,
-      sessionId: null,
-      client: new ServerClient(clientConfig),
-      refreshed: false,
-    };
+    return unauthenticatedContext(clientConfig);
   }
 
   try {
@@ -575,11 +597,19 @@ export async function getRouteAuth(
     if (needsRefresh && tokens.refreshToken) {
       const refreshResult = await refreshTokens(tokens, clientConfig);
 
-      if (refreshResult) {
+      if (refreshResult.interactionRequired) {
+        // The IdP demands an interactive step (e.g. MFA enrollment).
+        // Treat as unauthenticated; the app should clear the session
+        // (e.g. via clearRouteSession) and restart the authorize flow.
+        return unauthenticatedContext(clientConfig, 'interaction_required');
+      }
+
+      const newTokens = refreshResult.tokens;
+      if (newTokens) {
         currentTokens = {
-          accessToken: refreshResult.access_token,
-          refreshToken: refreshResult.refresh_token ?? tokens.refreshToken,
-          expiresAt: now + refreshResult.expires_in,
+          accessToken: newTokens.access_token,
+          refreshToken: newTokens.refresh_token ?? tokens.refreshToken,
+          expiresAt: now + newTokens.expires_in,
           sessionId: tokens.sessionId,
         };
         refreshed = true;
@@ -595,14 +625,7 @@ export async function getRouteAuth(
       refreshed,
     };
   } catch {
-    return {
-      isAuthenticated: false,
-      accessToken: null,
-      refreshToken: null,
-      sessionId: null,
-      client: new ServerClient(clientConfig),
-      refreshed: false,
-    };
+    return unauthenticatedContext(clientConfig);
   }
 }
 
@@ -688,10 +711,16 @@ export function clearRouteSession(
 // INTERNAL HELPERS
 // =============================================================================
 
+interface RefreshOutcome {
+  tokens: TokenResponse | null;
+  /** True when the IdP rejected the refresh with `interaction_required` */
+  interactionRequired: boolean;
+}
+
 async function refreshTokens(
   tokens: SessionTokens,
   config: ServerClientConfig
-): Promise<TokenResponse | null> {
+): Promise<RefreshOutcome> {
   try {
     const url = `${config.authVitalHost}/api/oauth/token`;
 
@@ -711,13 +740,32 @@ async function refreshTokens(
     });
 
     if (!response.ok) {
-      return null;
+      const bodyText = await response.text();
+      const interactionRequired =
+        parseInteractionRequired(response.status, bodyText) !== null;
+      return { tokens: null, interactionRequired };
     }
 
-    return await response.json() as TokenResponse;
+    return { tokens: await response.json() as TokenResponse, interactionRequired: false };
   } catch {
-    return null;
+    return { tokens: null, interactionRequired: false };
   }
+}
+
+/** Build the unauthenticated NextAuthContext shape (DRY across helpers). */
+function unauthenticatedContext(
+  clientConfig: ServerClientConfig,
+  failureReason?: 'interaction_required'
+): NextAuthContext {
+  return {
+    isAuthenticated: false,
+    accessToken: null,
+    refreshToken: null,
+    sessionId: null,
+    client: new ServerClient(clientConfig),
+    refreshed: false,
+    ...(failureReason ? { failureReason } : {}),
+  };
 }
 
 function buildCookieOptions(

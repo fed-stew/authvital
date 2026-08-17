@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import { KeyService } from '../../oauth/key.service';
 import { AuthService } from '../auth.service';
-import { extractJwt } from '../utils/extract-jwt';
+import { extractSessionJwt } from '../utils/extract-jwt';
 
 /**
  * Optional JWT Auth Guard
@@ -29,7 +29,7 @@ export class OptionalAuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
-    const token = extractJwt(request) || (request as any).cookies?.['idp_session'] || null;
+    const token = extractSessionJwt(request);
 
     if (!token) {
       // No token - that's fine, user is just not authenticated

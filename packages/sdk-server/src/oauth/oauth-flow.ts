@@ -15,6 +15,7 @@ import {
   encodeState,
   decodeState,
 } from '@authvital/core/oauth';
+import { parseInteractionRequired } from '../errors.js';
 
 export interface OAuthFlowConfig {
   /** AuthVital server URL for API calls (e.g., internal Docker hostname) */
@@ -177,7 +178,11 @@ export class OAuthFlow {
    *
    * @param refreshToken - The refresh token
    * @returns New tokens
-   * @throws Error if refresh fails
+   * @throws {InteractionRequiredError} when the IdP rejects the refresh with
+   *   `{ error: 'interaction_required' }` (e.g. tenant MFA policy now blocks
+   *   this session). Catch it and redirect the user to re-authenticate —
+   *   retrying will never succeed.
+   * @throws Error for any other refresh failure
    */
   async refreshTokens(refreshToken: string): Promise<TokenResponse> {
     const tokenUrl = buildTokenUrl(this.config.authVitalHost);
@@ -199,6 +204,10 @@ export class OAuthFlow {
 
     if (!response.ok) {
       const errorText = await response.text();
+      const interactionRequired = parseInteractionRequired(response.status, errorText);
+      if (interactionRequired) {
+        throw interactionRequired;
+      }
       throw new Error(`Token refresh failed (${response.status}): ${errorText}`);
     }
 

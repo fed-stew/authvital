@@ -1,132 +1,87 @@
-# Entitlements Namespace
+# Entitlements
 
-> Check quotas, features, and entitlements for tenant-scoped operations.
+> Feature flags, seat availability and subscription status via `client.integration`.
 
-## Overview
-
-The entitlements namespace provides the "gatekeeper" function for quota-based actions like adding team members.
-
-```typescript
-const entitlements = authvital.entitlements;
-```
-
----
+!!! info "There is no fluent `authvital.entitlements.*(req, …)` namespace"
+    Earlier drafts described `authvital.entitlements.canPerform(req, 'seats')`
+    and `.decrementUsage(req, 'seats')`. **That API does not exist.** Use the M2M
+    integration methods below.
 
 ## Methods
 
-### canPerform()
+Verified against `packages/sdk-server/src/client/integration.ts`:
 
-Check if a quota-based action is allowed. This is the main gatekeeper function.
+| Method | Params | Returns |
+|--------|--------|---------|
+| `checkFeature` | `{ tenantId, feature, applicationId? }` | `{ hasAccess, licenseType, reason? }` |
+| `checkSeats` | `{ tenantId, applicationId? }` | `SeatCheckResult` |
+| `getSubscriptionStatus` | `{ tenantId, applicationId? }` | subscription status |
+
+!!! info "`checkFeature` is a **tenant-level** entitlement check"
+    It checks whether the TENANT has access to a feature (not a per-user check),
+    so it sends `feature` (not `featureKey`) and takes **no `userId`**. For a
+    per-user feature check gated by the user's license, use
+    `client.checkLicenseFeature({ userId, applicationId, featureKey })` — see
+    [Licenses](./licenses.md).
 
 ```typescript
-const check = await authvital.entitlements.canPerform(request, 'seats');
+import { createServerClient } from '@authvital/server';
 
-if (!check.allowed) {
-  return res.status(403).json({
-    error: check.reason,
-    currentUsage: check.currentUsage,
-    limit: check.limit,
-  });
+const client = createServerClient({
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
+});
+
+// Does the tenant have access to a feature?
+const { hasAccess } = await client.integration.checkFeature({
+  tenantId: 'tenant-abc',
+  feature: 'advanced-analytics',
+});
+
+// Are there seats to add another member?
+const seats = await client.integration.checkSeats({ tenantId: 'tenant-abc' });
+if (!seats.allowed) {
+  // seats.reason, seats.currentUsage, seats.limit, seats.wouldTriggerOverage
 }
 
-// Action allowed - proceed
+// Subscription status for a tenant
+const status = await client.integration.getSubscriptionStatus({ tenantId: 'tenant-abc' });
 ```
 
-**Parameters:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `request` | `RequestLike` | Yes | Incoming HTTP request |
-| `featureKey` | `string` | Yes | Quota to check (e.g., 'seats') |
-
-**Return Type:**
+`SeatCheckResult` shape (from the SDK types):
 
 ```typescript
-interface QuotaCheckResult {
+interface SeatCheckResult {
   allowed: boolean;
-  reason?: string;       // Why it's not allowed
-  currentUsage: number;
-  limit?: number;        // undefined if unlimited
+  currentUsage?: number;
+  limit?: number;
+  reason?: string;
+  wouldTriggerOverage?: boolean;
+  overagePriceId?: string | null;
 }
 ```
 
-**Special Handling for 'seats':**
+!!! note "No usage-decrement method"
+    There is no `decrementUsage` in the SDK. Seat usage is derived from actual
+    license assignments — grant/revoke licenses (see [Licenses](./licenses.md))
+    and usage updates accordingly.
 
-The `seats` feature key is special - it checks license seat availability:
+## Example: seat gate before inviting
 
 ```typescript
-// Before adding a team member
-const check = await authvital.entitlements.canPerform(req, 'seats');
-
-if (!check.allowed) {
+const seats = await client.integration.checkSeats({ tenantId });
+if (!seats.allowed) {
   return res.status(402).json({
-    error: 'No available seats. Upgrade your subscription to add more team members.',
-    seatsUsed: check.currentUsage,
-    seatsTotal: check.limit,
+    error: 'Seat limit reached',
+    used: seats.currentUsage,
+    limit: seats.limit,
+    reason: seats.reason,
   });
 }
-
-// Add the member...
+await client.integration.sendInvitation({ tenantId, email, roleId, clientId: process.env.AV_CLIENT_ID! });
 ```
 
----
+## See also
 
-### decrementUsage()
-
-Decrement usage for a quota (call after removing a resource).
-
-```typescript
-// After removing a team member
-const { newUsage } = await authvital.entitlements.decrementUsage(request, 'seats');
-console.log(`New usage: ${newUsage}`);
-```
-
-!!! warning "Billing Integration"
-    This method requires billing endpoints to be configured. It's designed for future billing integration.
-
----
-
-## Complete Example: Seat Management
-
-```typescript
-import { createAuthVital } from '@authvital/sdk/server';
-import express from 'express';
-
-const authvital = createAuthVital({ /* config */ });
-const app = express();
-
-// Check before inviting
-app.post('/api/team/invite', async (req, res) => {
-  // 1. Check seat availability
-  const seatCheck = await authvital.entitlements.canPerform(req, 'seats');
-  
-  if (!seatCheck.allowed) {
-    return res.status(402).json({
-      error: 'Seat limit reached',
-      message: seatCheck.reason,
-      currentSeats: seatCheck.currentUsage,
-      maxSeats: seatCheck.limit,
-      upgradeUrl: '/billing/upgrade',
-    });
-  }
-  
-  // 2. Send invitation
-  const invitation = await authvital.invitations.send(req, {
-    email: req.body.email,
-  });
-  
-  res.status(201).json(invitation);
-});
-
-// Get seat info for UI
-app.get('/api/team/seats', async (req, res) => {
-  const check = await authvital.entitlements.canPerform(req, 'seats');
-  
-  res.json({
-    used: check.currentUsage,
-    total: check.limit,
-    available: check.limit ? check.limit - check.currentUsage : 'unlimited',
-    canAddMore: check.allowed,
-  });
-});
-```
+- [Licenses](./licenses.md) · [Invitations](./invitations.md) · [Integration API (overview)](./overview.md)

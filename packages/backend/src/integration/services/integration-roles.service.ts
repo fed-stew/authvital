@@ -4,6 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { M2mTenantAuthService } from '../m2m-authz';
 
 /**
  * Handles role queries and role assignment for M2M integration.
@@ -15,7 +16,10 @@ import { PrismaService } from '../../prisma/prisma.service';
  */
 @Injectable()
 export class IntegrationRolesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly m2mTenantAuth: M2mTenantAuthService,
+  ) {}
 
   /**
    * Get all available tenant roles (IDP-level)
@@ -60,19 +64,25 @@ export class IntegrationRolesService {
       description: string | null;
     }>;
   }> {
-    // Find application by clientId
-    const application = await this.prisma.application.findUnique({
+    // clientId identifies an ApplicationClient; roles belong to the container.
+    const client = await this.prisma.applicationClient.findUnique({
       where: { clientId },
-      include: {
-        roles: {
-          orderBy: [{ name: 'asc' }],
+      select: {
+        application: {
+          include: {
+            roles: {
+              orderBy: [{ name: 'asc' }],
+            },
+          },
         },
       },
     });
 
-    if (!application) {
+    if (!client) {
       throw new NotFoundException(`Application with clientId '${clientId}' not found`);
     }
+
+    const application = client.application;
 
     return {
       roles: application.roles.map((r) => ({
@@ -85,17 +95,32 @@ export class IntegrationRolesService {
   }
 
   /**
-   * Set a member's tenant role (replaces all existing roles)
+   * Set a member's APPLICATION role (the app-scoped MembershipRole -> Role
+   * binding), replacing whatever app role they currently hold for that app.
    *
-   * Enforces role hierarchy:
-   * - owner can change anyone (except last owner protection)
-   * - admin can change admins and members, but cannot touch owners or promote to owner
-   * - member cannot change roles
+   * This is the coherent intent of the M2M `set-member-role` endpoint: the SDK
+   * body carries `{ membershipId, roleId, applicationId }`, all three of which
+   * are meaningful here (an application role id + the app it belongs to). The
+   * previous wiring passed these positionally into a tenant-role method with
+   * signature `(membershipId, roleSlug, callerUserId)`, so `roleId` was used as
+   * a role *slug* and `applicationId` as the caller's *userId* — always wrong.
+   *
+   * Authorization is handled by the M2M guard on the controller (the calling
+   * application is trusted for its own tenants); there is no human "caller" in
+   * an M2M context, so no user-relative hierarchy check applies. Tenant-level
+   * role changes have their own path (assigned at invite time; see
+   * IntegrationInvitationsService) and are intentionally out of scope here.
+   *
+   * NOTE: mirrors MemberAppAccessService.updateAppRole (which additionally
+   * emits sync events for the human-facing tenant UI). Kept as a small,
+   * dependency-light Prisma write here to avoid coupling IntegrationModule to
+   * the whole TenantsModule.
    */
   async setMemberRole(
     membershipId: string,
-    roleSlug: string,
-    callerUserId: string,
+    roleId: string,
+    applicationId: string,
+    clientId: string,
   ): Promise<{
     success: boolean;
     message: string;
@@ -104,11 +129,6 @@ export class IntegrationRolesService {
     // 1. Validate target membership exists
     const targetMembership = await this.prisma.membership.findUnique({
       where: { id: membershipId },
-      include: {
-        membershipTenantRoles: {
-          include: { tenantRole: true },
-        },
-      },
     });
 
     if (!targetMembership) {
@@ -119,122 +139,35 @@ export class IntegrationRolesService {
       throw new BadRequestException('Membership has no associated tenant');
     }
 
-    // 2. Validate the new role exists
-    const newRole = await this.prisma.tenantRole.findUnique({
-      where: { slug: roleSlug },
+    // Record-derived tenant: enforce M2M client access before any mutation.
+    await this.m2mTenantAuth.assertTenantAccess(clientId, targetMembership.tenantId);
+
+    // 2. Validate the role exists AND belongs to the given application (guards
+    //    against assigning a role from a different app).
+    const newRole = await this.prisma.role.findFirst({
+      where: { id: roleId, applicationId },
     });
 
     if (!newRole) {
-      throw new NotFoundException(`Tenant role '${roleSlug}' not found`);
+      throw new NotFoundException(
+        `Role '${roleId}' not found for application '${applicationId}'`,
+      );
     }
 
-    // 3. Look up the caller's membership in the same tenant
-    const callerMembership = await this.prisma.membership.findFirst({
-      where: {
-        userId: callerUserId,
-        tenantId: targetMembership.tenantId,
-        status: 'ACTIVE',
-      },
-      include: {
-        membershipTenantRoles: {
-          include: { tenantRole: true },
-        },
-      },
-    });
-
-    if (!callerMembership) {
-      throw new BadRequestException('Caller is not an active member of this tenant');
-    }
-
-    // 4. Determine caller's and target's highest role
-    const roleWeight = (slug: string): number => {
-      switch (slug) {
-        case 'owner': return 3;
-        case 'admin': return 2;
-        case 'member': return 1;
-        default: return 0;
-      }
-    };
-
-    const callerHighestRole = callerMembership.membershipTenantRoles.reduce(
-      (max, mtr) => Math.max(max, roleWeight(mtr.tenantRole.slug)),
-      0,
-    );
-
-    const targetCurrentRole = targetMembership.membershipTenantRoles.reduce(
-      (max, mtr) => Math.max(max, roleWeight(mtr.tenantRole.slug)),
-      0,
-    );
-
-    const newRoleWeight = roleWeight(roleSlug);
-
-    // 5. Enforce hierarchy
-    // Members cannot change roles
-    if (callerHighestRole < roleWeight('admin')) {
-      throw new BadRequestException('Insufficient permissions: only owners and admins can change member roles');
-    }
-
-    // Admins cannot touch owners
-    if (callerHighestRole < roleWeight('owner') && targetCurrentRole >= roleWeight('owner')) {
-      throw new BadRequestException('Insufficient permissions: admins cannot change an owner\'s role');
-    }
-
-    // Admins cannot promote to owner
-    if (callerHighestRole < roleWeight('owner') && newRoleWeight >= roleWeight('owner')) {
-      throw new BadRequestException('Insufficient permissions: only owners can promote to owner');
-    }
-
-    // 6. Execute the role change in a transaction
+    // 3. Replace the member's role for THIS application only (leave other apps'
+    //    roles untouched). Idempotent + atomic.
     await this.prisma.$transaction(async (tx) => {
-      // Last owner protection
-      if (roleSlug !== 'owner') {
-        const ownerRole = await tx.tenantRole.findUnique({
-          where: { slug: 'owner' },
-        });
-
-        if (ownerRole) {
-          const isTargetCurrentlyOwner = targetMembership.membershipTenantRoles.some(
-            (mtr) => mtr.tenantRole.slug === 'owner',
-          );
-
-          if (isTargetCurrentlyOwner) {
-            const otherOwners = await tx.membershipTenantRole.count({
-              where: {
-                tenantRoleId: ownerRole.id,
-                membership: {
-                  tenantId: targetMembership.tenantId,
-                  id: { not: membershipId },
-                  status: { not: 'SUSPENDED' },
-                },
-              },
-            });
-
-            if (otherOwners === 0) {
-              throw new BadRequestException(
-                'Cannot change role of the last owner. Transfer ownership first.',
-              );
-            }
-          }
-        }
-      }
-
-      // Clear all existing tenant roles
-      await tx.membershipTenantRole.deleteMany({
-        where: { membershipId },
+      await tx.membershipRole.deleteMany({
+        where: { membershipId, role: { applicationId } },
       });
-
-      // Set the new role
-      await tx.membershipTenantRole.create({
-        data: {
-          membershipId,
-          tenantRoleId: newRole.id,
-        },
+      await tx.membershipRole.create({
+        data: { membershipId, roleId: newRole.id },
       });
     });
 
     return {
       success: true,
-      message: `Member role set to '${roleSlug}'`,
+      message: `Member application role set to '${newRole.slug}'`,
       role: {
         id: newRole.id,
         name: newRole.name,

@@ -38,3 +38,4 @@
 
 export * from './pkce.js';
 export * from './urls.js';
+export * from './management-urls.js';

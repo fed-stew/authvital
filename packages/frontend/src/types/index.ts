@@ -72,6 +72,27 @@ export type {
 } from '@authvital/shared';
 
 // =============================================================================
+// CONTAINER MODEL (app-client-split — Phase 2 contracts)
+// =============================================================================
+// An Application is a CONTAINER; OAuth credentials live on child clients.
+// These are the canonical shapes the admin UI consumes in Phase 3. Import them
+// from here (or straight from @authvital/contracts) — never re-derive the old
+// flat Application shape that assumed one client + one secret per app.
+
+export type {
+  AppWithClients,
+  ApplicationClient,
+  ClientType,
+  AddClientInput,
+  AddClientResponse,
+  UpdateClientInput,
+  CreateApplicationInput,
+  CreateApplicationResponse,
+  UpdateApplicationInput,
+  M2mTenantGrant,
+} from '@authvital/contracts';
+
+// =============================================================================
 // FRONTEND-SPECIFIC: Instance Configuration Types
 // =============================================================================
 
@@ -116,26 +137,6 @@ export interface InstanceApiKey {
 // =============================================================================
 
 import type { LicensingMode, AppUserWithAccess } from '@authvital/shared';
-
-export interface ApplicationWithRoles {
-  application: {
-    id: string;
-    name: string;
-    slug: string;
-    description: string | null;
-    licensingMode: LicensingMode;
-    defaultLicenseTypeId: string | null;
-    defaultSeatCount: number;
-    autoProvisionOnSignup: boolean;
-    autoGrantToOwner: boolean;
-  };
-  roles: Array<{
-    id: string;
-    name: string;
-    slug: string;
-    description: string | null;
-  }>;
-}
 
 export interface AppUsersResponse {
   app: {
@@ -206,7 +207,7 @@ export interface TenantSubscriptionResponse {
 // FRONTEND-SPECIFIC: Domain Verification Response Types
 // =============================================================================
 
-import type { Domain } from '@authvital/shared';
+import type { Domain, MembershipStatus } from '@authvital/shared';
 
 export interface DomainVerifyResponse {
   success: boolean;
@@ -320,4 +321,106 @@ export interface UsageDashboardData {
     utilizationPercentage: number;
   }>;
   recentActivity: LicenseAuditLogEntry[];
+}
+
+// =============================================================================
+// PHASE 4b: Audit log (GET /tenants/:id/audit)
+// =============================================================================
+
+export interface AuditLogItem {
+  id: string;
+  tenantId: string;
+  userId: string | null;
+  actorEmail: string | null;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  metadata: Record<string, unknown> | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+}
+
+export interface AuditQueryResult {
+  items: AuditLogItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+// =============================================================================
+// PHASE 4b: Usage trends (GET /tenants/:id/licenses/usage-trends)
+// =============================================================================
+
+export interface UsagePoint {
+  date: string; // YYYY-MM-DD (UTC)
+  totalSeats: number;
+  seatsAssigned: number;
+}
+
+export interface UsageTrendsResult {
+  tenantId: string;
+  days: number;
+  series: UsagePoint[];
+  byApplication: Array<{
+    applicationId: string;
+    applicationName: string;
+    series: UsagePoint[];
+  }>;
+}
+
+// =============================================================================
+// PHASE 4b: Cross-app access matrix (GET /tenants/:id/app-access-matrix)
+// =============================================================================
+
+export interface AccessMatrixCell {
+  appId: string;
+  appName: string;
+  hasAccess: boolean;
+  role: string | null;
+  licenseType: string | null;
+}
+
+export interface AccessMatrixMember {
+  userId: string;
+  email: string;
+  name: string;
+  apps: AccessMatrixCell[];
+}
+
+export interface AccessMatrixResult {
+  tenantId: string;
+  apps: Array<{ appId: string; appName: string }>;
+  members: AccessMatrixMember[];
+}
+
+// =============================================================================
+// PHASE 4b: Account settings (GET /auth/profile, GET /oauth/sessions)
+// =============================================================================
+
+export interface AccountProfile {
+  id: string;
+  email: string;
+  mfaEnabled: boolean;
+  givenName: string | null;
+  familyName: string | null;
+  displayName: string | null;
+  pictureUrl: string | null;
+  createdAt: string;
+  memberships: Array<{
+    id: string;
+    status: MembershipStatus;
+    joinedAt: string | null;
+    tenant: { id: string; name: string; slug: string };
+  }>;
+}
+
+export interface AccountSession {
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  userAgent: string | null;
+  ipAddress: string | null;
+  tenant: string | null;
 }

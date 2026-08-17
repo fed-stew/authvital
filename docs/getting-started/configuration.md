@@ -243,15 +243,16 @@ Each app can override instance branding:
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `mfaPolicy` | enum | `OPTIONAL` | MFA requirement level |
-| `mfaGracePeriodDays` | number | `7` | Days before enforcing MFA |
+| `mfaGracePeriodDays` | number | `7` | With `REQUIRED`: days members have to enroll before losing access (`0` = immediate) |
 
 **MFA policies:**
 
 | Policy | Description |
 |--------|-------------|
+| `DISABLED` | MFA is disabled for the tenant |
 | `OPTIONAL` | MFA available but not required |
-| `REQUIRED` | All members must enable MFA immediately |
-| `ENFORCED_AFTER_GRACE` | Required after grace period |
+| `ENCOURAGED` | Members are prompted to enable MFA but not required |
+| `REQUIRED` | All members must enable MFA; combine with `mfaGracePeriodDays > 0` to enforce after a grace period |
 
 ### SSO Configuration
 

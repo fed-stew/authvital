@@ -205,6 +205,45 @@ const auth = await getRouteAuth(request, {
 });
 ```
 
+### 🛑 Handling `interaction_required`
+
+When a tenant's MFA policy blocks a session (e.g. the policy is `REQUIRED`
+and the user's enrollment grace period expired), the IdP rejects the token
+refresh with a 401/403 whose body is `{ error: 'interaction_required' }`.
+The SDK surfaces this as a typed `InteractionRequiredError` from
+`OAuthFlow.refreshTokens()` and `ServerClient` refresh paths.
+
+**Do not retry** — refresh will never succeed. Catch it, clear the session,
+and redirect the user back through `/oauth/authorize` (the hosted flow will
+interrupt into MFA enrollment and resume automatically):
+
+```typescript
+import { InteractionRequiredError, OAuthFlow } from '@authvital/server';
+
+try {
+  const tokens = await oauth.refreshTokens(session.refreshToken);
+  // ... rotate session cookie with new tokens
+} catch (err) {
+  if (err instanceof InteractionRequiredError) {
+    // err.reason e.g. 'mfa_enrollment_required'
+    res.setHeader('Set-Cookie', sessionStore.createClearCookieHeader());
+    return res.redirect('/auth/login'); // starts a fresh authorize flow
+  }
+  throw err;
+}
+```
+
+The framework middlewares handle this for you during their silent refresh:
+the session is treated as invalid (cookie cleared where the middleware
+manages the response), the request continues unauthenticated, and the
+distinction is exposed machine-readably — Express sets
+`res.locals.authFailureReason = 'interaction_required'`, NestJS sets
+`req.authFailureReason = 'interaction_required'` (readable from guards and
+exception filters), and the Next.js helpers return a context with
+`failureReason: 'interaction_required'` (the edge middleware redirects to
+your login page with `?reason=interaction_required`). Branch on these to
+restart the authorize flow instead of showing a generic 401.
+
 ---
 
 ## Framework Guides
@@ -430,15 +469,79 @@ const client = createServerClient({
 const user = await client.getCurrentUser();
 const tenants = await client.getTenantMemberships();
 
-// Server-to-server calls (admin operations)
+// Server-to-server (M2M) calls via the integration client.
+// The integration client uses the Client Credentials grant automatically.
 const adminClient = createServerClient({
   authVitalHost: 'https://auth.example.com',
   clientId: 'admin-client-id',
   clientSecret: 'admin-client-secret',
 });
 
-const allUsers = await adminClient.admin.listUsers();
+const members = await adminClient.integration.listTenantMembers({ tenantId: 'tenant-123' });
 ```
+
+---
+
+## The SDK's role (hosted-first)
+
+AuthVital is **hosted-first**. The console at `/tenant/:tenantId/*` is the
+canonical place your customers manage users, app/product access, SSO, domains,
+licenses, billing and audit. The SDK deliberately does **not** re-implement that
+UI. Its job is:
+
+1. **Auth + JWT claims** — OAuth/PKCE, sessions, token refresh.
+2. **Gating** — `client.hasPermission(...)` (fail-closed, delegates to the
+   backend guard) for server-side authorization decisions.
+3. **Entitlement reads (user token)** — `client.checkLicense`,
+   `client.checkLicenseFeature`, `client.getAppLicensedUsers`,
+   `client.countLicensedUsers`. These run on the **end user's** access token and
+   derive `tenantId` from the JWT, so they take **no `tenantId` param**.
+4. **M2M automation** — `client.integration.*` (Client Credentials) for
+   server-to-server writes/reads that act as your app.
+5. **Deep-links into the hosted console** — via `@authvital/core`.
+
+### Entitlement reads (user token)
+
+```typescript
+// `client` carries the user's SessionTokens; tenantId comes from the JWT.
+const lic = await client.checkLicense({ userId, applicationId });          // LicenseCheckResult
+const { hasFeature } = await client.checkLicenseFeature({ userId, applicationId, featureKey: 'sso' });
+const users = await client.getAppLicensedUsers({ applicationId });          // LicensedUser[]
+const { count } = await client.countLicensedUsers({ applicationId });
+```
+
+### M2M automation (`client.integration.*`)
+
+```typescript
+// setMemberRole assigns an APPLICATION role: roleId = an app Role id + applicationId.
+await adminClient.integration.setMemberRole({ membershipId, roleId, applicationId });
+
+// sendInvitation requires a singular roleId (a TenantRole id); clientId drives
+// the accept redirect.
+await adminClient.integration.sendInvitation({
+  tenantId, email: 'new@corp.com', roleId, clientId: process.env.AV_CLIENT_ID!, expiresInDays: 7,
+});
+
+// License automation (writes act as your app):
+await adminClient.integration.grantLicense({ userId, tenantId, applicationId, licenseTypeId });
+```
+
+> **M2M `IntegrationClient` = automation. Hosted console = the UI.** For humans
+> managing a tenant, deep-link into the console rather than rebuilding CRUD.
+
+### Deep-links into the hosted console (`@authvital/core`)
+
+```typescript
+import { getManagementUrls, getAccountSettingsUrl } from '@authvital/core';
+
+const urls = getManagementUrls({ authVitalHost: process.env.AV_HOST!, tenantId });
+// urls.members / urls.applications / urls.accessMatrix / urls.licenses /
+// urls.billing / urls.audit / urls.sso / urls.domains / urls.settings
+const account = getAccountSettingsUrl(process.env.AV_HOST!); // /account/settings
+```
+
+See the docs' [OAuth Flow](https://authvital.dev/sdk/server-sdk/oauth-flow/) page
+for the full helper→route table (including `getAppPickerUrl`/`getOrgPickerUrl`).
 
 ---
 

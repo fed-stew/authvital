@@ -11,6 +11,8 @@ import { SyncEventService, SYNC_EVENT_TYPES } from '../sync';
 import { AppAccessService } from '../authorization';
 import { MembershipStatus, SubscriptionStatus } from '@prisma/client';
 import { InviteMemberDto } from './dto/invite-member.dto';
+import { AuditService } from '../audit/audit.service';
+import { AUDIT_ACTIONS, AUDIT_TARGET_TYPES } from '../audit/audit-actions';
 
 /**
  * MembersService - Core member lifecycle operations
@@ -32,6 +34,7 @@ export class MembersService {
     private readonly prisma: PrismaService,
     private readonly syncEventService: SyncEventService,
     private readonly appAccessService: AppAccessService,
+    private readonly auditService: AuditService,
   ) {}
 
   // ===========================================================================
@@ -309,6 +312,7 @@ export class MembersService {
     tenantId: string,
     membershipId: string,
     status: 'ACTIVE' | 'SUSPENDED',
+    actorUserId?: string,
   ) {
     const membership = await this.prisma.membership.findFirst({
       where: { id: membershipId, tenantId },
@@ -360,13 +364,23 @@ export class MembersService {
     }
 
     this.logger.log(`Member ${membershipId} status changed to ${status}`);
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId,
+      action: AUDIT_ACTIONS.MEMBER_STATUS_CHANGED,
+      targetType: AUDIT_TARGET_TYPES.MEMBERSHIP,
+      targetId: membershipId,
+      metadata: { status, userId: membership.user.id, email: membership.user.email },
+    });
+
     return updated;
   }
 
   /**
    * Remove member from tenant
    */
-  async removeMember(tenantId: string, membershipId: string) {
+  async removeMember(tenantId: string, membershipId: string, actorUserId?: string) {
     const membership = await this.prisma.membership.findFirst({
       where: { id: membershipId, tenantId },
       include: {
@@ -412,13 +426,28 @@ export class MembersService {
     }
 
     this.logger.log(`Member ${membership.user.email} removed from tenant ${tenantId}`);
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId,
+      action: AUDIT_ACTIONS.MEMBER_REMOVED,
+      targetType: AUDIT_TARGET_TYPES.MEMBERSHIP,
+      targetId: membershipId,
+      metadata: { userId: membership.user.id, email: membership.user.email },
+    });
+
     return { success: true, message: 'Member removed successfully' };
   }
 
   /**
    * Change a member's tenant role
    */
-  async changeMemberRole(tenantId: string, membershipId: string, roleSlug: string) {
+  async changeMemberRole(
+    tenantId: string,
+    membershipId: string,
+    roleSlug: string,
+    actorUserId?: string,
+  ) {
     const membership = await this.prisma.membership.findFirst({
       where: { id: membershipId, tenantId },
       include: {
@@ -474,6 +503,21 @@ export class MembersService {
     });
 
     this.logger.log(`Member ${membershipId} role changed to ${newRole.name}`);
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId,
+      action: AUDIT_ACTIONS.MEMBER_ROLE_CHANGED,
+      targetType: AUDIT_TARGET_TYPES.MEMBERSHIP,
+      targetId: membershipId,
+      metadata: {
+        roleSlug,
+        newRoleId: newRole.id,
+        newRoleName: newRole.name,
+        previousRoles: currentRoles,
+      },
+    });
+
     return { success: true, message: `Role changed to ${newRole.name}` };
   }
 }

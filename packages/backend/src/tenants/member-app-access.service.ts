@@ -8,6 +8,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SyncEventService, SYNC_EVENT_TYPES } from '../sync';
 import { AppAccessService } from '../authorization';
 import { AccessType } from '@prisma/client';
+import { AuditService } from '../audit/audit.service';
+import { AUDIT_ACTIONS, AUDIT_TARGET_TYPES } from '../audit/audit-actions';
 
 interface MembershipWithUser {
   id: string;
@@ -42,6 +44,7 @@ export class MemberAppAccessService {
     private readonly prisma: PrismaService,
     private readonly syncEventService: SyncEventService,
     private readonly appAccessService: AppAccessService,
+    private readonly auditService: AuditService,
   ) {}
 
   /**
@@ -298,6 +301,20 @@ export class MemberAppAccessService {
         this.logger.warn(`Failed to emit app_access.role_changed: ${err.message}`),
       );
 
+    await this.auditService.log({
+      tenantId,
+      action: AUDIT_ACTIONS.APP_ROLE_CHANGED,
+      targetType: AUDIT_TARGET_TYPES.APP_ACCESS,
+      targetId: membership.user.id,
+      metadata: {
+        membershipId,
+        applicationId,
+        roleId: newRole.id,
+        roleName: newRole.name,
+        previousRoleId: existingMembershipRole?.role.id ?? null,
+      },
+    });
+
     return { success: true, role: newRole };
   }
 
@@ -414,32 +431,29 @@ export class MemberAppAccessService {
     application: ApplicationInfo,
     options?: { roleId?: string; performedById?: string },
   ) {
-    // For PER_SEAT: check seat availability
+    // For PER_SEAT apps, access is backed by a real license seat. Claim one
+    // (or reuse the user's existing seat) so that "members with access" and
+    // "seats used" stay in lockstep. Throws if the seat pool is exhausted.
+    let licenseAssignmentId: string | undefined;
     if (application.licensingMode === 'PER_SEAT') {
-      const subscription = await this.prisma.appSubscription.findFirst({
-        where: { tenantId, applicationId, status: 'ACTIVE' },
-      });
-
-      if (!subscription) {
-        throw new BadRequestException('No active subscription for this application');
-      }
-
-      const seatsAvailable = subscription.quantityPurchased - subscription.quantityAssigned;
-      if (seatsAvailable <= 0) {
-        throw new BadRequestException('No seats available. Purchase more seats to grant access.');
-      }
+      licenseAssignmentId = await this.assignLicenseSeat(
+        tenantId,
+        applicationId,
+        membership.user.id,
+      );
     }
 
     // Find effective role
     const effectiveRoleId = await this.resolveRoleId(applicationId, options?.roleId);
 
-    // Grant access
+    // Grant access (link the seat so the entitlement <-> assignment are connected)
     await this.appAccessService.grantAccess({
       tenantId,
       userId: membership.user.id,
       applicationId,
       accessType: AccessType.GRANTED,
       grantedById: options?.performedById,
+      licenseAssignmentId,
     });
 
     // Assign role
@@ -480,6 +494,20 @@ export class MemberAppAccessService {
       .catch((err) =>
         this.logger.warn(`Failed to emit app_access.granted: ${err.message}`),
       );
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: options?.performedById,
+      action: AUDIT_ACTIONS.APP_ACCESS_GRANTED,
+      targetType: AUDIT_TARGET_TYPES.APP_ACCESS,
+      targetId: membership.user.id,
+      metadata: {
+        membershipId: membership.id,
+        applicationId,
+        roleId: assignedRole?.id ?? null,
+        roleName: assignedRole?.name ?? null,
+      },
+    });
 
     return { success: true, action: 'activated', userId: membership.user.id };
   }
@@ -530,6 +558,15 @@ export class MemberAppAccessService {
         this.logger.warn(`Failed to emit app_access.revoked: ${err.message}`),
       );
 
+    await this.auditService.log({
+      tenantId,
+      actorUserId: options?.performedById,
+      action: AUDIT_ACTIONS.APP_ACCESS_REVOKED,
+      targetType: AUDIT_TARGET_TYPES.APP_ACCESS,
+      targetId: membership.user.id,
+      metadata: { membershipId: membership.id, applicationId },
+    });
+
     return { success: true, action: 'deactivated', userId: membership.user.id };
   }
 
@@ -551,6 +588,88 @@ export class MemberAppAccessService {
       select: { id: true },
     });
     return firstRole?.id;
+  }
+
+  /**
+   * Claim (or reuse) a PER_SEAT license seat for a user, keeping the
+   * subscription's quantityAssigned counter in lockstep with real
+   * assignments. This is the inverse of revokeLicenseAssignment. Returns the
+   * licenseAssignment id so the AppAccess entitlement can link to it.
+   * Idempotent: if the user already holds a seat, returns it without
+   * consuming another. Throws BadRequestException if the pool is exhausted.
+   */
+  private async assignLicenseSeat(
+    tenantId: string,
+    applicationId: string,
+    userId: string,
+  ): Promise<string> {
+    const subscription = await this.prisma.appSubscription.findFirst({
+      where: { tenantId, applicationId, status: 'ACTIVE' },
+      include: { licenseType: true },
+    });
+
+    if (!subscription) {
+      throw new BadRequestException('No active subscription for this application');
+    }
+
+    // Reuse an existing seat if the user already has one (idempotent re-enable).
+    const existing = await this.prisma.licenseAssignment.findUnique({
+      where: {
+        tenantId_userId_applicationId: { tenantId, userId, applicationId },
+      },
+      select: { id: true },
+    });
+    if (existing) return existing.id;
+
+    const assignmentId = await this.prisma.$transaction(async (tx) => {
+      // Atomically claim a seat: only increments when there is still headroom,
+      // which guards against oversubscription under concurrent grants.
+      const claimed = await tx.appSubscription.updateMany({
+        where: {
+          id: subscription.id,
+          quantityAssigned: { lt: subscription.quantityPurchased },
+        },
+        data: { quantityAssigned: { increment: 1 } },
+      });
+
+      if (claimed.count === 0) {
+        throw new BadRequestException(
+          'No seats available. Purchase more seats to grant access.',
+        );
+      }
+
+      const assignment = await tx.licenseAssignment.create({
+        data: {
+          userId,
+          tenantId,
+          applicationId,
+          subscriptionId: subscription.id,
+          licenseTypeId: subscription.licenseTypeId,
+          licenseTypeName: subscription.licenseType.name,
+        },
+        select: { id: true },
+      });
+
+      return assignment.id;
+    });
+
+    // A NEW seat was consumed → emit the per-app identity-sync license event
+    // (mirrors LicenseAssignmentService.grantLicense so BOTH grant paths agree).
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+    this.syncEventService
+      .emit(SYNC_EVENT_TYPES.LICENSE_ASSIGNED, tenantId, applicationId, {
+        assignment_id: assignmentId,
+        sub: userId,
+        email: user?.email,
+        license_type_id: subscription.licenseTypeId,
+        license_type_name: subscription.licenseType.name,
+      })
+      .catch((err) => this.logger.warn(`Failed to emit license.assigned: ${err.message}`));
+
+    return assignmentId;
   }
 
   private async revokeLicenseAssignment(
@@ -582,6 +701,19 @@ export class MemberAppAccessService {
             data: { quantityAssigned: { decrement: 1 } },
           });
         });
+
+        // A real seat was released → emit the per-app identity-sync event.
+        const user = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { email: true },
+        });
+        this.syncEventService
+          .emit(SYNC_EVENT_TYPES.LICENSE_REVOKED, tenantId, applicationId, {
+            assignment_id: assignment.id,
+            sub: userId,
+            email: user?.email,
+          })
+          .catch((err) => this.logger.warn(`Failed to emit license.revoked: ${err.message}`));
       }
     } catch (e) {
       this.logger.warn(`Failed to revoke license assignment: ${e}`);

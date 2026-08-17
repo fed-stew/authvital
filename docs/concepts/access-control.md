@@ -2,6 +2,19 @@
 
 > Role-based access control with fine-grained permissions.
 
+!!! warning "Code samples: the `authvital.permissions.*` / `authvital.roles.*` API is not real"
+    The RBAC model described here is accurate, but the SDK snippets use a fluent
+    API that **does not exist**. Real equivalents:
+
+    - `authvital.permissions.check` -> `client.integration.checkPermission({ userId, tenantId, permission })` (or read the `tenant_permissions` claim via `verifyToken`)
+    - `authvital.permissions.checkMany` -> `client.integration.checkPermissions({ userId, tenantId, permissions })` (returns `{ results, allAllowed }` -- **ALL-of**, there is no `anyAllowed`)
+    - `authvital.memberships.setMemberRole` -> `client.integration.setMemberRole({ membershipId, roleId, applicationId })` (sets an **application** role; `roleId` = an app Role id)
+    - `authvital.invitations.send` -> `client.integration.sendInvitation({ tenantId, email, roleId, clientId? })` (`roleId` is a **required** TenantRole id)
+    - **Role create/update (`authvital.roles.*`) is NOT in the SDK** -- roles are managed via the admin console / REST.
+
+    `client` = `createServerClient({ authVitalHost, clientId, clientSecret })`.
+    See [Permissions namespace](../sdk/server-sdk/namespaces/permissions.md).
+
 ## Overview
 
 AuthVital implements a flexible **Role-Based Access Control (RBAC)** system with:
@@ -247,16 +260,21 @@ Control which users can access which applications:
 App access is managed through the **AuthVital Admin Dashboard** or via the **Invitations API**:
 
 ```typescript
-// Grant access via invitation
-const { sub, expiresAt } = await authvital.invitations.send(request, {
+import { createServerClient } from '@authvital/server';
+
+const client = createServerClient({ authVitalHost, clientId, clientSecret });
+
+// Grant access via invitation (M2M integration client)
+const { sub, expiresAt } = await client.integration.sendInvitation({
+  tenantId: 'tenant-id',
   email: 'user@example.com',
   givenName: 'John',
   familyName: 'Doe',
   roleId: 'role-admin',  // Optional: assign app role
 });
 
-// List members with their app access
-const { memberships } = await authvital.memberships.listForApplication(request, {
+// List members with their app access (for this application's clientId)
+const { memberships } = await client.integration.listUserMemberships({
   status: 'ACTIVE',
 });
 ```
@@ -270,8 +288,13 @@ const { memberships } = await authvital.memberships.listForApplication(request, 
 ### Check Permission
 
 ```typescript
-// Server-side
-const { allowed } = await authvital.permissions.check(req, 'projects:delete');
+// Server-side (M2M integration client). userId + tenantId come from the
+// verified access-token claims (sub / tenant_id).
+const { allowed } = await client.integration.checkPermission({
+  userId,
+  tenantId,
+  permission: 'projects:delete',
+});
 
 if (!allowed) {
   return res.status(403).json({ error: 'Forbidden' });
@@ -281,17 +304,19 @@ if (!allowed) {
 ### Check Multiple Permissions
 
 ```typescript
-// Use checkMany to check multiple permissions at once
-const { results } = await authvital.permissions.checkMany(req, [
-  'projects:read',
-  'projects:update',
-]);
+// Check multiple permissions at once. Returns { results, allAllowed }
+// (ALL-of semantics — there is no anyAllowed).
+const { results, allAllowed } = await client.integration.checkPermissions({
+  userId,
+  tenantId,
+  permissions: ['projects:read', 'projects:update'],
+});
 // results: { 'projects:read': true, 'projects:update': false }
 
-// Check ALL permissions (must have all)
-const hasAll = Object.values(results).every(v => v);
+// ALL permissions (must have all) — use the returned flag
+const hasAll = allAllowed;
 
-// Check ANY permission (must have at least one)
+// ANY permission (must have at least one) — derive from results
 const hasAny = Object.values(results).some(v => v);
 ```
 
@@ -311,27 +336,15 @@ const isAdminOrManager = ['admin', 'manager'].some(
 
 ### Express Permission Middleware
 
-```typescript
-function requirePermission(...permissions: string[]) {
-  return async (req, res, next) => {
-    const { results } = await authvital.permissions.checkMany(req, permissions);
-    const allowed = Object.values(results).every(v => v);
-    
-    if (!allowed) {
-      return res.status(403).json({
-        error: 'Forbidden',
-        required: permissions,
-        message: 'You do not have permission to perform this action',
-      });
-    }
-    
-    next();
-  };
-}
+The Server SDK ships a real `requirePermission` guard that checks ALL listed
+permissions via the M2M integration endpoint (it reads the user + tenant from
+the session token for you):
 
-// Usage
+```typescript
+import { requireAuth, requirePermission } from '@authvital/server/middleware/express';
+
 app.delete('/api/projects/:id',
-  requireAuth,
+  requireAuth(),
   requirePermission('projects:delete'),
   deleteProjectHandler
 );
@@ -491,49 +504,28 @@ function ProjectActions({ projectId }) {
 
 ## Admin: Managing Roles
 
-### Create Custom Role
+### Create / Update Custom Roles
 
-```typescript
-await authvital.roles.create({
-  applicationId: 'app-id',
-  name: 'Quality Assurance',
-  slug: 'qa',
-  description: 'Test and verify projects',
-  permissions: [
-    'projects:read',
-    'projects:tasks:read',
-    'projects:tasks:update',
-    'reports:read',
-  ],
-  isDefault: false,
-});
-```
-
-### Update Role Permissions
-
-```typescript
-await authvital.roles.update('role-id', {
-  permissions: [
-    'projects:read',
-    'projects:tasks:*', // Upgraded: full task access
-    'reports:*',        // Added: full reports access
-  ],
-});
-```
+!!! note "Role management is not in the Server SDK"
+    Creating and updating application roles (name, slug, permissions) is an
+    admin operation. Use the **AuthVital Admin Console**, or call the REST API
+    directly with an M2M token. There is no `client.integration` method for
+    creating or editing roles.
 
 ### Assign Role to User
 
 ```typescript
-// Update a member's tenant role
-await authvital.memberships.setMemberRole(
-  request,          // HTTP request for JWT validation
-  'membership-id',  // Membership ID to update
-  'admin'           // New role slug
-);
+// Assign a member an APPLICATION role (M2M integration client).
+// roleId = an app Role id (from getApplicationRoles); applicationId = its app.
+await client.integration.setMemberRole({
+  membershipId: 'membership-id',
+  roleId: 'app-role-id',
+  applicationId: 'application-id',
+});
 ```
 
-!!! info "Pre-flight Validation"
-    The SDK performs permission checks before calling the API:
+!!! info "Authoritative Validation"
+    Role changes are governed by a strict hierarchy enforced by the IDP:
     - Only owners and admins can change roles
     - Admins cannot promote anyone to owner
     - The IDP performs the final authoritative check

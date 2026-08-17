@@ -1,133 +1,81 @@
-# Permissions Namespace
+# Permissions
 
-> Check and list user permissions for tenant-scoped operations.
+> Two real ways to authorize: **JWT claims** (offline) and the **integration
+> API** (live, M2M).
 
-## Overview
+!!! info "There is no fluent `authvital.permissions.*(req, …)` namespace"
+    Earlier drafts described `authvital.permissions.check(req, perm)`,
+    `.checkMany(req, [...])`, `.list(req)`. **That API does not exist.** Use one
+    of the two verified approaches below.
 
-The permissions namespace provides **API-based** permission checks. For JWT-based (zero-API-call) checks, see [JWT Validation](../jwt-validation.md).
+## Option 1 — JWT claims (no network call)
 
-!!! tip "JWT vs API Permission Checks"
-    - **JWT checks** (`hasTenantPermission`, `hasAppPermission`): Instant, offline
-    - **API checks** (this namespace): Real-time, queries the IDP
-
-```typescript
-const permissions = authvital.permissions;
-```
-
----
-
-## Methods
-
-### check()
-
-Check if the authenticated user has a specific permission.
+AuthVital bakes the caller's permissions into the access token. Verify the token,
+then read the claims. This is what the `bff-express` example does.
 
 ```typescript
-const { allowed } = await authvital.permissions.check(request, 'users:write');
+import { verifyToken, decodeToken } from '@authvital/server';
+import type { EnhancedJwtPayload } from '@authvital/shared';
 
-if (!allowed) {
+const { valid, payload } = await verifyToken(accessToken, {
+  jwksUri: `${process.env.AV_HOST}/.well-known/jwks.json`,
+  issuer: process.env.AV_HOST,
+  audience: process.env.AV_CLIENT_ID,
+});
+
+const claims = payload as unknown as EnhancedJwtPayload;
+
+function hasAppPermission(c: EnhancedJwtPayload | null, permission: string): boolean {
+  return Boolean(c?.app_permissions?.includes(permission));
+}
+
+if (!hasAppPermission(claims, 'projects:create')) {
   return res.status(403).json({ error: 'Forbidden' });
 }
 ```
 
-**Parameters:**
+Relevant claims: `app_permissions`, `app_roles`, `tenant_roles`, `tenant_permissions`.
+See [Reference → JWT Claims](../../../reference/jwt-claims.md).
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `request` | `RequestLike` | Yes | Incoming HTTP request |
-| `permission` | `string` | Yes | Permission key to check |
+## Option 2 — Integration API (live check, M2M)
 
-**Return Type:**
+Verified against `packages/sdk-server/src/client/integration.ts`:
 
-```typescript
-interface CheckPermissionResult {
-  allowed: boolean;
-  permission: string;
-}
-```
-
----
-
-### checkMany()
-
-Check multiple permissions at once.
+| Method | Params | Returns |
+|--------|--------|---------|
+| `checkPermission` | `{ userId, tenantId, permission, applicationId? }` | `{ allowed: boolean; permission: string }` |
+| `checkPermissions` | `{ userId, tenantId, permissions, applicationId? }` | `{ results: Record<string, boolean>; allAllowed: boolean }` |
+| `getUserPermissions` | `{ userId, tenantId }` | `{ permissions: string[] }` |
 
 ```typescript
-const { results } = await authvital.permissions.checkMany(request, [
-  'documents:read',
-  'documents:write',
-  'admin:access',
-]);
-
-// results = { 'documents:read': true, 'documents:write': true, 'admin:access': false }
-
-// Check if user has ANY permission
-const hasAny = Object.values(results).some(v => v);
-
-// Check if user has ALL permissions
-const hasAll = Object.values(results).every(v => v);
-```
-
-**Return Type:**
-
-```typescript
-interface CheckPermissionsResult {
-  results: Record<string, boolean>;
-}
-```
-
----
-
-### list()
-
-Get all permissions for the authenticated user.
-
-```typescript
-const permissions = await authvital.permissions.list(request);
-
-console.log(permissions);
-// ['users:read', 'users:write', 'documents:read', ...]
-```
-
----
-
-## Complete Example
-
-```typescript
-import { createAuthVital } from '@authvital/sdk/server';
-import express from 'express';
-
-const authvital = createAuthVital({ /* config */ });
-const app = express();
-
-// Permission check middleware
-const requirePermission = (permission: string) => {
-  return async (req, res, next) => {
-    const { allowed } = await authvital.permissions.check(req, permission);
-    
-    if (!allowed) {
-      return res.status(403).json({
-        error: 'Forbidden',
-        required: permission,
-      });
-    }
-    
-    next();
-  };
-};
-
-// Protected endpoints
-app.get('/api/users', requirePermission('users:read'), (req, res) => {
-  // Only accessible if user has users:read permission
+const { allowed } = await client.integration.checkPermission({
+  userId: 'user-123',
+  tenantId: 'tenant-abc',
+  permission: 'projects:create',
 });
 
-app.post('/api/users', requirePermission('users:write'), (req, res) => {
-  // Only accessible if user has users:write permission
+const bulk = await client.integration.checkPermissions({
+  userId: 'user-123',
+  tenantId: 'tenant-abc',
+  permissions: ['documents:read', 'documents:write'],
 });
-
-// Get all permissions (for building UI)
-app.get('/api/my-permissions', async (req, res) => {
-  const permissions = await authvital.permissions.list(req);
-  res.json({ permissions });
-});
+// bulk.results = { 'documents:read': true, 'documents:write': false }
+// bulk.allAllowed = false   // true only if EVERY permission is allowed
+const hasAny = Object.values(bulk.results).some(Boolean);
 ```
+
+!!! warning "`checkPermissions` reports ALL-of, not ANY-of"
+    The bulk response's `allAllowed` is `true` only when *every* requested
+    permission is granted. For "any of these" semantics, inspect the `results`
+    map yourself. (The current backend does not compute an `anyAllowed` flag.)
+
+!!! danger "`client.hasPermission()` targets an unimplemented endpoint"
+    The convenience method `ServerClient.hasPermission(permission)` POSTs to
+    `/api/auth/check-permission`, which **the backend does not currently
+    implement** (permission checks live under `/api/integration/*`). Prefer
+    `client.integration.checkPermission(...)` or JWT-claim checks until this is
+    reconciled in the SDK.
+
+## See also
+
+- [JWT Validation](../jwt-validation.md) · [Middleware](../middleware.md) · [Integration API (overview)](./overview.md)

@@ -78,6 +78,9 @@ nav:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quick-start.md
     - Configuration: getting-started/configuration.md
+  - Examples:
+    - Local UAT Stack: examples.md
+    - Local UAT — Lifecycle: local-uat.md
   - Core Concepts:
     - Architecture: concepts/architecture.md
     - Multi-Tenancy: concepts/multi-tenancy.md
@@ -85,6 +88,7 @@ nav:
     - Licensing: concepts/licensing.md
     - Access Control (RBAC): concepts/access-control.md
   - SDK Integration:
+    - Authorization Model & SDK Surface: sdk/authorization-model.md
     - Setup Guide:
       - Overview: sdk/setup/index.md
       - Prerequisites: sdk/setup/prerequisites.md

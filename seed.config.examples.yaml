@@ -1,0 +1,464 @@
+# =============================================================================
+# AuthVital — Examples / UAT Seed Configuration  (COMMITTED, canonical)
+# =============================================================================
+#
+# This is the canonical seed that powers the examples/UAT stack (the lvh.me
+# subdomain environment). It defines the OAuth apps (My Local App, Seat App,
+# Web BFF, Backend API), tenants (acme/globex/licenseco/otherco), the licensing
+# test crew, and the BFF identity-sync webhook — everything the example apps in
+# examples/ (spa-react, spa-seat, bff-express) need to work out of the box.
+#
+# HOW IT IS USED:
+#   - `make up` / `make fresh` run docker-compose.examples.yml, which mounts THIS
+#     file into the api (and migrate) container as /app/seed.config.yaml, so the
+#     bootstrap seed picks it up. No manual steps — a fresh clone just works.
+#
+# BASE STACK / YOUR OWN SETUP:
+#   - The plain base stack (`docker compose up`) and `npm run prisma:seed` look
+#     for a personal `seed.config.yaml` first (gitignored), then fall back to the
+#     committed generic template `seed.config.example.yaml`. To customize, copy
+#     the template:  cp seed.config.example.yaml seed.config.yaml  and edit it.
+#
+# All operations are idempotent (upsert). Re-running never double-counts seats.
+#
+# ⚠️  LOCAL DEVELOPMENT ONLY — never use these credentials in production!
+# =============================================================================
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Instance Settings
+# ─────────────────────────────────────────────────────────────────────────────
+# Global configuration for this AuthVital instance.
+# These map to the InstanceMeta singleton in the database.
+#
+instance:
+  name: "AuthVital Local Dev"
+
+  # Allow public sign-up (users can register without an invitation)
+  allow_sign_up: true
+
+  # Automatically create a new tenant when a user signs up
+  auto_create_tenant: true
+
+  # Allow sign-ups from generic email domains (gmail.com, outlook.com, etc.)
+  allow_generic_domains: true
+
+  # Allow anonymous (no email verification) sign-ups
+  allow_anonymous_sign_up: false
+
+  # Branding (optional — shown on login/signup pages)
+  # branding:
+  #   name: "My Company"
+  #   logo_url: "https://example.com/logo.png"
+  #   primary_color: "#6366f1"
+  #   background_color: "#f8fafc"
+  #   support_url: "https://example.com/support"
+  #   privacy_url: "https://example.com/privacy"
+  #   terms_url: "https://example.com/terms"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Super Admin
+# ─────────────────────────────────────────────────────────────────────────────
+# Credentials for the /admin dashboard. This is the system-level administrator,
+# separate from tenant users.
+#
+super_admin:
+  email: admin@localhost.com
+  password: admin123
+  display_name: "Local Admin"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OAuth Applications
+# ─────────────────────────────────────────────────────────────────────────────
+# Each application is an OAuth 2.0 client. Your frontend/backend apps connect
+# to AuthVital through these.
+#
+# Vite's default dev server runs on http://localhost:5173
+#
+applications:
+  - name: "My Local App"
+    slug: my-local-app
+    type: SPA                                  # SPA | MACHINE
+
+    # Fixed client_id for local development (SPA apps don't need client_secret)
+    client_id: local-spa-client-id
+
+    # OAuth redirect URIs — where AuthVital sends users after login.
+    # {tenant} expands to the subdomain the user came in on (e.g. acme.app.lvh.me).
+    redirect_uris:
+      - https://app.lvh.me/auth/callback
+      - https://{tenant}.app.lvh.me/auth/callback
+
+    # Where to redirect after logout
+    post_logout_redirect_uris:
+      - https://app.lvh.me
+
+    # CORS — origins allowed to call AuthVital's OAuth endpoints.
+    # NOTE: allowed_web_origins does NOT support wildcards — each tenant
+    # subdomain must be enumerated. ({tenant} placeholder IS accepted by the
+    # seed validator, but explicit origins are clearer for a fixed tenant set.)
+    allowed_web_origins:
+      - https://app.lvh.me
+      - https://acme.app.lvh.me
+      - https://globex.app.lvh.me
+      - https://licenseco.app.lvh.me
+      - https://otherco.app.lvh.me
+
+    # Deep-link login start per tenant subdomain (maps to initiateLoginUri).
+    initiate_login_uri: https://{tenant}.app.lvh.me/login
+
+    # Token lifetimes (optional, in seconds)
+    # access_token_ttl: 3600                   # 1 hour (default)
+    # refresh_token_ttl: 604800                # 7 days (default)
+
+    # Application-level roles
+    # These are YOUR app's roles (e.g., "editor", "viewer"), not AuthVital's
+    # tenant roles (owner/admin/member). They appear in the JWT's app_roles claim.
+    roles:
+      - name: Admin
+        slug: admin
+        description: "Full application access"
+      - name: Editor
+        slug: editor
+        description: "Can create and edit content"
+        is_default: true                       # Auto-assigned to new members
+      - name: Viewer
+        slug: viewer
+        description: "Read-only access"
+
+  # ── Seat App: PER_SEAT licensing for exercising the tenant Licenses portal ─
+  # Used together with the "licensing test crew" users below to eyeball the
+  # owner / billing-admin / admin / member permission tiers on the
+  # Licenses / Members / Domains / Applications pages.
+  - name: "Seat App"
+    slug: seat-app
+    type: SPA
+    client_id: seat-app-client-id
+    licensing_mode: PER_SEAT
+    default_seat_count: 10
+    auto_provision: false          # NOTE: seed does NOT create a subscription;
+    auto_grant_to_owner: true      #       owner/billing-admin provision it in-app.
+    license_types:
+      - name: "Basic Seat"
+        slug: basic-seat
+        description: "Standard per-seat license"
+        max_members: null
+        features:
+          sso: false
+          api_access: true
+        status: ACTIVE
+        display_order: 1
+      - name: "Pro Seat"
+        slug: pro-seat
+        description: "Premium per-seat license with all the trimmings"
+        max_members: null
+        features:
+          sso: true
+          api_access: true
+          advanced_analytics: true
+        status: ACTIVE
+        display_order: 2
+    initiate_login_uri: https://{tenant}.seat.lvh.me/login
+    redirect_uris:
+      - https://seat.lvh.me/auth/callback
+      - https://{tenant}.seat.lvh.me/auth/callback
+    post_logout_redirect_uris:
+      - https://seat.lvh.me
+    # No wildcards allowed — enumerate each tenant subdomain that exercises seats.
+    allowed_web_origins:
+      - https://seat.lvh.me
+      - https://licenseco.seat.lvh.me
+      - https://otherco.seat.lvh.me
+    roles:
+      - name: Member
+        slug: member
+        description: "App member"
+        is_default: true
+
+  # ── Example: second app on a different port ──────────────────────────────
+  # - name: "Marketing Site"
+  #   slug: marketing-site
+  #   type: SPA
+  #   redirect_uris:
+  #     - http://localhost:3000/callback
+  #   post_logout_redirect_uris:
+  #     - http://localhost:3000
+  #   allowed_web_origins:
+  #     - http://localhost:3000
+  #   roles:
+  #     - name: Publisher
+  #       slug: publisher
+  #       description: "Can publish content"
+  #       is_default: true
+
+  # ── Web BFF: ONE app container, TWO OAuth credentials ─────────────────────
+  # A single product ("Web BFF") that owns BOTH OAuth identities:
+  #   • an SPA credential     — the Express Backend-For-Frontend runs the OAuth
+  #     code+PKCE flow and keeps tokens in an httpOnly session cookie. Public
+  #     PKCE client → NO client_secret.
+  #   • a MACHINE credential  — the SAME backend's server-to-server identity for
+  #     client_credentials (M2M) calls into the integration API.
+  # Container/credential model: at most ONE SPA + ONE MACHINE per app container
+  # (DB constraint @@unique([applicationId, type])). `clients:` is an accepted
+  # alias for `credentials:` if you prefer that spelling.
+  - name: "Web BFF"
+    slug: web-bff
+    credentials:
+      # ── SPA credential (browser / BFF login flow, public PKCE client) ──────
+      - type: SPA
+        client_id: web-bff-client-id
+        # B2B subdomain-per-tenant: the flat host bff.lvh.me is the org-less
+        # landing/picker; {tenant}.bff.lvh.me is a tenant-scoped session. The
+        # IdP binds the tenant from the redirect URI's subdomain (the {tenant}
+        # placeholder below), so a login on acme.bff.lvh.me yields tenant=acme.
+        initiate_login_uri: https://{tenant}.bff.lvh.me/api/auth/login
+        redirect_uris:
+          - https://bff.lvh.me/api/auth/callback
+          - https://{tenant}.bff.lvh.me/api/auth/callback
+        post_logout_redirect_uris:
+          - https://bff.lvh.me
+        # allowed_web_origins has NO wildcards — enumerate each tenant subdomain
+        # (mirrored in the api CORS_ORIGINS env in docker-compose.examples.yml).
+        allowed_web_origins:
+          - https://bff.lvh.me
+          - https://acme.bff.lvh.me
+          - https://globex.bff.lvh.me
+          - https://licenseco.bff.lvh.me
+          - https://otherco.bff.lvh.me
+      # ── MACHINE credential (server-to-server / client_credentials) ─────────
+      - type: MACHINE
+        # Fixed credentials for local development.
+        client_id: local-machine-client-id
+        client_secret: local-machine-secret-key
+        # MACHINE credentials don't use redirect URIs but an empty array is required.
+        redirect_uris: []
+        # ── M2M authorization (deny-by-default) ────────────────────────────
+        # First-party operator backend powering the Web BFF for ALL example
+        # tenants, so it's trusted across every tenant. m2m_allowed_scopes gates
+        # what the client_credentials token may carry (the SDK requests no
+        # explicit scope, so it receives exactly these). Without these two keys
+        # this credential would be denied everywhere under deny-by-default.
+        m2m_trusted_all_tenants: true
+        m2m_allowed_scopes:
+          - integration:read
+          - integration:write
+        # Scoped alternative for a third-party client (not trusted everywhere):
+        #   m2m_trusted_all_tenants: false
+        #   m2m_allowed_scopes: [integration:read]
+        # ...paired with per-tenant grants declared at the CONTAINER level
+        # (they're applied to this MACHINE credential):
+        #   m2m_tenant_grants:
+        #     - acme
+        #     - globex
+    roles:
+      - name: Member
+        slug: member
+        description: "App member"
+        is_default: true
+    # ── Webhooks (SEEDED — zero manual /admin steps) ─────────────────────────
+    # Per-application identity-sync webhooks map straight to the Application
+    # model's webhookUrl / webhookEnabled / webhookEvents columns (see
+    # prisma/schema/05_oauth.prisma) and are applied by applications.seeder.ts.
+    #
+    # ⚠️  CONTAINER-NETWORKING NOTE: this URL uses the INTERNAL Docker service
+    # name `bff-express:3000`, NOT https://bff.lvh.me. Inside the compose
+    # network `bff.lvh.me` resolves to 127.0.0.1 (the api container itself), so
+    # the api could never POST there. `http://bff-express:3000/webhooks` is
+    # container-to-container on the `authvital` network — no TLS/DNS gymnastics.
+    # Webhook auth is JWKS-signature based (not host/TLS based), so plain HTTP
+    # over the internal network is perfectly safe here. This hostname is
+    # SPECIFIC to the examples compose network (docker-compose.examples.yml).
+    webhook_url: http://bff-express:3000/webhooks
+    webhook_enabled: true
+    # Deliver every identity-sync category the BFF demo mirrors. An empty list
+    # (or omitting this key) would also mean "all events"; the explicit filter
+    # below is self-documenting about what the BFF receives.
+    webhook_events:
+      - subject.*
+      - member.*
+      - app_access.*
+      - license.*
+      - invite.*
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tenants (Organizations)
+# ─────────────────────────────────────────────────────────────────────────────
+# Tenants represent organizations/companies in a multi-tenant setup.
+# Users become members of tenants via memberships (defined in the users section).
+#
+tenants:
+  - name: Acme Corp
+    slug: acme
+
+  - name: Globex Inc
+    slug: globex
+
+  # Licensing test tenants (see "licensing test crew" users below)
+  - name: License Co
+    slug: licenseco
+
+  - name: Other Co
+    slug: otherco
+
+  # - name: Initech
+  #   slug: initech
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Users
+# ─────────────────────────────────────────────────────────────────────────────
+# Test users with passwords (bcrypt-hashed at seed time).
+#
+# Each user can have memberships in one or more tenants, with:
+#   - tenant_role: System-level role (owner | admin | member)
+#   - app_roles:   App-specific roles (keyed by application slug)
+#
+users:
+  # ── Alice: Owner of Acme, viewer at Globex ───────────────────────────────
+  - email: alice@acme.com
+    password: password123
+    given_name: Alice
+    family_name: Smith
+    memberships:
+      - tenant: acme                           # ← matches tenant slug above
+        tenant_role: owner                     # owner | admin | member
+        app_roles:
+          my-local-app: [admin]                # ← app slug: [role slugs]
+          # Give Alice access to the Web BFF app too, so BFF login shows real
+          # app_roles AND so member.*/app_access.* events on acme reach the
+          # Web BFF webhook (events only fire for apps a member has access to).
+          web-bff: [member]
+      - tenant: globex
+        tenant_role: member
+        app_roles:
+          my-local-app: [viewer]
+
+  # ── Bob: Admin at Acme ───────────────────────────────────────────────────
+  - email: bob@acme.com
+    password: password123
+    given_name: Bob
+    family_name: Jones
+    memberships:
+      - tenant: acme
+        tenant_role: admin
+        app_roles:
+          my-local-app: [editor]
+
+  # ── Charlie: Owner of Globex ─────────────────────────────────────────────
+  - email: charlie@globex.com
+    password: password123
+    given_name: Charlie
+    family_name: Brown
+    memberships:
+      - tenant: globex
+        tenant_role: owner
+        app_roles:
+          my-local-app: [admin, editor]
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Licensing test crew  —  all password: test1234
+  # tenant: licenseco  |  app: seat-app (PER_SEAT)
+  #
+  # Log in as each to see the permission tiers on the Licenses portal:
+  #   owner        → view + manage seats + provision inventory (god-mode)
+  #   billing-admin→ view + manage seats + provision inventory (no other admin)
+  #   admin        → view + manage seats  (NO provision)
+  #   member       → view only
+  # ───────────────────────────────────────────────────────────────────────
+  - email: owner@licenseco.test
+    password: test1234
+    given_name: Olivia
+    family_name: Owner
+    memberships:
+      - tenant: licenseco
+        tenant_role: owner
+        app_roles:
+          seat-app: [member]
+
+  - email: billing@licenseco.test
+    password: test1234
+    given_name: Bianca
+    family_name: Billing
+    memberships:
+      - tenant: licenseco
+        tenant_role: billing-admin
+        app_roles:
+          seat-app: [member]
+
+  - email: admin@licenseco.test
+    password: test1234
+    given_name: Aaron
+    family_name: Admin
+    memberships:
+      - tenant: licenseco
+        tenant_role: admin
+        app_roles:
+          seat-app: [member]
+
+  - email: member@licenseco.test
+    password: test1234
+    given_name: Mia
+    family_name: Member
+    memberships:
+      - tenant: licenseco
+        tenant_role: member
+        app_roles:
+          seat-app: [member]
+
+  # Owner of a *different* tenant — used to prove cross-tenant (IDOR) blocks
+  - email: owner@otherco.test
+    password: test1234
+    given_name: Otto
+    family_name: Other
+    memberships:
+      - tenant: otherco
+        tenant_role: owner
+        app_roles:
+          seat-app: [member]
+
+  # ── Minimal user (no memberships yet) ────────────────────────────────────
+  # - email: dana@example.com
+  #   password: password123
+  #   given_name: Dana
+  #   family_name: Lee
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Subscriptions & Seat Assignments
+# ─────────────────────────────────────────────────────────────────────────────
+# Pre-load licensing state so the tenant Licenses portal has content the instant
+# you log in — purchased inventory + a couple of assigned seats — instead of an
+# empty "No subscriptions yet" page. Idempotent: re-running never double-counts.
+#
+#   tenant        → tenant slug (must exist above)
+#   application   → app slug (must exist above)
+#   license_type  → license type slug on that app
+#   quantity      → seats purchased (auto-bumped to fit assign_to)
+#   assign_to     → user emails to hand seats to
+#
+subscriptions:
+  - tenant: licenseco
+    application: seat-app
+    license_type: basic-seat
+    quantity: 5
+    assign_to:
+      - owner@licenseco.test
+      - billing@licenseco.test
+      - admin@licenseco.test
+      - member@licenseco.test
+
+  # acme borrows seat-app purely as a *demo license pool* so the Web BFF's
+  # tenant-wide licensing reads (getUserLicenses / license-holders / usage
+  # overview) show real content for alice@acme.bff.lvh.me. These seats are
+  # data-only: no seat-app membership or app access is required to hold them
+  # (see prisma/seed/seeders/subscriptions.seeder.ts) — the reads are
+  # tenant-scoped, not membership-scoped.
+  - tenant: acme
+    application: seat-app
+    license_type: basic-seat
+    quantity: 3
+    assign_to:
+      - alice@acme.com

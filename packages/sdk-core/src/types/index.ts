@@ -12,22 +12,12 @@
 // =============================================================================
 
 /**
- * Core user entity.
+ * Core user entity + SDK alias.
  *
- * Represents a user account in the AuthVital system.
+ * Re-exported from `@authvital/shared` (the canonical type source) so there is
+ * a single source of truth. DRY: no duplicate definitions living here.
  */
-export interface User {
-  /** Unique user identifier (sub claim in JWT) */
-  id: string;
-  /** User's email address */
-  email: string;
-  /** Whether MFA is enabled for this user */
-  mfaEnabled: boolean;
-  /** User profile data (custom claims) */
-  profile: Record<string, unknown>;
-  /** When the user was created (ISO 8601 date string) */
-  createdAt: string;
-}
+export type { User, AuthVitalUser } from '@authvital/shared';
 
 /**
  * User info extracted from JWT payload.
@@ -62,11 +52,6 @@ export interface UserInfo {
   /** Features enabled for the user's license */
   licenseFeatures: string[];
 }
-
-/**
- * Alias for User - used in SDK context.
- */
-export type AuthVitalUser = User;
 
 /**
  * Basic user info for client-side components.
@@ -162,6 +147,12 @@ export interface EnhancedJwtPayload {
   iat: number;
   /** Expiration (unix timestamp) */
   exp: number;
+  /**
+   * Authentication Method References (RFC 8176).
+   * ['pwd'] for password-only logins; ['pwd', 'otp'] when the login satisfied
+   * TOTP-based MFA.
+   */
+  amr?: string[];
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PROFILE SCOPE (OIDC Standard)
@@ -216,6 +207,12 @@ export interface EnhancedJwtPayload {
   tenant_id?: string;
   /** Tenant subdomain */
   tenant_subdomain?: string;
+  /**
+   * Present when the token was minted under a tenant MFA grace period
+   * (policy REQUIRED, user not yet enrolled). Unix seconds at which the
+   * grace window closes and minting will be refused.
+   */
+  mfa_grace_expires_at?: number;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // AUTHORIZATION (AuthVital-specific)

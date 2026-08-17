@@ -55,14 +55,22 @@ if (response.status === 429) {
 | `/auth/register` | POST | Register new user |
 | `/auth/login` | POST | Login with email/password |
 | `/auth/logout` | POST | Logout current session |
-| `/auth/verify-email` | POST | Verify email address |
-| `/auth/resend-verification` | POST | Resend verification email |
+| `/signup/verify` | GET/POST | Verify email address (token) |
+| `/signup/resend` | POST | Resend verification email |
 | `/auth/forgot-password` | POST | Request password reset |
 | `/auth/reset-password` | POST | Reset password with token |
-| `/mfa/setup` | POST | Start MFA setup |
-| `/mfa/verify` | POST | Verify MFA setup |
-| `/mfa/challenge` | POST | Complete MFA challenge |
-| `/mfa/disable` | POST | Disable MFA |
+| `/auth/mfa/status` | GET | Current MFA status |
+| `/auth/mfa/setup` | POST | Start MFA setup |
+| `/auth/mfa/enable` | POST | Verify code & enable MFA |
+| `/auth/mfa/verify` | POST | Complete MFA login challenge |
+| `/auth/mfa/disable` | DELETE | Disable MFA |
+| `/auth/mfa/backup-codes` | POST | Regenerate backup codes |
+
+!!! note "Verified against the backend"
+    Paths above are verified against the NestJS controllers (all under the global
+    `/api` prefix). Email verification lives on the **signup** controller
+    (`/api/signup/*`), and MFA endpoints live under **`/api/auth/mfa/*`**
+    (`disable` is a `DELETE`).
 
 ---
 
@@ -229,9 +237,10 @@ Clears `auth_token` and `idp_session` cookies.
 
 ## Email Verification
 
-### POST /auth/verify-email
+### POST /signup/verify
 
-Verify email with token from email.
+Verify email with the token from the verification email. (A `GET /signup/verify?token=...`
+variant exists for email-link clicks.)
 
 **Request:**
 
@@ -258,7 +267,7 @@ Verify email with token from email.
 | 400 | `INVALID_TOKEN` | Token invalid or expired |
 | 400 | `ALREADY_VERIFIED` | Email already verified |
 
-### POST /auth/resend-verification
+### POST /signup/resend
 
 Resend verification email.
 
@@ -339,7 +348,7 @@ Reset password with token.
 
 ## Multi-Factor Authentication
 
-### POST /mfa/setup
+### POST /auth/mfa/setup
 
 Start MFA setup (requires authentication).
 
@@ -358,9 +367,9 @@ Start MFA setup (requires authentication).
 }
 ```
 
-### POST /mfa/verify
+### POST /auth/mfa/enable
 
-Complete MFA setup by verifying first code.
+Complete MFA setup by verifying the first code (enables MFA).
 
 **Request:**
 
@@ -386,9 +395,10 @@ Complete MFA setup by verifying first code.
 | 400 | `MFA_CODE_INVALID` | Invalid TOTP code |
 | 400 | `MFA_ALREADY_ENABLED` | MFA already enabled |
 
-### POST /mfa/challenge
+### POST /auth/mfa/verify
 
-Complete MFA challenge during login.
+Complete the MFA challenge during login. (The login response returns an
+`mfaChallengeToken` when MFA is required — see `POST /auth/login`.)
 
 **Request:**
 
@@ -429,7 +439,7 @@ Sets `auth_token` cookie and returns:
 | 400 | `MFA_CHALLENGE_EXPIRED` | Challenge token expired |
 | 400 | `BACKUP_CODE_INVALID` | Invalid backup code |
 
-### POST /mfa/disable
+### DELETE /auth/mfa/disable
 
 Disable MFA (requires authentication + current code).
 
@@ -450,9 +460,10 @@ Disable MFA (requires authentication + current code).
 }
 ```
 
-### POST /mfa/regenerate-backup-codes
+### POST /auth/mfa/backup-codes
 
-Get new backup codes (requires authentication + current code).
+Regenerate backup codes (requires authentication + current code). There is also a
+`GET /auth/mfa/status` endpoint that returns whether MFA is enabled.
 
 **Request:**
 
@@ -514,122 +525,25 @@ Authorization: Bearer <access_token>
 
 ---
 
-## SDK Examples
+## Using the SDK
 
-Use the `@authvital/sdk` package for type-safe, easy integration:
+!!! warning "There is no `@authvital/sdk` auth namespace"
+    These endpoints are the **hosted authentication surface** (login, register,
+    MFA, password reset). The server SDK (`@authvital/server`) does **not** wrap
+    them with an `authvital.auth.*` / `authvital.mfa.*` API — user login is meant
+    to happen through AuthVital's hosted UI + the OAuth flow, not by proxying
+    these endpoints from your backend.
 
-```bash
-npm install @authvital/sdk
-```
+What the SDK actually gives you:
 
-### Registration
+- **`OAuthFlow`** (`@authvital/server`) to drive the Authorization-Code + PKCE
+  login flow — see [Server SDK: OAuth Flow](../sdk/server-sdk/oauth-flow.md).
+- **`verifyToken`** / **`authVitalMiddleware`** to validate the resulting tokens.
+- **`createServerClient(...).integration.*`** (M2M) for server-to-server calls.
 
-```typescript
-import { createAuthVital } from '@authvital/sdk/server';
-
-const authvital = createAuthVital({
-  authVitalHost: process.env.AV_HOST!,
-  clientId: process.env.AV_CLIENT_ID!,
-  clientSecret: process.env.AV_CLIENT_SECRET!,
-});
-
-// Register a new user
-app.post('/api/auth/register', async (req, res) => {
-  const user = await authvital.auth.register({
-    email: req.body.email,
-    password: req.body.password,
-    givenName: req.body.givenName,
-    familyName: req.body.familyName,
-  });
-  res.json(user);
-});
-```
-
-### Login with MFA Support
-
-```typescript
-app.post('/api/auth/login', async (req, res) => {
-  const result = await authvital.auth.login({
-    email: req.body.email,
-    password: req.body.password,
-  });
-
-  if ('mfaRequired' in result && result.mfaRequired) {
-    // User needs to complete MFA challenge
-    res.json({ 
-      mfaRequired: true, 
-      challengeToken: result.mfaChallengeToken 
-    });
-  } else {
-    // Login successful - set cookie and return user
-    res.cookie('access_token', result.accessToken, { httpOnly: true, secure: true });
-    res.json({ user: result.user });
-  }
-});
-```
-
-### Complete MFA Challenge
-
-```typescript
-app.post('/api/auth/mfa-challenge', async (req, res) => {
-  const tokens = await authvital.mfa.verifyChallenge({
-    challengeToken: req.body.challengeToken,
-    code: req.body.code,
-  });
-  
-  res.cookie('access_token', tokens.accessToken, { httpOnly: true, secure: true });
-  res.json({ success: true });
-});
-```
-
-### MFA Setup
-
-```typescript
-// Start MFA setup
-app.post('/api/mfa/setup', async (req, res) => {
-  const setup = await authvital.mfa.setup(req);
-  res.json({
-    qrCodeUrl: setup.qrCodeUrl,
-    secret: setup.secret,
-  });
-});
-
-// Verify and enable MFA
-app.post('/api/mfa/verify', async (req, res) => {
-  const result = await authvital.mfa.verifySetup(req, {
-    code: req.body.code,
-  });
-  res.json({ mfaEnabled: result.mfaEnabled });
-});
-```
-
-### Password Reset
-
-```typescript
-// Request password reset
-app.post('/api/auth/forgot-password', async (req, res) => {
-  await authvital.auth.forgotPassword(req.body.email);
-  res.json({ success: true });
-});
-
-// Reset password with token
-app.post('/api/auth/reset-password', async (req, res) => {
-  await authvital.auth.resetPassword({
-    token: req.body.token,
-    password: req.body.password,
-  });
-  res.json({ success: true });
-});
-```
-
-### Get Current User
-
-```typescript
-app.get('/api/me', async (req, res) => {
-  const user = await authvital.users.getCurrentUser(req);
-  res.json(user);
-});
-```
+If you genuinely need to call the REST endpoints above directly (e.g. a fully
+custom auth UI), call them with any HTTP client against `${AV_HOST}/api/...` using
+the exact paths documented on this page. Don't expect an SDK helper for them.
 
 ---
 

@@ -1,140 +1,69 @@
-# Sessions Namespace
+# Sessions
 
-> Manage user sessions: list, revoke specific sessions, or logout everywhere.
+> How the server SDK models sessions — and what it does *not* do.
 
-## Overview
+!!! info "There is no `authvital.sessions.*` device-management namespace"
+    Earlier drafts described `authvital.sessions.list()`, `.revoke()`,
+    `.revokeAll()`, `.logout()` for building "manage my devices" screens. **The
+    server SDK does not expose a user session inventory.** What it *does* provide
+    is: an encrypted session-cookie store for your own app, and OAuth token
+    revocation/introspection.
 
-The sessions namespace provides methods for session management, useful for building "manage devices" UIs and logout functionality.
+## Your app's session = an encrypted cookie
 
-```typescript
-const sessions = authvital.sessions;
-```
-
----
-
-## Methods
-
-### list()
-
-Get all active sessions for the authenticated user.
+The SDK's `SessionStore` encrypts the OAuth tokens (AES-256-GCM) into an httpOnly
+cookie. You create it at login and validate it on each request.
 
 ```typescript
-const { sessions, count } = await authvital.sessions.list(request, {
-  applicationId: 'app-123', // Optional: filter by app
+import { createSessionStore } from '@authvital/server';
+
+const sessionStore = createSessionStore({
+  secret: process.env.SESSION_SECRET!,       // >= 32 chars
+  authVitalHost: process.env.AV_HOST!,
+  isProduction: true,
+  cookie: { name: 'app_session', sameSite: 'lax', httpOnly: true },
 });
 
-sessions.forEach(s => {
-  console.log(`${s.userAgent} - ${s.ipAddress} - expires ${s.expiresAt}`);
+// Create on login (after OAuthFlow.handleCallback):
+const session = sessionStore.createSession({
+  access_token, refresh_token, expires_in, token_type: 'Bearer',
 });
-```
+res.setHeader('Set-Cookie', session.setCookieHeader);
 
-**Return Type:**
-
-```typescript
-interface SessionsListResponse {
-  sessions: Array<{
-    id: string;
-    createdAt: string;
-    expiresAt: string;
-    userAgent: string | null;
-    ipAddress: string | null;
-    tenant: string | null;
-  }>;
-  count: number;
+// Validate on each request:
+const result = sessionStore.validateSession(req.headers.cookie);
+if (result.valid && result.session) {
+  const tokens = result.session.tokens; // SessionTokens
 }
+
+// Clear on logout:
+res.setHeader('Set-Cookie', sessionStore.createClearCookieHeader());
 ```
 
----
+## Revoking & introspecting tokens
 
-### revoke()
-
-Revoke a specific session by ID.
+On the `ServerClient` (RFC 7009 / RFC 7662):
 
 ```typescript
-const result = await authvital.sessions.revoke(request, 'session-id');
+await client.revokeToken();                       // revoke current access token
+await client.revokeToken(refreshToken, 'refresh_token');
 
-console.log(result.message); // 'Session revoked successfully'
+const info = await client.introspectToken();      // { active, sub, exp, ... }
 ```
 
----
+| Method | Params | Returns |
+|--------|--------|---------|
+| `client.revokeToken` | `(token?, hint?)` | `boolean` |
+| `client.introspectToken` | `(token?)` | `IntrospectionResponse` |
 
-### revokeAll()
+## Listing / revoking a user's *other* sessions
 
-Revoke ALL sessions for the authenticated user ("logout everywhere").
+The SDK has no method for this. Session/device management is an
+AuthVital-account concern; direct users to AuthVital's hosted account UI, or call
+the backend directly if a corresponding REST endpoint is available for your
+deployment.
 
-```typescript
-const result = await authvital.sessions.revokeAll(request, {
-  applicationId: 'app-123', // Optional: only revoke for this app
-});
+## See also
 
-console.log(`Logged out of ${result.count} devices`);
-```
-
----
-
-### logout()
-
-Logout current session by refresh token.
-
-!!! tip "For browser apps"
-    Prefer redirecting to `/oauth/logout` which handles cookie clearing automatically.
-
-```typescript
-const result = await authvital.sessions.logout(refreshToken);
-
-res.clearCookie('refresh_token');
-res.json(result);
-```
-
----
-
-## Complete Example: Session Management UI
-
-```typescript
-import { createAuthVital } from '@authvital/sdk/server';
-import express from 'express';
-
-const authvital = createAuthVital({ /* config */ });
-const app = express();
-
-// List all sessions
-app.get('/api/sessions', async (req, res) => {
-  const { sessions, count } = await authvital.sessions.list(req);
-  
-  res.json({
-    sessions: sessions.map(s => ({
-      id: s.id,
-      device: parseUserAgent(s.userAgent),
-      location: s.ipAddress,
-      lastActive: s.createdAt,
-      expiresAt: s.expiresAt,
-    })),
-    total: count,
-  });
-});
-
-// Revoke specific session
-app.post('/api/sessions/:id/revoke', async (req, res) => {
-  const result = await authvital.sessions.revoke(req, req.params.id);
-  res.json(result);
-});
-
-// Logout everywhere
-app.post('/api/logout-all', async (req, res) => {
-  const result = await authvital.sessions.revokeAll(req);
-  res.json({ message: `Logged out of ${result.count} devices` });
-});
-
-// Normal logout
-app.post('/api/logout', async (req, res) => {
-  const refreshToken = req.cookies.refresh_token || req.body.refresh_token;
-  
-  if (refreshToken) {
-    await authvital.sessions.logout(refreshToken);
-  }
-  
-  res.clearCookie('access_token');
-  res.clearCookie('refresh_token');
-  res.json({ success: true });
-});
-```
+- [Middleware](../middleware.md) — `authVitalMiddleware` wires the session store into Express
+- [Auth](./auth.md) · [Integration API (overview)](./overview.md)

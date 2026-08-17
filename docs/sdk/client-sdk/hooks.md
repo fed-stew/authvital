@@ -1,450 +1,348 @@
 # Client SDK Hooks
 
-> React hooks for authentication, OAuth, invitations, and more.
+> React hooks for authentication state, protected routes, permissions, and API calls.
 
-## useAuth Hook
+All hooks come from `@authvital/browser/react` and must be used inside an
+`<AuthVitalProvider>`. The provider owns a single `AuthVitalClient` instance and
+keeps React state in sync with it.
 
-The primary hook for accessing auth state and methods:
+!!! info "Exact export surface"
+    The React entrypoint exports exactly these hooks:
+    `useAuth`, `useAuthVitalClient`, `useUser`, `useAccessToken`,
+    `useIsAuthenticated`, `useIsLoading`, `useApi`, `useAuthStateChange`,
+    `useAuthCallback`, `useProtectedRoute`, `useAuthApi`, `usePermissions`,
+    `useTokenRefresh`, and `useUserPreference` — plus the `AuthVitalProvider`
+    component. There is **no** `useOAuth`, `useInvitation`, `useTenant`,
+    `useTenants`, or `useAuthVitalConfig` hook.
+
+## useAuth
+
+The primary hook. Returns the full auth context — state plus action methods.
 
 ```tsx
-import { useAuth } from '@authvital/sdk/client';
+import { useAuth } from '@authvital/browser/react';
 
 function Dashboard() {
   const {
-    // ============ STATE ============
-    isAuthenticated,   // boolean: is user logged in?
-    isLoading,         // boolean: is auth state being determined?
-    isSigningIn,       // boolean: is sign-in in progress?
-    isSigningUp,       // boolean: is sign-up in progress?
-    user,              // AuthVitalUser | null
-    tenants,           // AuthVitalTenant[]
-    currentTenant,     // AuthVitalTenant | null
-    error,             // string | null
-    
-    // ============ AUTH METHODS (redirect to OAuth) ============
-    login,             // (email?, password?) => Promise<LoginResult>
+    // ---- State ----
+    isAuthenticated,   // boolean
+    isLoading,         // boolean — initial auth check in progress
+    isRefreshing,      // boolean — token refresh in progress
+    user,              // AuthUser | null
+    accessToken,       // string | null (in-memory)
+    error,             // AuthError | null
+
+    // ---- Actions ----
+    login,             // (options?: { email?: string; screen?: 'login' | 'signup' }) => void
     signIn,            // alias for login
-    signUp,            // (data?) => Promise<SignUpResult>
-    signOut,           // () => Promise<void>
-    logout,            // alias for signOut
-    
-    // ============ TENANT METHODS ============
-    setActiveTenant,   // (tenantId: string) => void
-    switchTenant,      // (tenantId: string) => void (alias)
-    
-    // ============ SESSION METHODS (no-ops, server handles) ============
-    refreshToken,      // () => Promise<void> - server refreshes via cookies
+    signup,            // (options?: { email?: string }) => void
+    signUp,            // alias for signup
+    logout,            // (options?) => Promise<LogoutResult>
+    signOut,           // alias for logout
+    refreshToken,      // () => Promise<RefreshResult>
     checkAuth,         // () => Promise<boolean>
-    
-    // ============ STATE SETTERS ============
-    setAuthState,      // (user, tenants?) => void
-    clearAuthState,    // () => void
+    handleCallback,    // (url?: string) => Promise<OAuthCallbackResult>
+    getApiClient,      // () => AxiosInstance
   } = useAuth();
 
-  // ...
-}
-```
+  if (isLoading) return <p>Checking authentication…</p>;
 
----
-
-## State Management
-
-Since the Client SDK doesn't call the IDP directly, you need to update auth state after your server verifies the JWT.
-
-### Setting Auth State (After Server Verification)
-
-```tsx
-import { useAuth } from '@authvital/sdk/client';
-
-// After OAuth callback - your callback route handler
-function AuthCallbackPage() {
-  const { setAuthState } = useAuth();
-  const navigate = useNavigate();
-  
-  useEffect(() => {
-    async function handleCallback() {
-      // 1. Your server exchanges the code and verifies the JWT
-      const response = await fetch('/api/auth/callback', {
-        method: 'POST',
-        body: JSON.stringify({ code: getCodeFromUrl() }),
-        credentials: 'include', // Important for cookies!
-      });
-      
-      const { user, tenants } = await response.json();
-      
-      // 2. Update client-side state with verified user data
-      setAuthState(user, tenants);
-      
-      // 3. Redirect to dashboard
-      navigate('/dashboard');
-    }
-    
-    handleCallback();
-  }, []);
-  
-  return <p>Signing you in...</p>;
-}
-```
-
-### Clearing Auth State (On Logout)
-
-```tsx
-import { useAuth } from '@authvital/sdk/client';
-
-function LogoutButton() {
-  const { clearAuthState, logout } = useAuth();
-  
-  const handleLogout = async () => {
-    // 1. Tell your server to clear the httpOnly cookies
-    await fetch('/api/auth/logout', {
-      method: 'POST',
-      credentials: 'include',
-    });
-    
-    // 2. Clear client-side state
-    clearAuthState();
-    
-    // OR use the built-in logout which does both:
-    await logout();
-  };
-  
-  return <button onClick={handleLogout}>Sign Out</button>;
-}
-```
-
-### Hydrating State on Page Load (SSR/Next.js)
-
-```tsx
-// pages/_app.tsx (Next.js)
-import { AuthVitalProvider } from '@authvital/sdk/client';
-
-function MyApp({ Component, pageProps }) {
-  // Server passes user data via pageProps
-  const { user, tenants } = pageProps;
-  
-  return (
-    <AuthVitalProvider
-      authVitalHost={process.env.NEXT_PUBLIC_AV_HOST!}
-      clientId={process.env.NEXT_PUBLIC_AV_CLIENT_ID!}
-      initialUser={user}
-      initialTenants={tenants}
-    >
-      <Component {...pageProps} />
-    </AuthVitalProvider>
-  );
-}
-
-// In getServerSideProps:
-export async function getServerSideProps(context) {
-  const { getCurrentUser } = await import('@authvital/sdk');
-  
-  // Server verifies the JWT from cookies
-  const { user, tenants } = await getCurrentUser(context.req);
-  
-  return {
-    props: {
-      user: user || null,
-      tenants: tenants || [],
-    },
-  };
-}
-```
-
----
-
-## useOAuth Hook
-
-For custom OAuth flow control:
-
-```tsx
-import { useOAuth } from '@authvital/sdk/client';
-
-function LoginPage() {
-  const {
-    isAuthenticated,   // boolean
-    isLoading,         // boolean
-    startLogin,        // (options?) => void - redirects to AuthVital login
-    startSignup,       // (options?) => void - redirects to AuthVital signup
-    logout,            // () => Promise<void>
-  } = useOAuth({
-    redirectUri: '/api/auth/callback', // optional, has default
-  });
-  
-  if (isLoading) {
-    return <LoadingSpinner />;
-  }
-  
-  if (isAuthenticated) {
-    return <Navigate to="/dashboard" />;
+  if (!isAuthenticated) {
+    return <button onClick={() => login()}>Sign In</button>;
   }
 
   return (
-    <div className="login-buttons">
-      <button onClick={() => startLogin()}>
-        Sign In
-      </button>
-      
-      <button onClick={() => startLogin({ state: 'custom-state-value' })}>
-        Sign In (with custom state)
-      </button>
-      
-      <button onClick={() => startSignup()}>
-        Create Account
-      </button>
-      
-      <button onClick={() => startSignup({ inviteToken: 'abc123' })}>
-        Accept Invitation
-      </button>
+    <div>
+      <p>Hello, {user?.name || user?.email}</p>
+      <button onClick={() => logout()}>Sign Out</button>
     </div>
   );
 }
 ```
 
-### useOAuth Types
+!!! note "`login()` triggers a full-page OAuth redirect"
+    `login()` / `signup()` don't return a promise — they redirect the browser to
+    the AuthVital authorize endpoint. The result is delivered back to your
+    callback route, where you call `handleCallback()` (or use
+    [`useAuthCallback`](#useauthcallback)).
+
+### The `user` object (`AuthUser`)
 
 ```typescript
-interface UseOAuthOptions {
-  redirectUri?: string;  // Override default callback URL
-}
-
-interface StartLoginOptions {
-  state?: string;        // Custom state parameter
-  prompt?: 'login' | 'consent' | 'select_account';
-}
-
-interface StartSignupOptions {
-  state?: string;
-  inviteToken?: string;  // Pre-fill invitation token
-}
-```
-
----
-
-## useInvitation Hook
-
-Complete invitation handling flow:
-
-```tsx
-import { useInvitation } from '@authvital/sdk/client';
-import { useParams, useNavigate } from 'react-router-dom';
-
-function AcceptInvitePage() {
-  const { token } = useParams<{ token: string }>();
-  const navigate = useNavigate();
-  
-  const {
-    // ============ STATE ============
-    invitation,       // InvitationDetails | null
-    isLoading,        // boolean
-    error,            // string | null
-    consumed,         // boolean - Has the invite been consumed?
-    hasPendingInvite, // boolean - Is there a stored invite token?
-    
-    // ============ METHODS ============
-    fetchInvitation,  // (token: string) => Promise<InvitationDetails>
-    acceptAndLogin,   // (token: string) => void - Stores token, starts OAuth
-    consumeInvite,    // (token: string) => Promise<ConsumeResult>
-  } = useInvitation({
-    onConsumed: (result) => {
-      console.log('Invitation consumed!', result);
-      navigate('/dashboard');
-    },
-    onError: (error) => {
-      console.error('Invitation error:', error);
-    },
-  });
-  
-  // Fetch invitation details on mount
-  useEffect(() => {
-    if (token) {
-      fetchInvitation(token);
-    }
-  }, [token, fetchInvitation]);
-  
-  if (isLoading) {
-    return <p>Loading invitation details...</p>;
-  }
-  
-  if (error) {
-    return (
-      <div className="error">
-        <h2>Invalid Invitation</h2>
-        <p>{error}</p>
-        <button onClick={() => navigate('/login')}>Go to Login</button>
-      </div>
-    );
-  }
-  
-  if (consumed) {
-    return (
-      <div className="success">
-        <h2>Welcome to {invitation?.tenant.name}!</h2>
-        <p>Your invitation has been accepted.</p>
-        <button onClick={() => navigate('/dashboard')}>Go to Dashboard</button>
-      </div>
-    );
-  }
-  
-  return (
-    <div className="invitation">
-      {invitation && (
-        <>
-          <h1>You've been invited!</h1>
-          <p>Join <strong>{invitation.tenant.name}</strong></p>
-          <p>Role: <strong>{invitation.role}</strong></p>
-          
-          <button onClick={() => acceptAndLogin(token!)}>
-            Accept Invitation & Sign In
-          </button>
-        </>
-      )}
-    </div>
-  );
-}
-```
-
-### Invitation Flow
-
-```
-1. User clicks invite link → /invite/{token}
-2. fetchInvitation(token) → Shows invite details
-3. User clicks "Accept"
-4. acceptAndLogin(token):
-   a. Stores token in sessionStorage
-   b. Redirects to OAuth login/signup
-5. After OAuth, your callback:
-   a. Checks for pending invite token
-   b. Calls consumeInvite(token)
-   c. User is added to tenant
-6. onConsumed callback fires
-7. Redirect to dashboard
-```
-
-### useInvitation Types
-
-```typescript
-interface InvitationDetails {
+interface AuthUser {
   id: string;
   email: string;
-  role: string;
-  expiresAt: string;
-  tenant: {
-    id: string;
-    name: string;
-    slug: string;
-  };
-  invitedBy: {
-    name: string;
-  } | null;
-}
-
-interface ConsumeResult {
-  success: boolean;
-  tenantId: string;
-  userId: string;
-}
-
-interface UseInvitationOptions {
-  onConsumed?: (result: ConsumeResult) => void;
-  onError?: (error: string) => void;
+  emailVerified?: boolean;
+  name?: string;
+  givenName?: string;
+  familyName?: string;
+  picture?: string;
+  tenantId?: string;
+  tenantSubdomain?: string;
+  tenantRoles?: string[];
+  tenantPermissions?: string[];
+  license?: { type: string; name: string; features: string[] };
 }
 ```
 
----
+`user` is decoded from the in-memory access token — there is no separate
+`tenants` array or `currentTenant` on the context. The active tenant is whatever
+tenant the current token was issued for (`user.tenantId` /
+`user.tenantSubdomain`).
 
-## Helper Hooks
+## useAuthVitalClient
 
-Convenience hooks for common patterns:
-
-### useUser
+Escape hatch to the underlying `AuthVitalClient`. Use this when you need client
+methods the context doesn't surface — most importantly, `login()` with
+`inviteToken` or `tenantHint` (the context's `login()` only accepts
+`email`/`screen`).
 
 ```tsx
-import { useUser } from '@authvital/sdk/client';
+import { useAuthVitalClient } from '@authvital/browser/react';
+
+function InviteAcceptButton({ token }: { token: string }) {
+  const client = useAuthVitalClient();
+
+  // Invitation acceptance = start the OAuth flow WITH the invite token.
+  // AuthVital consumes it during login and adds the user to the tenant.
+  return (
+    <button onClick={() => client.login({ inviteToken: token })}>
+      Accept Invitation & Sign In
+    </button>
+  );
+}
+```
+
+`AuthorizationOptions` (accepted by `client.login()` / `client.signup()`):
+
+```typescript
+interface AuthorizationOptions {
+  email?: string;
+  screen?: 'login' | 'signup';
+  state?: string;        // custom state (bypasses auto-CSRF)
+  inviteToken?: string;  // team invitation token
+  tenantHint?: string;   // pre-select a tenant for multi-tenant login
+}
+```
+
+## Invitations
+
+There is no `useInvitation` hook and no client-side "consume invite" call. The
+whole flow runs through the OAuth redirect:
+
+1. User opens your invite landing page, e.g. `/invite?token=…`.
+2. You call `client.login({ inviteToken })` (see above).
+3. AuthVital validates + consumes the token during login and adds the user to
+   the tenant.
+4. The user lands back on your callback route already a member.
+
+If you need to *display* invitation details or list/revoke invitations, that is a
+**server-side** operation via the Server SDK's integration client
+(`client.integration.listInvitations`, `sendInvitation`, `revokeInvitation`) —
+see the [Server SDK](../server-sdk/index.md).
+
+## Tenant switching
+
+There is no in-place tenant switch on the browser SDK — an access token is scoped
+to a single tenant, so switching tenants means starting a **fresh login** with a
+`tenant_hint`:
+
+```tsx
+import { useAuthVitalClient } from '@authvital/browser/react';
+
+function TenantSwitcher({ targetSubdomain }: { targetSubdomain: string }) {
+  const client = useAuthVitalClient();
+  // Re-login scoped to the target tenant. In a subdomain-per-tenant setup you
+  // typically also navigate to that tenant's subdomain first.
+  return (
+    <button onClick={() => client.login({ tenantHint: targetSubdomain })}>
+      Switch tenant
+    </button>
+  );
+}
+```
+
+## useUser
+
+Current user only (shorthand for `useAuth().user`).
+
+```tsx
+import { useUser } from '@authvital/browser/react';
 
 function ProfileCard() {
-  const user = useUser(); // AuthVitalUser | null
-  
+  const user = useUser(); // AuthUser | null
   if (!user) return null;
-  
   return (
-    <div className="profile-card">
-      {user.imageUrl && <img src={user.imageUrl} alt={user.fullName || ''} />}
-      <h3>{user.fullName || user.email}</h3>
+    <div>
+      {user.picture && <img src={user.picture} alt={user.name || ''} />}
+      <h3>{user.name || user.email}</h3>
       <p>{user.email}</p>
     </div>
   );
 }
 ```
 
-### useTenant
+## useAccessToken
+
+The in-memory access token, for manual API calls.
 
 ```tsx
-import { useTenant } from '@authvital/sdk/client';
+import { useAccessToken } from '@authvital/browser/react';
 
-function TenantBanner() {
-  const tenant = useTenant(); // AuthVitalTenant | null (current tenant)
-  
-  if (!tenant) return null;
-  
-  return (
-    <div className="tenant-banner">
-      {tenant.imageUrl && <img src={tenant.imageUrl} alt={tenant.name} />}
-      <span>{tenant.name}</span>
-      <span className="role">{tenant.role}</span>
-    </div>
-  );
+const token = useAccessToken(); // string | null
+fetch('/api/data', { headers: { Authorization: `Bearer ${token}` } });
+```
+
+## useIsAuthenticated / useIsLoading
+
+Boolean shorthands.
+
+```tsx
+import { useIsAuthenticated, useIsLoading } from '@authvital/browser/react';
+
+const isAuthenticated = useIsAuthenticated();
+const isLoading = useIsLoading();
+```
+
+## useApi
+
+The pre-configured Axios instance (attaches the bearer token, refreshes on 401,
+queues concurrent requests during refresh).
+
+```tsx
+import { useApi } from '@authvital/browser/react';
+
+function Users() {
+  const api = useApi();
+  useEffect(() => {
+    api.get('/api/users').then((r) => setUsers(r.data));
+  }, [api]);
 }
 ```
 
-### useTenants
+## useAuthApi
+
+Wraps a call in loading/error/data state.
 
 ```tsx
-import { useTenants } from '@authvital/sdk/client';
+import { useAuthApi } from '@authvital/browser/react';
 
-function TenantSwitcher() {
-  const { tenants, currentTenant, switchTenant } = useTenants();
-  
-  if (tenants.length <= 1) return null;
-  
-  return (
-    <select
-      value={currentTenant?.id || ''}
-      onChange={(e) => switchTenant(e.target.value)}
-    >
-      {tenants.map((tenant) => (
-        <option key={tenant.id} value={tenant.id}>
-          {tenant.name}
-        </option>
-      ))}
-    </select>
-  );
+function Profile() {
+  const { callApi, isLoading, error, data } = useAuthApi();
+
+  useEffect(() => {
+    callApi(async (api) => {
+      const { data } = await api.get('/api/users/me');
+      return data;
+    });
+  }, [callApi]);
+
+  if (isLoading) return <Loading />;
+  if (error) return <Error message={error.message} />;
+  return <div>{data?.name}</div>;
 }
 ```
 
-### useAuthVitalConfig
+## useAuthCallback
 
-Access provider configuration values:
+Processes the OAuth callback on mount — use it on your callback route.
 
 ```tsx
-import { useAuthVitalConfig } from '@authvital/sdk/client';
+import { useAuthCallback } from '@authvital/browser/react';
 
-function CustomOAuthButton() {
-  const { authVitalHost, clientId, redirectUri } = useAuthVitalConfig();
-  
-  // Build custom OAuth URL
-  const oauthUrl = `${authVitalHost}/oauth/authorize?` + new URLSearchParams({
-    client_id: clientId,
-    redirect_uri: redirectUri,
-    response_type: 'code',
-    scope: 'openid profile email',
+function AuthCallbackPage() {
+  const { isProcessing, error, user } = useAuthCallback({
+    onSuccess: (user) => router.push('/dashboard'),
+    onError: (err) => console.error('Auth failed', err),
+    redirectTo: '/dashboard', // optional
   });
-  
-  return (
-    <a href={oauthUrl} className="custom-login-button">
-      Sign in with AuthVital
-    </a>
-  );
+
+  if (isProcessing) return <Loading />;
+  if (error) return <Error message={error.description} />;
+  return null;
 }
+```
+
+## useProtectedRoute
+
+Redirects to `redirectTo` when the user isn't authenticated. Optional
+`requiredRoles` are checked against the user's **tenant roles**.
+
+```tsx
+import { useProtectedRoute } from '@authvital/browser/react';
+
+function AdminPage() {
+  const { isChecking, isAllowed, user } = useProtectedRoute({
+    redirectTo: '/login',
+    requiredRoles: ['admin'],
+  });
+
+  if (isChecking) return <Loading />;
+  if (!isAllowed) return null; // redirect happens automatically
+  return <div>Admin dashboard for {user?.email}</div>;
+}
+```
+
+## usePermissions
+
+Claim-based permission/role checks against the current token. These read from
+`user.tenantPermissions` / `user.tenantRoles` — no network call.
+
+```tsx
+import { usePermissions } from '@authvital/browser/react';
+
+function AdminPanel() {
+  const {
+    hasPermission,      // (permission: string) => boolean
+    hasAnyPermission,   // (permissions: string[]) => boolean
+    hasAllPermissions,  // (permissions: string[]) => boolean
+    hasRole,            // (role: string) => boolean
+    hasAnyRole,         // (roles: string[]) => boolean
+    permissions,        // string[]
+    roles,              // string[]
+  } = usePermissions();
+
+  if (!hasPermission('admin:access')) return <AccessDenied />;
+  return <>{hasAnyRole(['admin', 'owner']) && <AdminNav />}</>;
+}
+```
+
+## useTokenRefresh
+
+Manual refresh control.
+
+```tsx
+import { useTokenRefresh } from '@authvital/browser/react';
+
+const { refresh, isRefreshing, lastRefreshed, error } = useTokenRefresh();
+await refresh();
+```
+
+## useAuthStateChange
+
+Subscribe to auth-state transitions (analytics, logging, etc.).
+
+```tsx
+import { useAuthStateChange } from '@authvital/browser/react';
+
+useAuthStateChange((event) => {
+  analytics.track('auth_state_change', {
+    from: event.previous.isAuthenticated,
+    to: event.current.isAuthenticated,
+    trigger: event.trigger,
+  });
+});
+```
+
+## useUserPreference
+
+A small `localStorage`-backed preference store, namespaced per user. Safe because
+it stores UI preferences, not tokens.
+
+```tsx
+import { useUserPreference } from '@authvital/browser/react';
+
+const [theme, setTheme] = useUserPreference('theme', 'light');
 ```
 
 ---
@@ -453,4 +351,5 @@ function CustomOAuthButton() {
 
 - [Client SDK Overview](./index.md)
 - [Components](./components.md)
-- [Patterns](./patterns.md)
+- [Patterns & Types](./patterns.md)
+- [Server SDK](../server-sdk/index.md)

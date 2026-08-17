@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useParams } from 'react-router-dom';
 import { tenantApi } from '@/lib/api';
+import { useTenant } from '@/contexts/TenantContext';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -46,10 +47,11 @@ interface TenantProviderCardProps {
   config: TenantSsoConfig | null;
   isAvailable: boolean;
   tenantId: string;
+  canManage: boolean;
   onUpdate: () => void;
 }
 
-function TenantProviderCard({ provider, config, isAvailable, tenantId, onUpdate }: TenantProviderCardProps) {
+function TenantProviderCard({ provider, config, isAvailable, tenantId, canManage, onUpdate }: TenantProviderCardProps) {
   const { toast } = useToast();
   const [isEditing, setIsEditing] = React.useState(false);
   const [showSecret, setShowSecret] = React.useState(false);
@@ -274,16 +276,20 @@ function TenantProviderCard({ provider, config, isAvailable, tenantId, onUpdate 
               </div>
             )}
 
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
-                Configure
-              </Button>
-              {config && (
-                <Button variant="ghost" size="sm" onClick={handleReset}>
-                  Reset to Defaults
+            {canManage ? (
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
+                  Configure
                 </Button>
-              )}
-            </div>
+                {config && (
+                  <Button variant="ghost" size="sm" onClick={handleReset}>
+                    Reset to Defaults
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">You don't have permission to configure SSO.</p>
+            )}
           </div>
         )}
       </CardContent>
@@ -297,7 +303,10 @@ function TenantProviderCard({ provider, config, isAvailable, tenantId, onUpdate 
 
 export function SsoSettingsPage() {
   const { tenantId } = useParams<{ tenantId: string }>();
+  const { can } = useTenant();
   const { toast } = useToast();
+
+  const canManage = can('tenant:sso:manage');
   const [configs, setConfigs] = React.useState<TenantSsoConfig[]>([]);
   const [availableProviders, setAvailableProviders] = React.useState<AvailableProvider[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -362,6 +371,7 @@ export function SsoSettingsPage() {
               config={getConfig(provider)}
               isAvailable={isProviderAvailable(provider)}
               tenantId={tenantId!}
+              canManage={canManage}
               onUpdate={loadConfig}
             />
           ))}

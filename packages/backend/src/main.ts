@@ -22,6 +22,7 @@ validateSigningKeySecret();
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, RequestMethod } from '@nestjs/common';
 import * as cookieParser from 'cookie-parser';
+import helmet from 'helmet';
 
 import { existsSync, readFileSync } from 'fs';
 import { Request, Response, NextFunction } from 'express';
@@ -34,6 +35,40 @@ async function bootstrap() {
       ? ['error', 'warn'] 
       : undefined, // Default (all levels) for local dev
   });
+
+  const expressApp = app.getHttpAdapter().getInstance();
+
+  // Trust exactly ONE proxy layer (Traefik / Cloud Run sit directly in front
+  // of the app). This makes Express derive req.ip from the right-most
+  // X-Forwarded-For entry set by that proxy — required for per-IP rate
+  // limiting — without letting clients spoof arbitrary forwarded chains.
+  expressApp.set('trust proxy', 1);
+
+  // Security headers — must run BEFORE any other middleware/routes so every
+  // response (including static SPA assets and errors) gets them.
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          // The served SPA uses inline styles (e.g. the logout page)
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:', 'https:'],
+          connectSrc: ["'self'"],
+          frameAncestors: ["'none'"],
+          formAction: ["'self'"],
+        },
+      },
+      // COEP breaks OAuth redirects and externally-loaded QR images
+      crossOriginEmbedderPolicy: false,
+      // Only send HSTS when we actually serve over HTTPS
+      hsts:
+        process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production'
+          ? { maxAge: 15552000 } // 180 days
+          : false,
+    }),
+  );
 
   // Enable global validation
   app.useGlobalPipes(
@@ -89,9 +124,22 @@ async function bootstrap() {
         return callback(null, true);
       }
       
-      // In development, allow all localhost origins
-      if (process.env.NODE_ENV !== 'production' && origin.includes('localhost')) {
-        return callback(null, true);
+      // In development, allow genuine localhost origins only.
+      // Parse the origin properly — a substring check would match hostile
+      // origins like https://evil-localhost.attacker.com.
+      if (process.env.NODE_ENV !== 'production') {
+        try {
+          const url = new URL(origin);
+          if (
+            url.hostname === 'localhost' ||
+            url.hostname === '127.0.0.1' ||
+            url.hostname.endsWith('.localhost')
+          ) {
+            return callback(null, true);
+          }
+        } catch {
+          // Unparseable origin — fall through to the whitelist check
+        }
       }
       
       // Check whitelist (exact match or wildcard pattern)
@@ -124,8 +172,6 @@ async function bootstrap() {
   // SPA FALLBACK: Serve index.html for all non-API, non-static routes
   // This MUST come after all other middleware/routes are configured
   // ==========================================================================
-  const expressApp = app.getHttpAdapter().getInstance();
-  
   // Load index.html from /app/public
   const indexPath = '/app/public/index.html';
   let indexHtml: string | null = null;

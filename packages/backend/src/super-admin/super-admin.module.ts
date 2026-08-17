@@ -32,6 +32,7 @@ import {
   AdminSsoService,
 } from './services';
 import { AdminTenantMembersService } from './services/admin-tenant-members.service';
+import { AdminApplicationClientsService } from './services/admin-application-clients.service';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { AdminTenantMembersService } from './services/admin-tenant-members.servi
     AdminTenantsService,
     AdminRolesService,
     AdminApplicationsService,
+    AdminApplicationClientsService,
     AdminLicensingService,
     AdminInstanceService,
     AdminSsoService,
@@ -74,6 +76,7 @@ import { AdminTenantMembersService } from './services/admin-tenant-members.servi
     AdminTenantMembersService,
     AdminServiceAccountsService,
     AdminApplicationsService,
+    AdminApplicationClientsService,
     AdminRolesService,
     AdminLicensingService,
     AdminInstanceService,

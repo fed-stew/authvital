@@ -9,6 +9,8 @@ import type { Request, Response, NextFunction } from 'express';
 import type { SessionTokens, SessionStore } from '../session/index.js';
 import { ServerClient, type ServerClientConfig } from '../client/server-client.js';
 import { createSessionStore, type SessionStoreConfig } from '../session/store.js';
+import { extractUserAndTenant } from '../utils/jwt.js';
+import { parseInteractionRequired } from '../errors.js';
 import type { TokenResponse } from '@authvital/shared';
 
 // =============================================================================
@@ -84,6 +86,13 @@ export interface RouteOptions {
  * 3. Refreshes tokens if expired
  * 4. Attaches auth context to req.authVital
  * 5. Creates a server client pre-configured with the access token
+ *
+ * If the IdP rejects the refresh with `interaction_required` (e.g. the
+ * tenant's MFA policy now blocks the session), the middleware treats the
+ * session as invalid: it clears the session cookie, leaves `req.authVital`
+ * unset, and sets `res.locals.authFailureReason = 'interaction_required'`
+ * so route handlers can distinguish "send the user back through
+ * /oauth/authorize" from an ordinary missing session.
  *
  * @param config - Middleware configuration
  * @returns Express middleware function
@@ -175,6 +184,15 @@ export function authVitalMiddleware(config: AuthVitalMiddlewareConfig) {
           sessionStore
         );
 
+        if (refreshResult.interactionRequired) {
+          // The IdP demands an interactive step (e.g. MFA enrollment).
+          // Retrying is pointless — treat like an invalid session: clear the
+          // cookie and continue without auth context, but tell the app why.
+          res.setHeader('Set-Cookie', sessionStore.createClearCookieHeader());
+          res.locals.authFailureReason = 'interaction_required';
+          return next();
+        }
+
         if (refreshResult.success && refreshResult.tokens) {
           tokens = {
             accessToken: refreshResult.tokens.access_token,
@@ -247,6 +265,8 @@ export function authVitalMiddleware(config: AuthVitalMiddlewareConfig) {
 interface RefreshResult {
   success: boolean;
   tokens?: TokenResponse;
+  /** True when the IdP rejected the refresh with `interaction_required` */
+  interactionRequired?: boolean;
 }
 
 async function performTokenRefresh(
@@ -273,6 +293,10 @@ async function performTokenRefresh(
     });
 
     if (!response.ok) {
+      const bodyText = await response.text();
+      if (parseInteractionRequired(response.status, bodyText)) {
+        return { success: false, interactionRequired: true };
+      }
       return { success: false };
     }
 
@@ -326,7 +350,20 @@ export function requireAuth(options: { redirectTo?: string } = {}) {
 /**
  * Create middleware that requires specific permissions.
  *
- * @param permissions - Required permissions (any of these)
+ * The user must have ALL of the listed permissions (matches the backend
+ * `allAllowed` semantics and the `@RequirePermissions` convention). If you
+ * need "any of" semantics, compose multiple guards or check individually.
+ *
+ * Permission checks are performed against the M2M-guarded integration endpoint
+ * (`POST /api/integration/check-permissions`) via `client.integration`, which
+ * authenticates with the same OAuth client credentials the middleware is
+ * already configured with (clientId/clientSecret). The user's identity
+ * (userId + tenantId) is read from their session access token.
+ *
+ * Fail-closed: any missing identity, denied permission, or error results in
+ * 403/500 — never a silent pass.
+ *
+ * @param permissions - Required permissions (user must have ALL of these)
  * @returns Express middleware
  *
  * @example
@@ -350,21 +387,36 @@ export function requirePermission(...permissions: string[]) {
       return;
     }
 
+    // Derive the user identity + tenant from the session access token.
+    // The integration endpoint is M2M-guarded and requires these explicitly.
+    const identity = extractUserAndTenant(req.authVital.accessToken);
+    if (!identity) {
+      res.status(403).json({
+        error: 'Forbidden',
+        code: 'PERMISSION_DENIED',
+        details: {
+          reason: 'Unable to determine user identity or tenant from token',
+          required: permissions,
+        },
+      });
+      return;
+    }
+
     try {
-      const response = await req.authVital.client.post<{
-        results: Record<string, boolean>;
-        allAllowed: boolean;
-      }>('/api/auth/check-permissions', {
+      // Delegate to the M2M integration client (client_credentials grant).
+      const result = await req.authVital.client.integration.checkPermissions({
+        userId: identity.userId,
+        tenantId: identity.tenantId,
         permissions,
       });
 
-      if (!response.ok || !response.data?.allAllowed) {
+      if (!result.allAllowed) {
         res.status(403).json({
           error: 'Forbidden',
           code: 'PERMISSION_DENIED',
           details: {
             required: permissions,
-            results: response.data?.results,
+            results: result.results,
           },
         });
         return;

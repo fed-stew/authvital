@@ -13,9 +13,11 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Throttle } from '@nestjs/throttler';
 import { Response, Request } from 'express';
-import { OAuthService } from './oauth.service';
+import { OAuthService, AuthorizeParams } from './oauth.service';
 import { OAuthTokenService } from './oauth-token.service';
+import { MfaEnrollmentRequiredException } from '../auth/mfa/mfa-enrollment-required.exception';
 import { KeyService } from './key.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { getRefreshTokenCookieOptions } from '../common/utils/cookie.utils';
@@ -89,7 +91,7 @@ export class OAuthController {
       throw new BadRequestException('You do not have access to this organization');
     }
 
-    const code = await this.oauthService.authorize(user.userId, {
+    const authorizeParams: AuthorizeParams = {
       clientId,
       redirectUri,
       responseType,
@@ -100,7 +102,19 @@ export class OAuthController {
       codeChallengeMethod,
       tenantId,
       tenantSubdomain,
-    });
+    };
+
+    let code: string;
+    try {
+      code = await this.oauthService.authorize(user.userId, authorizeParams);
+    } catch (error) {
+      if (error instanceof MfaEnrollmentRequiredException) {
+        // Browser flow: interrupt with a redirect to MFA enrollment instead of
+        // a raw 403 JSON body. This route is always tenant-scoped.
+        return this.redirectToMfaEnrollment(res, user.userId, authorizeParams);
+      }
+      throw error;
+    }
 
     const redirectUrl = new URL(redirectUri);
     redirectUrl.searchParams.set('code', code);
@@ -211,11 +225,13 @@ export class OAuthController {
     // Extract tenant from redirect_uri
     const { tenantId, tenantSubdomain } = await this.extractTenantFromRedirectUri(redirectUri);
 
+    const fullAuthorizeParams: AuthorizeParams = {
+      clientId, redirectUri, responseType, scope, state, nonce, codeChallenge, codeChallengeMethod,
+      tenantId, tenantSubdomain,
+    };
+
     try {
-      const code = await this.oauthService.authorize(user.userId, {
-        clientId, redirectUri, responseType, scope, state, nonce, codeChallenge, codeChallengeMethod,
-        tenantId, tenantSubdomain,
-      });
+      const code = await this.oauthService.authorize(user.userId, fullAuthorizeParams);
 
       // Generate session_state for OIDC Session Management
       const sessionState = this.tokenService.generateSessionState(clientId, user.userId);
@@ -227,6 +243,11 @@ export class OAuthController {
 
       return res.redirect(finalRedirectUrl.toString());
     } catch (error) {
+      if (error instanceof MfaEnrollmentRequiredException) {
+        // Tenant MFA policy blocks minting: send the browser to enrollment with
+        // a short-lived resume token so the flow can be replayed afterwards.
+        return this.redirectToMfaEnrollment(res, user.userId, fullAuthorizeParams);
+      }
       if (error instanceof UnauthorizedException) {
         // Session expired or invalid - redirect to login
         const frontendUrl = this.configService.get<string>('BASE_URL', 'http://localhost:8000');
@@ -240,6 +261,8 @@ export class OAuthController {
    * Token Endpoint
    */
   @Post('token')
+  // Higher than login limits: legitimate refresh-token traffic hits this too
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   async token(
     @Body('grant_type') grantType: string,
@@ -522,6 +545,26 @@ export class OAuthController {
   // ===========================================================================
   // PRIVATE HELPERS
   // ===========================================================================
+
+  /**
+   * MFA enrollment interrupt: 302 to the enrollment page (Phase 2 frontend)
+   * carrying a 5-minute resume token that encodes the sanitized authorize
+   * params, so the original OAuth flow can resume after enrollment.
+   */
+  private async redirectToMfaEnrollment(
+    res: Response,
+    userId: string,
+    params: AuthorizeParams,
+  ) {
+    const resumeToken = await this.oauthService.issueMfaEnrollmentResumeToken(
+      userId,
+      params,
+    );
+    const frontendUrl = this.configService.get<string>('BASE_URL', 'http://localhost:8000');
+    return res.redirect(
+      `${frontendUrl}/auth/mfa/enroll?resume=${encodeURIComponent(resumeToken)}`,
+    );
+  }
 
   private extractOrigin(url: string | undefined): string {
     if (!url) {

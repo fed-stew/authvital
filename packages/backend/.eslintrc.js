@@ -14,7 +14,10 @@ module.exports = {
     node: true,
     jest: true,
   },
-  ignorePatterns: ['.eslintrc.js', 'dist/', 'node_modules/', 'prisma/'],
+  // prisma/ is linted for the TypeScript seed module (prisma/seed/**). The
+  // generated client, migrations (.sql) and schema (.prisma) are not .ts so
+  // they are never matched by the lint glob.
+  ignorePatterns: ['.eslintrc.js', 'dist/', 'node_modules/'],
   rules: {
     '@typescript-eslint/interface-name-prefix': 'off',
     '@typescript-eslint/explicit-function-return-type': 'off',

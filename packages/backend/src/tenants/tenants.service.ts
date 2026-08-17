@@ -10,6 +10,8 @@ import { Prisma, MembershipStatus, SubscriptionStatus } from '@prisma/client';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { SystemWebhookService } from '../webhooks/system-webhook.service';
+import { AuditService } from '../audit/audit.service';
+import { AUDIT_ACTIONS, AUDIT_TARGET_TYPES } from '../audit/audit-actions';
 
 /**
  * TenantsService - Core tenant operations
@@ -30,6 +32,7 @@ export class TenantsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly systemWebhookService: SystemWebhookService,
+    private readonly auditService: AuditService,
   ) {}
 
   /**
@@ -282,7 +285,7 @@ export class TenantsService {
   /**
    * Update a tenant
    */
-  async updateTenant(tenantId: string, dto: UpdateTenantDto) {
+  async updateTenant(tenantId: string, dto: UpdateTenantDto, actorUserId?: string) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
     });
@@ -327,6 +330,16 @@ export class TenantsService {
         changed_fields: changedFields,
       }).catch((err) => {
         this.logger.warn(`Failed to dispatch tenant.updated event: ${err.message}`);
+      });
+
+      // Audit (non-fatal): tenant settings changed.
+      await this.auditService.log({
+        tenantId,
+        actorUserId: actorUserId ?? null,
+        action: AUDIT_ACTIONS.TENANT_SETTINGS_UPDATED,
+        targetType: AUDIT_TARGET_TYPES.TENANT,
+        targetId: tenantId,
+        metadata: { changedFields },
       });
     }
 

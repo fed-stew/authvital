@@ -337,29 +337,6 @@ export const SSO_INITIATE = `${SSO_BASE}/initiate`;
 export const SSO_CALLBACK = `${SSO_BASE}/callback`;
 
 // =============================================================================
-// SESSION ENDPOINTS
-// =============================================================================
-
-/** Session base path */
-export const SESSION_BASE = `${API_BASE}/sessions`;
-
-/**
- * List user sessions endpoint.
- */
-export const SESSION_LIST = SESSION_BASE;
-
-/**
- * Revoke session endpoint.
- */
-export const getRevokeSession = (sessionId: string): string =>
-  `${SESSION_BASE}/${sessionId}`;
-
-/**
- * Revoke all sessions endpoint.
- */
-export const SESSION_REVOKE_ALL = `${SESSION_BASE}/all`;
-
-// =============================================================================
 // SUPER ADMIN ENDPOINTS
 // =============================================================================
 
@@ -405,74 +382,3 @@ export const SUPER_ADMIN_MFA_STATUS = `${SUPER_ADMIN_BASE}/auth/mfa/status`;
  * Super admin MFA policy endpoint.
  */
 export const SUPER_ADMIN_MFA_POLICY = `${SUPER_ADMIN_BASE}/auth/mfa/policy`;
-
-// =============================================================================
-// WEBHOOK ENDPOINTS
-// =============================================================================
-
-/** Webhook base path */
-export const WEBHOOK_BASE = `${API_BASE}/webhooks`;
-
-/**
- * List webhooks endpoint.
- */
-export const WEBHOOK_LIST = WEBHOOK_BASE;
-
-/**
- * Create webhook endpoint.
- */
-export const WEBHOOK_CREATE = WEBHOOK_BASE;
-
-/**
- * Get webhook endpoint.
- */
-export const getWebhookById = (webhookId: string): string =>
-  `${WEBHOOK_BASE}/${webhookId}`;
-
-/**
- * Update webhook endpoint.
- */
-export const getWebhookUpdate = (webhookId: string): string =>
-  `${WEBHOOK_BASE}/${webhookId}`;
-
-/**
- * Delete webhook endpoint.
- */
-export const getWebhookDelete = (webhookId: string): string =>
-  `${WEBHOOK_BASE}/${webhookId}`;
-
-/**
- * Test webhook endpoint.
- */
-export const getWebhookTest = (webhookId: string): string =>
-  `${WEBHOOK_BASE}/${webhookId}/test`;
-
-/**
- * Get webhook deliveries endpoint.
- */
-export const getWebhookDeliveries = (webhookId: string): string =>
-  `${WEBHOOK_BASE}/${webhookId}/deliveries`;
-
-/**
- * Get webhook stats endpoint.
- */
-export const getWebhookStats = (webhookId: string): string =>
-  `${WEBHOOK_BASE}/${webhookId}/stats`;
-
-// =============================================================================
-// PUBSUB ENDPOINTS
-// =============================================================================
-
-/** PubSub base path */
-export const PUBSUB_BASE = `${API_BASE}/pubsub`;
-
-/**
- * Publish event endpoint.
- */
-export const PUBSUB_PUBLISH = `${PUBSUB_BASE}/publish`;
-
-/**
- * Get subscription info endpoint.
- */
-export const getPubSubSubscription = (topic: string): string =>
-  `${PUBSUB_BASE}/subscriptions/${topic}`;

@@ -24,7 +24,7 @@
 - **Webhooks Documentation:**
   - [Webhooks Overview](./sdk/webhooks.md) - Getting started with webhooks
   - [Event Types & Payloads](./sdk/webhooks-events.md) - All events with TypeScript types
-  - [Event Handler Reference](./sdk/webhooks-handler.md) - AuthVitalEventHandler class
+  - [Event Handler Reference](./sdk/webhooks-handler.md) - webhook verification & your own handler
   - [Framework Examples](./sdk/webhooks-frameworks.md) - Express, Next.js, NestJS
   - [Manual Verification](./sdk/webhooks-verification.md) - Low-level RSA verification
   - [Best Practices](./sdk/webhooks-advanced.md) - Error handling, idempotency, testing
@@ -116,4 +116,4 @@
 ## Support
 
 - **GitHub Issues**: Report bugs and request features
-- **SDK Package**: `npm install @authvital/sdk`
+- **SDK Packages**: `npm install @authvital/server` (server/BFF) and `npm install @authvital/browser` (browser/React). There is no single `@authvital/sdk` package.

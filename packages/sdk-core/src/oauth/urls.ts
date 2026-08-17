@@ -416,10 +416,18 @@ export function getLogoutUrl(options: LogoutUrlOptions): string {
 }
 
 /**
- * Get URL for user account settings page.
+ * Get URL for the per-user account settings page in the hosted console.
  *
  * @param authVitalHost - The AuthVital server URL
  * @returns The account settings URL
+ *
+ * @remarks
+ * Verified route: `/account/settings` is a real page in the hosted console
+ * router (`packages/frontend/src/App.tsx` -> `AccountSettingsPage`, with
+ * `/account` redirecting to it). This is the canonical per-user account page
+ * (profile, security/MFA, organizations, active sessions), distinct from the
+ * tenant-level settings page `/tenant/:tenantId/general` (see
+ * {@link getSettingsUrl} in `management-urls`).
  *
  * @example
  * ```ts

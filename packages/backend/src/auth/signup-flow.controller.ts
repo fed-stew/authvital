@@ -11,6 +11,7 @@ import {
   Res,
   Req,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ConfigService } from '@nestjs/config';
 import { Response, Request } from 'express';
 import { AccessMode } from '@prisma/client';
@@ -59,6 +60,7 @@ export class SignupFlowController {
    * Initiate signup - sends verification link to email
    */
   @Post('initiate')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } }) // signup submission (sends email)
   @HttpCode(HttpStatus.OK)
   async initiateSignup(
     @Body() body: {
@@ -81,10 +83,12 @@ export class SignupFlowController {
 
     let applicationId: string | null = null;
     if (clientId) {
-      const app = await this.prisma.application.findUnique({
+      // clientId lives on ApplicationClient; resolve back to the container.
+      const client = await this.prisma.applicationClient.findUnique({
         where: { clientId },
-        select: { id: true, name: true },
+        select: { application: { select: { id: true, name: true } } },
       });
+      const app = client?.application ?? null;
 
       if (!app) {
         throw new BadRequestException('Invalid application');
@@ -240,6 +244,7 @@ export class SignupFlowController {
    * Complete signup - creates user and organization
    */
   @Post('complete')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } }) // signup submission
   @HttpCode(HttpStatus.CREATED)
   async completeSignup(
     @Body() body: SignUpDto & { token?: string },
@@ -259,12 +264,13 @@ export class SignupFlowController {
 
     let initiateLoginUri: string | null = null;
     if (pending?.applicationId) {
-      const app = await this.prisma.application.findUnique({
-        where: { id: pending.applicationId },
+      // initiateLoginUri lives on the SPA ApplicationClient now.
+      const client = await this.prisma.applicationClient.findFirst({
+        where: { applicationId: pending.applicationId, type: 'SPA' },
         select: { initiateLoginUri: true },
       });
-      if (app?.initiateLoginUri) {
-        initiateLoginUri = app.initiateLoginUri;
+      if (client?.initiateLoginUri) {
+        initiateLoginUri = client.initiateLoginUri;
         this.logger.log(`Found initiateLoginUri: ${initiateLoginUri}`);
       }
     }
@@ -348,6 +354,7 @@ export class SignupFlowController {
    * Resend verification email
    */
   @Post('resend')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } }) // sends email
   @HttpCode(HttpStatus.OK)
   async resendVerification(@Body() body: { email: string; callbackUrl?: string; redirectUri?: string }) {
     const { email, callbackUrl } = body;

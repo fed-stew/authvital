@@ -1,300 +1,121 @@
-# Memberships Namespace
+# Memberships & Roles
 
-> Manage tenant and application memberships, roles, and user access.
+> Server-to-server (M2M) membership and role operations via `client.integration`.
 
-## Overview
+!!! info "There is no fluent `authvital.memberships.*(req, …)` namespace"
+    Earlier drafts described request-scoped methods like
+    `authvital.memberships.listForTenant(req)`,
+    `.listTenantsForUser(req)`, `.setMemberRole(req, id, slug)` with built-in
+    "pre-flight permission validation". **That API does not exist.** The real
+    surface is the M2M integration client below — it takes explicit params
+    (`{ tenantId }`, `{ userId }`, …), not an Express `req`, and it does **not**
+    perform any client-side role hierarchy checks.
 
-The memberships namespace provides methods for managing team members, listing users across tenants and applications, and managing roles.
-
-```typescript
-const memberships = authvital.memberships;
-```
-
----
-
-## Methods
-
-### listForTenant()
-
-List all members of a tenant with their roles and details.
+## Getting the client
 
 ```typescript
-const { memberships } = await authvital.memberships.listForTenant(request, {
-  status: 'ACTIVE',        // Optional: 'ACTIVE' | 'INVITED' | 'SUSPENDED'
-  includeRoles: true,      // Optional: include role details
-  appendClientId: true,    // Optional: add client_id to initiateLoginUri
-});
+import { createServerClient } from '@authvital/server';
 
-memberships.forEach(m => {
-  console.log(`${m.user.email} - ${m.membership.status}`);
+const client = createServerClient({
+  authVitalHost: process.env.AV_HOST!,
+  clientId: process.env.AV_CLIENT_ID!,
+  clientSecret: process.env.AV_CLIENT_SECRET!,
 });
 ```
 
-**Parameters:**
+## Membership methods
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `request` | `RequestLike` | Yes | Incoming HTTP request |
-| `status` | `string` | No | Filter by status |
-| `includeRoles` | `boolean` | No | Include role details |
-| `appendClientId` | `boolean` | No | Add client_id to login URIs |
+Verified against `packages/sdk-server/src/client/integration.ts`:
 
-**Return Type:**
+| Method | Params | Returns |
+|--------|--------|---------|
+| `validateMembership` | `{ userId, tenantId }` | `{ valid: boolean; membership?: Membership }` |
+| `listTenantMembers` | `{ tenantId, status?, includeRoles? }` | `{ memberships: Membership[] }` |
+| `listUserMemberships` | `{ userId?, tenantId?, clientId?, status?, includeRoles? }` | `{ memberships: Membership[] }` |
+| `listUserTenants` | `{ userId }` | tenants for the user |
 
-```typescript
-interface TenantMembershipsResponse {
-  memberships: Array<{
-    user: {
-      id: string;
-      email: string;
-      givenName?: string;
-      familyName?: string;
-      picture?: string;
-    };
-    membership: {
-      id: string;
-      status: 'ACTIVE' | 'PENDING' | 'SUSPENDED';
-      joinedAt: string;
-    };
-    roles?: Array<{
-      slug: string;
-      name: string;
-      type: 'tenant' | 'application';
-    }>;
-  }>;
-  initiateLoginUri?: string;
-}
-```
-
----
-
-### listTenantsForUser()
-
-Get all tenants the authenticated user belongs to. Perfect for building an **org picker**!
+`status` is `'ACTIVE' \| 'INVITED' \| 'SUSPENDED'`. `listUserMemberships`
+defaults `clientId` to the SDK's configured `clientId` when omitted (this is the
+"members with access to *my* app" query).
 
 ```typescript
-const { memberships } = await authvital.memberships.listTenantsForUser(request, {
+// All members of a tenant, with role details
+const { memberships } = await client.integration.listTenantMembers({
+  tenantId: 'tenant-abc',
   status: 'ACTIVE',
-  appendClientId: true, // Adds client_id to login URLs
+  includeRoles: true,
 });
 
-memberships.forEach(m => {
-  console.log(m.tenant.name, m.tenant.initiateLoginUri);
-  // "Acme Corp" "https://acme.auth.example.com/login?client_id=your-client-id"
+// Members who have access to THIS application
+const appMembers = await client.integration.listUserMemberships({
+  tenantId: 'tenant-abc',
+  includeRoles: true,
 });
+
+// Org picker: every tenant a user belongs to
+const tenants = await client.integration.listUserTenants({ userId: 'user-123' });
 ```
 
-**Return Type:**
+`Membership` shape (from the SDK types):
 
 ```typescript
-interface UserTenantsResponse {
-  memberships: Array<{
-    tenant: {
-      id: string;
-      name: string;
-      slug: string;
-      initiateLoginUri: string;
-      logoUrl?: string;
-    };
-    role: string;
-    memberSince: string;
-  }>;
+interface Membership {
+  id: string;
+  userId: string;
+  tenantId: string;
+  status: string;
+  email?: string;
+  givenName?: string;
+  familyName?: string;
+  roles?: Array<{ slug: string; name: string }>;
+  tenantRoles?: Array<{ slug: string; name: string }>;
+  createdAt?: string;
+  updatedAt?: string;
 }
 ```
 
-**Example: Org Picker API**
+## Role methods
+
+| Method | Params | Returns |
+|--------|--------|---------|
+| `getApplicationRoles` | `{ clientId, tenantId? }` | `ApplicationRolesResult` |
+| `getTenantRoles` | `{ tenantId? }` (optional) | `{ roles: TenantRole[] }` |
+| `setMemberRole` | `{ membershipId, roleId, applicationId }` | result |
+
+!!! info "`setMemberRole` sets an APPLICATION role"
+    `setMemberRole` assigns a member's role **within an application**, not the
+    tenant-level role. All three fields are required (verified against
+    `SetMemberRoleDto` + `integration.ts`):
+
+    - `membershipId` — the target membership.
+    - `roleId` — an **application Role id** (from `getApplicationRoles`).
+    - `applicationId` — the application that role belongs to (guards against
+      assigning a role from a different app).
 
 ```typescript
-app.get('/api/my-organizations', async (req, res) => {
-  const { memberships } = await authvital.memberships.listTenantsForUser(req, {
-    appendClientId: true,
-  });
-  
-  res.json({
-    organizations: memberships.map(m => ({
-      id: m.tenant.id,
-      name: m.tenant.name,
-      logo: m.tenant.logoUrl,
-      switchUrl: m.tenant.initiateLoginUri,
-      role: m.role,
-    })),
-  });
+// Roles defined for an application (pass a clientId explicitly)
+const appRoles = await client.integration.getApplicationRoles({
+  clientId: process.env.AV_CLIENT_ID!,
+});
+
+// Instance-wide tenant roles (owner/admin/member, …)
+const { roles } = await client.integration.getTenantRoles();
+
+// Assign a member an APPLICATION role (app-scoped, not tenant-scoped)
+await client.integration.setMemberRole({
+  membershipId: 'membership-123',
+  roleId: appRoles.roles.find((r) => r.slug === 'editor')!.id,
+  applicationId: appRoles.applicationId,
 });
 ```
 
----
+!!! warning "No client-side permission pre-flight"
+    `setMemberRole` does **not** enforce a role hierarchy (e.g. "only owners can
+    promote to owner") in the SDK. Authorization is enforced by the backend
+    based on the M2M credentials. Do your own guard checks before calling if you
+    need product-specific rules. Tenant-admin role management for humans lives
+    in the hosted console (`/tenant/:tenantId/members`).
 
-### listForApplication()
+## See also
 
-Get members who have access to YOUR specific app (not just any tenant member).
-
-```typescript
-const { memberships } = await authvital.memberships.listForApplication(request, {
-  status: 'ACTIVE',
-  appendClientId: true,
-});
-```
-
-**When to Use Which:**
-
-| Method | Returns | Use Case |
-|--------|---------|----------|
-| `listForTenant()` | All tenant members | Admin panel showing all team members |
-| `listForApplication()` | Only users with app access | Your app's user list |
-
----
-
-### validate()
-
-Validate that the authenticated user is a member of their tenant.
-
-```typescript
-const result = await authvital.memberships.validate(request);
-
-if (result.valid) {
-  console.log('Membership:', result.membership);
-}
-```
-
----
-
-### getTenantRoles()
-
-Get all available tenant roles (IDP-level). These are instance-wide, not tenant-specific.
-
-```typescript
-const { roles } = await authvital.memberships.getTenantRoles();
-
-console.log(roles);
-// [
-//   { slug: 'owner', name: 'Owner', permissions: ['*'] },
-//   { slug: 'admin', name: 'Admin', permissions: ['members:invite', ...] },
-//   { slug: 'member', name: 'Member', permissions: ['profile:view'] },
-// ]
-```
-
-!!! info "No request parameter needed"
-    This method uses M2M authentication, not user JWT.
-
----
-
-### getApplicationRoles()
-
-Get all roles defined for YOUR application. Uses `clientId` from SDK config automatically.
-
-```typescript
-const { roles } = await authvital.memberships.getApplicationRoles();
-
-console.log(roles);
-// [
-//   { slug: 'admin', name: 'Admin', permissions: ['*'] },
-//   { slug: 'editor', name: 'Editor', permissions: ['projects:create', 'projects:edit'] },
-//   { slug: 'viewer', name: 'Viewer', permissions: ['projects:view'] },
-// ]
-```
-
-**Tenant vs Application Roles:**
-
-| Type | Scope | Examples |
-|------|-------|----------|
-| Tenant Roles | IDP-level, all apps | `owner`, `admin`, `member` |
-| Application Roles | Your app only | `editor`, `viewer`, `super-user` |
-
----
-
-### setMemberRole()
-
-Change a member's tenant role. Includes **pre-flight permission validation**!
-
-```typescript
-const result = await authvital.memberships.setMemberRole(
-  request,
-  'membership-123',
-  'admin' // role slug
-);
-
-console.log(result.role); // { id, name, slug }
-```
-
-**Pre-flight Checks:**
-
-The SDK validates permissions before making the API call:
-
-| Rule | Description |
-|------|-------------|
-| Caller must be admin+ | Only admins and owners can change roles |
-| Can't promote above self | Admins can't make someone an owner |
-| Only owners can create owners | Owner promotion is owner-exclusive |
-
-**Error Handling:**
-
-```typescript
-try {
-  await authvital.memberships.setMemberRole(req, membershipId, 'owner');
-} catch (error) {
-  // Descriptive error messages:
-  // - "Insufficient permissions: only owners and admins can change member roles"
-  // - "Insufficient permissions: only owners can promote to owner"
-  console.error(error.message);
-}
-```
-
----
-
-## Complete Example: Team Management
-
-```typescript
-import { createAuthVital } from '@authvital/sdk/server';
-import express from 'express';
-
-const authvital = createAuthVital({ /* config */ });
-const app = express();
-
-// List team members
-app.get('/api/team', async (req, res) => {
-  const { memberships } = await authvital.memberships.listForTenant(req, {
-    includeRoles: true,
-  });
-  
-  res.json({
-    members: memberships.map(m => ({
-      id: m.membership.id,
-      userId: m.user.id,
-      email: m.user.email,
-      name: `${m.user.givenName || ''} ${m.user.familyName || ''}`.trim(),
-      avatar: m.user.picture,
-      status: m.membership.status,
-      role: m.roles?.[0]?.slug,
-      joinedAt: m.membership.joinedAt,
-    })),
-  });
-});
-
-// Get available roles for dropdown
-app.get('/api/team/roles', async (req, res) => {
-  const { roles } = await authvital.memberships.getTenantRoles();
-  res.json(roles);
-});
-
-// Update member role
-app.put('/api/team/:membershipId/role', async (req, res) => {
-  try {
-    const result = await authvital.memberships.setMemberRole(
-      req,
-      req.params.membershipId,
-      req.body.role,
-    );
-    res.json(result);
-  } catch (error) {
-    res.status(403).json({ error: error.message });
-  }
-});
-
-// List user's organizations (for org picker)
-app.get('/api/my-orgs', async (req, res) => {
-  const { memberships } = await authvital.memberships.listTenantsForUser(req, {
-    appendClientId: true,
-  });
-  res.json(memberships);
-});
-```
+- [Permissions](./permissions.md) · [Invitations](./invitations.md) · [Integration API (overview)](./overview.md)

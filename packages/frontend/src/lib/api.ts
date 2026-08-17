@@ -545,4 +545,238 @@ export const tenantApi = {
     const { data } = await api.delete(`/tenants/${tenantId}/sso/config/${provider}`);
     return data;
   },
+
+  // Domains (tenant-facing: /tenants/:tenantId/domains, guarded by domains:* perms)
+  getDomains: async (tenantId: string) => {
+    const { data } = await api.get(`/tenants/${tenantId}/domains`);
+    return data;
+  },
+
+  registerDomain: async (tenantId: string, domainName: string) => {
+    const { data } = await api.post(`/tenants/${tenantId}/domains`, { domainName });
+    return data;
+  },
+
+  verifyDomain: async (tenantId: string, domainId: string) => {
+    const { data } = await api.post(`/tenants/${tenantId}/domains/${domainId}/verify`);
+    return data;
+  },
+
+  deleteDomain: async (tenantId: string, domainId: string) => {
+    const { data } = await api.delete(`/tenants/${tenantId}/domains/${domainId}`);
+    return data;
+  },
+
+  // Licenses (tenant-facing: /tenants/:tenantId/licenses)
+  // view: overview/subscriptions/members/available-types
+  // manage: grant/revoke/change   provision: subscriptions CRUD
+  getLicenseOverview: async (tenantId: string) => {
+    const { data } = await api.get(`/tenants/${tenantId}/licenses/overview`);
+    return data;
+  },
+
+  getSubscriptions: async (tenantId: string) => {
+    const { data } = await api.get(`/tenants/${tenantId}/licenses/subscriptions`);
+    return data;
+  },
+
+  getAvailableLicenseTypes: async (tenantId: string) => {
+    const { data } = await api.get(`/tenants/${tenantId}/licenses/available-types`);
+    return data;
+  },
+
+  getMembersWithLicenses: async (tenantId: string) => {
+    const { data } = await api.get(`/tenants/${tenantId}/licenses/members`);
+    return data;
+  },
+
+  grantLicense: async (
+    tenantId: string,
+    body: { userId: string; applicationId: string; licenseTypeId: string },
+  ) => {
+    const { data } = await api.post(`/tenants/${tenantId}/licenses/grant`, body);
+    return data;
+  },
+
+  revokeLicense: async (
+    tenantId: string,
+    body: { userId: string; applicationId: string },
+  ) => {
+    const { data } = await api.post(`/tenants/${tenantId}/licenses/revoke`, body);
+    return data;
+  },
+
+  changeLicense: async (
+    tenantId: string,
+    body: { userId: string; applicationId: string; newLicenseTypeId: string },
+  ) => {
+    const { data } = await api.post(`/tenants/${tenantId}/licenses/change`, body);
+    return data;
+  },
+
+  provisionSubscription: async (
+    tenantId: string,
+    body: {
+      applicationId: string;
+      licenseTypeId: string;
+      quantityPurchased: number;
+      currentPeriodEnd: string;
+    },
+  ) => {
+    const { data } = await api.post(`/tenants/${tenantId}/licenses/subscriptions`, body);
+    return data;
+  },
+
+  updateSubscriptionQuantity: async (
+    tenantId: string,
+    subscriptionId: string,
+    quantityPurchased: number,
+  ) => {
+    const { data } = await api.patch(
+      `/tenants/${tenantId}/licenses/subscriptions/${subscriptionId}/quantity`,
+      { quantityPurchased },
+    );
+    return data;
+  },
+
+  cancelSubscription: async (tenantId: string, subscriptionId: string) => {
+    const { data } = await api.post(
+      `/tenants/${tenantId}/licenses/subscriptions/${subscriptionId}/cancel`,
+    );
+    return data;
+  },
+
+  // General settings (tenant:view / tenant:manage)
+  getTenant: async (tenantId: string) => {
+    const { data } = await api.get(`/tenants/${tenantId}`);
+    return data;
+  },
+
+  updateTenant: async (
+    tenantId: string,
+    update: { name?: string; slug?: string },
+  ) => {
+    const { data } = await api.patch(`/tenants/${tenantId}`, update);
+    return data;
+  },
+
+  getMfaPolicy: async (tenantId: string) => {
+    const { data } = await api.get(`/tenants/${tenantId}/mfa-policy`);
+    return data;
+  },
+
+  updateMfaPolicy: async (
+    tenantId: string,
+    update: {
+      policy: 'DISABLED' | 'OPTIONAL' | 'ENCOURAGED' | 'REQUIRED';
+      gracePeriodDays?: number;
+    },
+  ) => {
+    const { data } = await api.patch(`/tenants/${tenantId}/mfa-policy`, update);
+    return data;
+  },
+
+  getMfaStats: async (tenantId: string) => {
+    const { data } = await api.get(`/tenants/${tenantId}/mfa-stats`);
+    return data as {
+      totalMembers: number;
+      mfaEnabled: number;
+      mfaDisabled: number;
+      complianceRate: number;
+      unenrolledActiveMemberCount: number;
+    };
+  },
+
+  // ===========================================================================
+  // Phase 4b: Audit log (audit:view / audit:export)
+  // ===========================================================================
+  getAudit: async (
+    tenantId: string,
+    params?: {
+      action?: string;
+      actor?: string;
+      from?: string;
+      to?: string;
+      page?: number;
+      pageSize?: number;
+    },
+  ) => {
+    const { data } = await api.get(`/tenants/${tenantId}/audit`, { params });
+    return data;
+  },
+
+  /**
+   * Downloads the (filtered) audit log as a CSV blob. Uses the same auth as the
+   * rest of the client (Bearer memory token via the request interceptor) so we
+   * can't just point an <a href> at it - fetch the blob then trigger a download.
+   */
+  exportAudit: async (
+    tenantId: string,
+    params?: { action?: string; actor?: string; from?: string; to?: string },
+  ): Promise<Blob> => {
+    const { data } = await api.get(`/tenants/${tenantId}/audit/export`, {
+      params,
+      responseType: 'blob',
+    });
+    return data as Blob;
+  },
+
+  // ===========================================================================
+  // Phase 4b: License usage trends (billing:view)
+  // ===========================================================================
+  getUsageTrends: async (tenantId: string, days = 30) => {
+    const { data } = await api.get(
+      `/tenants/${tenantId}/licenses/usage-trends`,
+      { params: { days } },
+    );
+    return data;
+  },
+
+  // ===========================================================================
+  // Phase 4b: Cross-app access matrix (app-access:view)
+  // ===========================================================================
+  getAppAccessMatrix: async (tenantId: string) => {
+    const { data } = await api.get(`/tenants/${tenantId}/app-access-matrix`);
+    return data;
+  },
+};
+
+// =============================================================================
+// Account API (per-user profile + active sessions)
+// =============================================================================
+
+export const accountApi = {
+  /** Current user's profile (email, name, MFA status, memberships). */
+  getProfile: async () => {
+    const { data } = await api.get('/auth/profile');
+    return data;
+  },
+
+  /**
+   * Update the current user's own editable profile fields (name/display only).
+   * Backed by PATCH /auth/profile (JwtAuthGuard, own-user scoped).
+   */
+  updateProfile: async (body: {
+    givenName?: string;
+    familyName?: string;
+    displayName?: string;
+  }) => {
+    const { data } = await api.patch('/auth/profile', body);
+    return data;
+  },
+
+  /**
+   * Active sessions for the current user via the console-facing, JwtAuthGuard
+   * endpoint (GET /auth/sessions). Scoped to the authenticated user only.
+   */
+  getSessions: async () => {
+    const { data } = await api.get('/auth/sessions');
+    return data;
+  },
+
+  /** Revoke one of the current user's own sessions (DELETE /auth/sessions/:id). */
+  revokeSession: async (sessionId: string) => {
+    const { data } = await api.delete(`/auth/sessions/${sessionId}`);
+    return data;
+  },
 };

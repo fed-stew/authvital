@@ -10,6 +10,7 @@ import {
   HttpStatus,
   BadRequestException,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { MfaService } from './mfa/mfa.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -57,6 +58,7 @@ export class AuthMfaController {
    * Complete MFA setup by verifying the first TOTP code
    */
   @Post('mfa/enable')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } }) // verifies a TOTP code
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async enableMfa(
@@ -76,6 +78,7 @@ export class AuthMfaController {
    * Disable MFA for the user (requires valid TOTP code)
    */
   @Delete('mfa/disable')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } }) // verifies a TOTP code
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async disableMfa(
@@ -93,6 +96,7 @@ export class AuthMfaController {
    * Regenerate backup codes (requires valid TOTP code)
    */
   @Post('mfa/backup-codes')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } }) // verifies a TOTP code
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async regenerateBackupCodes(

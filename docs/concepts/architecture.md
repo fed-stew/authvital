@@ -17,9 +17,9 @@ AuthVital is a **B2B Identity Provider** built as a multi-tenant OAuth 2.0/OIDC 
 ```mermaid
 graph TB
     subgraph "Client Applications"
-        SPA[React SPA<br/>@authvital/sdk/client]
+        SPA[React SPA<br/>@authvital/browser]
         Mobile[Mobile App]
-        Server[Backend Server<br/>@authvital/sdk/server]
+        Server[Backend Server<br/>@authvital/server]
     end
 
     subgraph "AuthVital Platform"
@@ -248,12 +248,11 @@ authvital/
 │   ├── prisma/
 │   │   ├── schema.prisma      # Data model (53KB!)
 │   │   └── migrations/        # Database migrations
-│   └── sdk/                   # @authvital/sdk package
-│       └── src/
-│           ├── client/        # React SDK
-│           ├── server/        # Node.js SDK
-│           ├── sync/          # User sync utilities
-│           └── webhooks/      # Webhook handlers
+│   ├── sdk-browser/           # @authvital/browser (SPA/React SDK)
+│   ├── sdk-server/            # @authvital/server (Node.js SDK)
+│   ├── sdk-core/              # @authvital/core (crypto, JWT, types)
+│   ├── shared/                # @authvital/shared (shared types, sync events)
+│   └── contracts/             # @authvital/contracts (ts-rest contracts)
 ├── frontend/                  # React Admin Panel
 │   └── src/
 │       ├── pages/
@@ -295,6 +294,13 @@ graph TD
     Verify -->|No| Retry[Retry or Backup Code]
     Retry --> TOTP
 ```
+
+Tenant MFA policy (`mfaPolicy`: `DISABLED` | `OPTIONAL` | `ENCOURAGED` |
+`REQUIRED`) is enforced primarily at **token mint time**: the authorize flow
+interrupts un-enrolled users into the hosted enrollment page, grace-period
+mints stamp `amr` / `mfa_grace_expires_at` claims, and refresh is rejected
+with `interaction_required` once the grace window closes. See
+[MFA — Enforcement at token mint](../security/mfa.md#enforcement-at-token-mint).
 
 ## Scalability Considerations
 

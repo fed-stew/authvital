@@ -3,60 +3,67 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import * as sgMail from '@sendgrid/mail';
 import {
-  resolveConfigPath,
+  createSeedContext,
   loadConfig,
+  resolveConfigPath,
+  runSeedPipeline,
   SeedConfig,
-  seedInstanceMeta,
-  seedSystemTenantRoles,
-  seedApplications,
-  seedTenants,
-  seedUsers,
-} from '../prisma/seed-from-yaml';
+} from '../prisma/seed';
 
 /**
  * Bootstrap script - runs on first startup to create initial super admin
  * and seed the database from YAML config if available.
  * 
  * Behavior:
- * - If super admin already exists: skip entirely (idempotent)
- * - If YAML config has super_admin:
- *   - Production: Create with YAML email + random password, email it
- *   - Development: Create with YAML email + YAML password, log it
- *   - Then seed rest from YAML (apps, tenants, users, etc.)
- * - If no YAML or no super_admin:
- *   - Use SUPER_ADMIN_EMAIL env var
- *   - Create with random password
- *   - Email or log it
- * - Always ensure system tenant roles exist
+ * - Super admin CREATION is idempotent: created only if one doesn't exist yet.
+ *   - If YAML config has super_admin:
+ *     - Production: Create with YAML email + random password, email it
+ *     - Development: Create with YAML email + YAML password, log it
+ *     - Opt-in (SEED_SUPER_ADMIN_USE_YAML_PASSWORD=true, set ONLY in the local
+ *       examples compose): even under NODE_ENV=production, honor the documented
+ *       YAML password + log it. Real production never sets this flag.
+ *   - If no YAML or no super_admin: use SUPER_ADMIN_EMAIL env + random password
+ * - The YAML seed pipeline (apps, tenants, users, roles, subscriptions AND
+ *   per-application webhook config) ALWAYS runs afterwards. It is a series of
+ *   idempotent upserts, so every `migrate` run converges the DB to the YAML
+ *   config — no manual /admin steps and no need to wipe ./data to pick up
+ *   seed changes (e.g. a newly-added webhook_url).
+ * - Always ensure system tenant roles exist.
  */
 export async function bootstrap(): Promise<void> {
   const prisma = new PrismaClient();
 
   try {
-    // 1. Check if super admin already exists (idempotency)
-    const existingAdmin = await prisma.superAdmin.findFirst();
-    if (existingAdmin) {
-      console.log('Super admin already exists, skipping bootstrap');
-      return;
-    }
-
-    console.log('Running bootstrap (no super admin found)...');
-
-    // 2. Try to load YAML config
+    // 1. Load YAML config once (used for both super admin + the seed pipeline).
     const yamlConfig = await loadBootstrapConfig();
 
-    if (yamlConfig?.super_admin) {
+    // 2. Create the super admin ONLY if one doesn't exist yet. Unlike before,
+    //    an existing admin no longer short-circuits the whole bootstrap — we
+    //    still run the idempotent seed pipeline below so seed edits apply on
+    //    re-run without wiping the database.
+    const existingAdmin = await prisma.superAdmin.findFirst();
+    if (existingAdmin) {
+      console.log('Super admin already exists, skipping super admin creation');
+    } else if (yamlConfig?.super_admin) {
       // YAML-driven bootstrap
       console.log('YAML config found with super_admin, using YAML-driven bootstrap...');
-      await bootstrapFromYaml(prisma, yamlConfig);
+      await createSuperAdminFromYaml(prisma, yamlConfig);
     } else {
       // Legacy env-based bootstrap
       console.log('No YAML super_admin config found, using env-based bootstrap...');
       await bootstrapFromEnv(prisma);
     }
 
-    // 3. Always ensure system tenant roles
-    await ensureSystemTenantRoles(prisma);
+    // 3. Seed the rest via the SAME ordered pipeline the standalone seed uses.
+    //    The super admin is already handled above (superAdmin: 'skip'), and the
+    //    pipeline runs system tenant roles BEFORE users, so membership tenant-
+    //    role assignments always resolve. Idempotent + a safe no-op when there
+    //    is no YAML config (only system roles get ensured).
+    const ctx = createSeedContext(prisma, yamlConfig ?? {}, {
+      superAdmin: 'skip',
+      includeSubscriptions: true,
+    });
+    await runSeedPipeline(ctx);
 
     console.log('Bootstrap completed successfully');
   } finally {
@@ -81,25 +88,33 @@ async function loadBootstrapConfig(): Promise<SeedConfig | null> {
 }
 
 /**
- * Bootstrap from YAML config
+ * Create the super admin from YAML config. The rest of the YAML data is seeded
+ * afterwards by the shared pipeline in bootstrap().
  */
-async function bootstrapFromYaml(prisma: PrismaClient, yamlConfig: SeedConfig): Promise<void> {
+async function createSuperAdminFromYaml(
+  prisma: PrismaClient,
+  yamlConfig: SeedConfig,
+): Promise<void> {
   const isProduction = process.env.NODE_ENV === 'production';
+  // Local examples run NODE_ENV=production for prod-like cookies/TLS but still
+  // need the documented fixed password. This opt-in (set ONLY in the examples
+  // compose) honors the YAML password; real production never sets it and keeps
+  // the random-password + email behavior.
+  const useConfigPassword =
+    !isProduction || process.env.SEED_SUPER_ADMIN_USE_YAML_PASSWORD === 'true';
   const superAdminConfig = yamlConfig.super_admin!;
 
   // Normalize email
   const email = superAdminConfig.email.toLowerCase();
 
-  // Determine password based on environment
+  // Determine password: YAML password when opted-in (dev or examples), else random.
   let temporaryPassword: string;
-  if (isProduction) {
-    // Always random password in production
-    temporaryPassword = crypto.randomBytes(16).toString('base64url');
-    console.log(`Creating super admin from YAML (production mode): ${email}`);
-  } else {
-    // Use YAML password in development
+  if (useConfigPassword) {
     temporaryPassword = superAdminConfig.password;
-    console.log(`Creating super admin from YAML (dev mode): ${email}`);
+    console.log(`Creating super admin from YAML (config password): ${email}`);
+  } else {
+    temporaryPassword = crypto.randomBytes(16).toString('base64url');
+    console.log(`Creating super admin from YAML (production, random password): ${email}`);
   }
 
   // Hash and create super admin
@@ -110,17 +125,15 @@ async function bootstrapFromYaml(prisma: PrismaClient, yamlConfig: SeedConfig): 
       passwordHash,
       displayName: superAdminConfig.display_name || 'Super Admin',
       isActive: true,
-      mustChangePassword: true,
+      mustChangePassword: !useConfigPassword,
     },
   });
 
   console.log(`Super admin created: ${admin.email}`);
 
   // Handle password delivery
-  if (isProduction) {
-    await sendInitialPasswordEmail(email, temporaryPassword);
-  } else {
-    // Log to console in development
+  if (useConfigPassword) {
+    // Log the fixed credentials to console (dev + local examples).
     console.log('\n' + '='.repeat(60));
     console.log('SUPER ADMIN CREDENTIALS (Development Mode)');
     console.log('='.repeat(60));
@@ -128,10 +141,9 @@ async function bootstrapFromYaml(prisma: PrismaClient, yamlConfig: SeedConfig): 
     console.log(`Password: ${temporaryPassword}`);
     console.log(`Login:    /admin/login`);
     console.log('='.repeat(60) + '\n');
+  } else {
+    await sendInitialPasswordEmail(email, temporaryPassword);
   }
-
-  // Seed remaining data from YAML (skip super admin since we just created it)
-  await seedFromYamlConfig(prisma, yamlConfig);
 }
 
 /**
@@ -168,43 +180,6 @@ async function bootstrapFromEnv(prisma: PrismaClient): Promise<void> {
 
   // Send the temporary password via email
   await sendInitialPasswordEmail(email, temporaryPassword);
-}
-
-/**
- * Seed remaining data from YAML config (everything except super admin)
- */
-async function seedFromYamlConfig(prisma: PrismaClient, config: SeedConfig): Promise<void> {
-  console.log('Seeding additional data from YAML config...');
-
-  // 1. Instance configuration
-  if (config.instance) {
-    await seedInstanceMeta(prisma, config.instance);
-  }
-
-  // 2. Applications + roles
-  const appIdMap = config.applications?.length
-    ? await seedApplications(prisma, config.applications)
-    : new Map<string, { id: string; clientSecret?: string }>();
-
-  // 3. Tenants
-  const tenantIdMap = config.tenants?.length
-    ? await seedTenants(prisma, config.tenants)
-    : new Map<string, string>();
-
-  // 4. Users + memberships + role assignments
-  if (config.users?.length) {
-    await seedUsers(prisma, config.users, tenantIdMap, appIdMap);
-  }
-
-  console.log('YAML seeding completed');
-}
-
-/**
- * Ensure system tenant roles exist (idempotent)
- */
-async function ensureSystemTenantRoles(prisma: PrismaClient): Promise<void> {
-  console.log('Ensuring system tenant roles exist...');
-  await seedSystemTenantRoles(prisma);
 }
 
 /**

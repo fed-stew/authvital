@@ -2,6 +2,19 @@
 
 > Understanding AuthVital's multi-tenant architecture for B2B applications.
 
+!!! warning "Code samples: the `authvital.tenants.*` / `authvital.memberships.*` API is not real"
+    The architecture described here is accurate, but the SDK snippets use a fluent
+    API that **does not exist**. Real equivalents (M2M):
+
+    - `authvital.memberships.listTenantsForUser` -> `client.integration.listUserTenants({ userId })`
+    - `authvital.memberships.listForTenant` -> `client.integration.listTenantMembers({ tenantId })`
+    - `authvital.memberships.getTenantRoles` -> `client.integration.getTenantRoles({ tenantId })`
+    - `authvital.memberships.setMemberRole` -> `client.integration.setMemberRole({ membershipId, roleId, applicationId })` (sets an **application** role; `roleId` = an app Role id)
+    - `authvital.invitations.send` -> `client.integration.sendInvitation({ tenantId, email, roleId, clientId? })` (`roleId` is a **required** TenantRole id)
+    - **Tenant create/update and SSO config (`authvital.tenants.create/update/configureSso`) are NOT in the SDK** — use the REST endpoints under `/api/tenants/*` (see [Tenant API](../api/tenant-api.md)).
+
+    `client` = `createServerClient({ authVitalHost, clientId, clientSecret })`.
+
 ## Overview
 
 AuthVital is built from the ground up for **multi-tenant B2B applications**. Each tenant (organization, workspace, team) is completely isolated with its own:
@@ -24,7 +37,7 @@ interface Tenant {
   name: string;         // "Acme Corporation"
   slug: string;         // "acme-corp" (URL-safe, unique)
   settings: object;     // Custom tenant settings
-  mfaPolicy: MfaPolicy; // OPTIONAL, REQUIRED, or ENFORCED_AFTER_GRACE
+  mfaPolicy: MfaPolicy; // DISABLED, OPTIONAL, ENCOURAGED, or REQUIRED
   initiateLoginUri?: string; // Custom login URL
 }
 ```
@@ -209,8 +222,12 @@ sequenceDiagram
 A single user can belong to multiple tenants:
 
 ```typescript
-// User's tenants
-const tenants = await authvital.memberships.listTenantsForUser(req);
+import { createServerClient } from '@authvital/server';
+
+const client = createServerClient({ authVitalHost, clientId, clientSecret });
+
+// User's tenants (M2M integration client)
+const tenants = await client.integration.listUserTenants({ userId });
 // [
 //   { id: "t1", name: "Acme Corp", slug: "acme", role: "owner" },
 //   { id: "t2", name: "Beta Inc", slug: "beta", role: "member" },
@@ -260,14 +277,17 @@ Locked to one tenant:
 ### Requesting a Scoped Token
 
 ```typescript
-// Include tenant_id in authorization request
-const authorizeUrl = buildAuthorizeUrl({
+import { OAuthFlow } from '@authvital/server';
+
+const oauth = new OAuthFlow({
   authVitalHost: 'https://auth.yourapp.com',
   clientId: 'your-client-id',
   redirectUri: 'https://yourapp.com/callback',
-  tenantId: 'tenant-uuid-here', // Scope to this tenant
-  // ...
 });
+
+// Start the PKCE flow. The user selects/uses a tenant during login and the
+// issued access token is scoped to that tenant (tenant_id claim).
+const { authorizeUrl, state, codeVerifier } = await oauth.startFlow();
 ```
 
 ## Domain Verification
@@ -308,92 +328,86 @@ graph LR
 
 | Policy | Behavior |
 |--------|----------|
+| `DISABLED` | MFA is disabled for the tenant |
 | `OPTIONAL` | MFA available but not required |
+| `ENCOURAGED` | Members are prompted to enable MFA but not required |
 | `REQUIRED` | All members must enable MFA |
-| `ENFORCED_AFTER_GRACE` | Required after grace period (default: 7 days) |
 
-```typescript
-// Update tenant MFA policy
-await authvital.tenants.update('tenant-id', {
-  mfaPolicy: 'REQUIRED',
-});
-```
+"Enforced after a grace period" is not a separate policy value — it is
+`REQUIRED` combined with `mfaGracePeriodDays > 0` (default: 7 days). Members
+who joined before the policy change get the full window from the moment the
+policy was switched; a grace period of `0` enforces immediately.
+
+!!! note "Tenant settings are managed via Admin Console / REST"
+    Updating a tenant's MFA policy is **not** exposed on the Server SDK. Use
+    the AuthVital Admin Console, or the REST endpoints under `/api/tenants/*`
+    (see [Tenant API](../api/tenant-api.md)).
 
 ### SSO Configuration
 
 Tenants can configure their own SSO:
 
-```typescript
-await authvital.tenants.configureSso('tenant-id', {
-  provider: 'GOOGLE',
-  enabled: true,
-  clientId: 'tenant-specific-client-id',
-  clientSecret: 'tenant-specific-secret',
-  enforced: true, // Disable password login
-  allowedDomains: ['acme.com'],
-});
-```
+!!! note "SSO configuration is managed via Admin Console / REST"
+    Per-tenant SSO configuration is **not** exposed on the Server SDK. Configure
+    it in the AuthVital Admin Console, or via the REST endpoints under
+    `/api/tenants/*` (see [SSO](../security/sso.md)).
 
 ## API Examples
 
 ### Create a Tenant
 
-```typescript
-// Requires incoming HTTP request for JWT validation
-const tenant = await authvital.tenants.create(req, {
-  name: 'Acme Corporation',
-  slug: 'acme-corp', // Auto-generated if not provided
-});
-```
+!!! note "Tenant creation is managed via Admin Console / REST"
+    Creating a tenant is **not** exposed on the Server SDK. Use the AuthVital
+    Admin Console, or the REST endpoints under `/api/tenants/*`
+    (see [Tenant API](../api/tenant-api.md)).
 
 ### Invite a Member
 
 ```typescript
-// First, get available tenant roles
-const { roles } = await authvital.memberships.getTenantRoles();
+// First, get available tenant roles (M2M integration client)
+const { roles } = await client.integration.getTenantRoles({ tenantId });
 const adminRole = roles.find(r => r.slug === 'admin');
 
-// Send invitation (tenantId extracted from JWT automatically)
-await authvital.invitations.send(req, {
+// Send invitation
+await client.integration.sendInvitation({
+  tenantId,
   email: 'newuser@acme.com',
-  roleId: adminRole?.id, // Use role ID, not slug
-  givenName: 'John',     // Optional
-  familyName: 'Doe',     // Optional
+  roleId: adminRole?.slug, // role identifier for the invited member
+  givenName: 'John',       // Optional
+  familyName: 'Doe',       // Optional
 });
 ```
 
 ### List Tenant Members
 
 ```typescript
-// In a route handler where req is available:
-const members = await authvital.memberships.listForTenant(req);
-// Uses tenant from JWT automatically!
+// List members of a tenant (M2M integration client)
+const { memberships } = await client.integration.listTenantMembers({
+  tenantId,
+});
 
 // With optional filters:
-const members = await authvital.memberships.listForTenant(req, {
+const { memberships: activeMembers } = await client.integration.listTenantMembers({
+  tenantId,
   status: 'ACTIVE',        // Filter by status
   includeRoles: true,      // Include role details
-  appendClientId: true,    // Add client_id to login URIs
 });
-// [
-//   {
-//     user: { id, email, givenName, familyName, pictureUrl },
-//     membership: { id, status, joinedAt },
-//     tenantRoles: [{ id, name, slug }],
-//     applicationRoles: [{ id, name, slug, applicationId }],
-//   }
+// memberships: [
+//   { id, userId, tenantId, status, email, givenName, familyName,
+//     roles: [{ slug, name }], tenantRoles: [{ slug, name }] }
 // ]
 ```
 
 ### Update Member Role
 
 ```typescript
-// Update a member's tenant role (requires admin or owner permissions)
-await authvital.memberships.setMemberRole(
-  request,          // HTTP request for JWT validation
-  'membership-id',  // Membership ID to update
-  'admin'           // New role slug
-);
+// Assign a member an APPLICATION role (M2M integration client).
+// roleId = an app Role id (from getApplicationRoles); applicationId = its app.
+await client.integration.setMemberRole({
+  membershipId: 'membership-id',
+  roleId: 'app-role-id',
+  applicationId: 'application-id',
+});
 ```
 
 !!! info "Role Hierarchy"
