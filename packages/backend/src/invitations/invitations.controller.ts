@@ -6,6 +6,7 @@ import {
   Patch,
   Body,
   Param,
+  Req,
   Res,
   Logger,
   UseGuards,
@@ -24,7 +25,7 @@ import { InvitationsService } from "./invitations.service";
 import { AuthService } from "../auth/auth.service";
 import { getSessionCookieOptions } from "../common/utils/cookie.utils";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
-import { TenantIdentifierGuard } from "../tenants/guards";
+import { TenantIdentifierGuard, TenantAccessGuard } from "../tenants/guards";
 import { PermissionGuard } from "../authorization/guards/permission.guard";
 import { RequirePermission } from "../authorization/decorators/require-permission.decorator";
 import { TENANT_PERMISSIONS } from "../authorization/constants";
@@ -37,6 +38,9 @@ const getIdpCookieOptions = getSessionCookieOptions;
  * Tenant-admin auth stack for invitation MANAGEMENT routes, declared once (DRY):
  *   JwtAuthGuard         -> authenticate the caller (Authorization: Bearer)
  *   TenantIdentifierGuard -> normalise any tenant slug in params/body to its id
+ *   TenantAccessGuard    -> live DB check that the caller is a member of the
+ *                           targeted tenant (params/body tenantId); attaches
+ *                           request.tenant + request.tenantPermissions
  *   PermissionGuard      -> enforce @RequirePermission against the caller's
  *                           tenant permissions AND that any tenantId referenced
  *                           in the request matches the caller's JWT tenant.
@@ -46,7 +50,12 @@ const getIdpCookieOptions = getSessionCookieOptions;
  */
 function RequireInvitationPermission(permission: string) {
   return applyDecorators(
-    UseGuards(JwtAuthGuard, TenantIdentifierGuard, PermissionGuard),
+    UseGuards(
+      JwtAuthGuard,
+      TenantIdentifierGuard,
+      TenantAccessGuard,
+      PermissionGuard,
+    ),
     RequirePermission(permission),
   );
 }
@@ -117,6 +126,11 @@ class UpdateInvitationDto {
   @IsOptional()
   @IsString()
   roleId?: string;
+
+  // Tenant the invitation belongs to; verified against the caller's live
+  // membership by TenantAccessGuard before this DTO is ever validated.
+  @IsString()
+  tenantId!: string;
 }
 
 // =============================================================================
@@ -152,19 +166,21 @@ export class InvitationsController {
   /**
    * Create an invitation (tenant-admin only).
    *
-   * Tenant is pinned from the authenticated JWT context, never blindly trusted
-   * from the body. PermissionGuard already rejects a body `tenantId` that does
-   * not match the caller's JWT tenant; overriding it here is defence-in-depth.
+   * Tenant is pinned from the guard-verified request, never blindly trusted
+   * from the body: TenantAccessGuard has already confirmed the caller's ACTIVE
+   * membership in `request.tenant` (resolved from the body tenantId) before
+   * this handler runs.
    */
   @Post()
   @RequireInvitationPermission(TENANT_PERMISSIONS.MEMBERS_INVITE)
   async createInvitation(
     @Body() dto: CreateInvitationDto,
-    @CurrentUser() user: { sub: string; tenant_id?: string },
+    @CurrentUser() user: { sub: string },
+    @Req() req: any,
   ) {
     return this.invitationsService.createInvitation({
       ...dto,
-      tenantId: user.tenant_id ?? dto.tenantId,
+      tenantId: req.tenant.id,
       invitedById: user.sub,
     });
   }
@@ -231,8 +247,8 @@ export class InvitationsController {
 
   /**
    * List pending invitations for a tenant (tenant-admin only).
-   * The :tenantId is normalised to an id and validated against the caller's
-   * JWT tenant by PermissionGuard.
+   * The :tenantId is normalised to an id and the caller's live membership in
+   * it is verified by TenantAccessGuard.
    */
   @Get("tenant/:tenantId")
   @RequireInvitationPermission(TENANT_PERMISSIONS.MEMBERS_VIEW)
@@ -242,15 +258,13 @@ export class InvitationsController {
 
   /**
    * Resend invitation email (tenant-admin only).
-   * Scoped to the caller's tenant to prevent cross-tenant invitation IDOR.
+   * The body carries `tenantId`; TenantAccessGuard verifies the caller's
+   * membership in it, scoping the lookup to prevent cross-tenant IDOR.
    */
   @Post(":id/resend")
   @RequireInvitationPermission(TENANT_PERMISSIONS.MEMBERS_INVITE)
-  async resendInvitation(
-    @Param("id") id: string,
-    @CurrentUser("tenant_id") tenantId: string,
-  ) {
-    return this.invitationsService.resendInvitationEmail(id, tenantId);
+  async resendInvitation(@Param("id") id: string, @Req() req: any) {
+    return this.invitationsService.resendInvitationEmail(id, req.tenant.id);
   }
 
   /**
@@ -263,21 +277,23 @@ export class InvitationsController {
   async updateInvitation(
     @Param("id") id: string,
     @Body() dto: UpdateInvitationDto,
-    @CurrentUser("tenant_id") tenantId: string,
+    @Req() req: any,
   ) {
-    return this.invitationsService.updateInvitation(id, dto, tenantId);
+    return this.invitationsService.updateInvitation(
+      id,
+      { roleId: dto.roleId },
+      req.tenant.id,
+    );
   }
 
   /**
    * Revoke an invitation (tenant-admin only).
-   * Scoped to the caller's tenant to prevent cross-tenant invitation IDOR.
+   * The body carries `tenantId`; TenantAccessGuard verifies the caller's
+   * membership in it, scoping the lookup to prevent cross-tenant IDOR.
    */
   @Delete(":id")
   @RequireInvitationPermission(TENANT_PERMISSIONS.MEMBERS_INVITE)
-  async revokeInvitation(
-    @Param("id") id: string,
-    @CurrentUser("tenant_id") tenantId: string,
-  ) {
-    return this.invitationsService.revokeInvitation(id, tenantId);
+  async revokeInvitation(@Param("id") id: string, @Req() req: any) {
+    return this.invitationsService.revokeInvitation(id, req.tenant.id);
   }
 }

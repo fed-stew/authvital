@@ -106,7 +106,7 @@ export function MemberDetailModal({
       
       if (member.status === 'INVITED' && member.invitation?.id) {
         // Revoke invitation (this also deletes the INVITED membership)
-        await tenantApi.revokeInvitation(member.invitation.id);
+        await tenantApi.revokeInvitation(tenantId, member.invitation.id);
         toast({
           variant: 'success',
           title: 'Invitation Revoked',
@@ -140,7 +140,7 @@ export function MemberDetailModal({
     
     try {
       setIsResending(true);
-      await tenantApi.resendInvitation(member.invitation.id);
+      await tenantApi.resendInvitation(tenantId, member.invitation.id);
       toast({
         variant: 'success',
         title: 'Invitation Resent',
@@ -165,7 +165,7 @@ export function MemberDetailModal({
       
       if (member.status === 'INVITED' && member.invitation?.id) {
         // Update invitation role (which updates the membership's role)
-        await tenantApi.updateInvitationRole(member.invitation.id, newRoleId);
+        await tenantApi.updateInvitationRole(tenantId, member.invitation.id, newRoleId);
       } else {
         // Update member's tenant role
         const newRole = availableRoles.find(r => r.id === newRoleId);

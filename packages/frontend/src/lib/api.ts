@@ -504,18 +504,31 @@ export const tenantApi = {
     return data;
   },
 
-  revokeInvitation: async (invitationId: string) => {
-    const { data } = await api.delete(`/invitations/${invitationId}`);
+  // Invitation admin routes carry the tenantId in the body so the backend's
+  // TenantAccessGuard can verify the caller's membership in that tenant.
+  revokeInvitation: async (tenantId: string, invitationId: string) => {
+    const { data } = await api.delete(`/invitations/${invitationId}`, {
+      data: { tenantId },
+    });
     return data;
   },
 
-  resendInvitation: async (invitationId: string) => {
-    const { data } = await api.post(`/invitations/${invitationId}/resend`);
+  resendInvitation: async (tenantId: string, invitationId: string) => {
+    const { data } = await api.post(`/invitations/${invitationId}/resend`, {
+      tenantId,
+    });
     return data;
   },
 
-  updateInvitationRole: async (invitationId: string, roleId: string) => {
-    const { data } = await api.patch(`/invitations/${invitationId}`, { roleId });
+  updateInvitationRole: async (
+    tenantId: string,
+    invitationId: string,
+    roleId: string,
+  ) => {
+    const { data } = await api.patch(`/invitations/${invitationId}`, {
+      roleId,
+      tenantId,
+    });
     return data;
   },
 

@@ -27,7 +27,10 @@ export class TenantAccessGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
-    const tenantId = request.params.tenantId;
+    // Params take precedence; the body fallback exists for management routes
+    // like POST /invitations where the tenant target travels in the payload.
+    // A body-supplied tenantId is only trusted AFTER the membership check below.
+    const tenantId = request.params?.tenantId ?? request.body?.tenantId;
 
     if (!user?.sub) {
       throw new ForbiddenException('Authentication required');

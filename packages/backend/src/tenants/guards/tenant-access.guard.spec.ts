@@ -29,8 +29,8 @@ describe("TenantAccessGuard", () => {
     );
   });
 
-  it("throws when tenantId is missing", async () => {
-    const context = createContext({ user: { sub: "u1" }, params: {} });
+  it("throws when tenantId is missing from both params and body", async () => {
+    const context = createContext({ user: { sub: "u1" }, params: {}, body: {} });
     await expect(guard.canActivate(context as any)).rejects.toThrow(
       new ForbiddenException("Tenant ID required"),
     );
@@ -123,6 +123,54 @@ describe("TenantAccessGuard", () => {
         "members:invite",
         "tenant:delete",
       ]),
+    );
+  });
+
+  it("resolves the tenant from the body when params carry none (e.g. POST /invitations)", async () => {
+    const tenant = { id: "t1", name: "Tenant", slug: "tenant" };
+    const membership = {
+      id: "m1",
+      membershipTenantRoles: [
+        { tenantRole: { slug: "owner", permissions: ["tenant:*"] } },
+      ],
+    };
+
+    mockPrisma.tenant.findUnique.mockResolvedValue(tenant);
+    mockPrisma.membership.findFirst.mockResolvedValue(membership);
+
+    const request: any = {
+      user: { sub: "u1" },
+      params: {},
+      body: { tenantId: "t1", email: "new@example.com" },
+    };
+    const context = createContext(request);
+
+    await expect(guard.canActivate(context as any)).resolves.toBe(true);
+    expect(mockPrisma.tenant.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "t1" } }),
+    );
+    expect(request.tenant).toEqual(tenant);
+    expect(request.isOwner).toBe(true);
+    // Console-session owners must regain god mode from the DB, not the JWT.
+    expect(request.tenantPermissions).toEqual(
+      expect.arrayContaining(["members:invite"]),
+    );
+  });
+
+  it("prefers the params tenantId over a body tenantId", async () => {
+    mockPrisma.tenant.findUnique.mockResolvedValue(null);
+
+    const context = createContext({
+      user: { sub: "u1" },
+      params: { tenantId: "t-params" },
+      body: { tenantId: "t-body" },
+    });
+
+    await expect(guard.canActivate(context as any)).rejects.toThrow(
+      new NotFoundException("Tenant not found"),
+    );
+    expect(mockPrisma.tenant.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "t-params" } }),
     );
   });
 });

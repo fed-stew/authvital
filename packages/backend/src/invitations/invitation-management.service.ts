@@ -56,6 +56,7 @@ export class InvitationManagementService {
    * the cross-tenant IDOR: knowing another tenant's invitation id is useless.
    */
   async revokeInvitation(invitationId: string, tenantId: string) {
+    this.assertTenantScope(tenantId);
     const invitation = await this.prisma.invitation.findUnique({
       where: { id: invitationId },
       include: {
@@ -133,6 +134,7 @@ export class InvitationManagementService {
    * Resend invitation email
    */
   async resendInvitationEmail(invitationId: string, tenantId: string) {
+    this.assertTenantScope(tenantId);
     const invitation = await this.prisma.invitation.findUnique({
       where: { id: invitationId },
       include: {
@@ -182,6 +184,7 @@ export class InvitationManagementService {
     data: { roleId?: string },
     tenantId: string,
   ) {
+    this.assertTenantScope(tenantId);
     const invitation = await this.prisma.invitation.findUnique({
       where: { id: invitationId },
       include: {
@@ -249,6 +252,18 @@ export class InvitationManagementService {
   // ===========================================================================
   // HELPERS (shared with InvitationsService)
   // ===========================================================================
+
+  /**
+   * Every admin operation must be tenant-scoped: the `invitation.tenantId !==
+   * tenantId` IDOR checks below rely on it. A nullish tenantId (e.g. a caller
+   * wired up without TenantAccessGuard) is a programming error, so fail loudly
+   * with a 400 rather than a misleading 404.
+   */
+  private assertTenantScope(tenantId: string): void {
+    if (!tenantId) {
+      throw new BadRequestException('tenantId is required');
+    }
+  }
 
   async getApplicationIdsForTenant(tenantId: string): Promise<string[]> {
     const subscriptions = await this.prisma.appSubscription.findMany({
