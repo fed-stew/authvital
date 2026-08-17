@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
@@ -13,7 +13,9 @@ import { SsoEncryptionService } from './sso-encryption.service';
 @Module({
   // AuthModule: SSO logins mint the console session JWT through the shared
   // AuthService.generateJwt (amr ['fed']) instead of a bespoke signer.
-  imports: [PrismaModule, ConfigModule, AuthModule],
+  // forwardRef is required: SsoModule sits inside the AuthModule ↔ SuperAdminModule
+  // require cycle, so a raw AuthModule reference is undefined at load time.
+  imports: [PrismaModule, ConfigModule, forwardRef(() => AuthModule)],
   controllers: [SsoAuthController],
   providers: [
     SsoProviderService,
