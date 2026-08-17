@@ -119,10 +119,12 @@ export class AdminTenantsService {
       >();
       for (const mr of m.membershipRoles) {
         const app = mr.role.application;
-        if (!appRoles.has(app.id)) {
-          appRoles.set(app.id, { appId: app.id, appName: app.name, roles: [] });
+        let appEntry = appRoles.get(app.id);
+        if (!appEntry) {
+          appEntry = { appId: app.id, appName: app.name, roles: [] };
+          appRoles.set(app.id, appEntry);
         }
-        appRoles.get(app.id)!.roles.push({ id: mr.role.id, name: mr.role.name, slug: mr.role.slug });
+        appEntry.roles.push({ id: mr.role.id, name: mr.role.name, slug: mr.role.slug });
       }
 
       return {
@@ -206,11 +208,17 @@ export class AdminTenantsService {
     });
 
     for (const app of freeApps) {
+      // The query filters on defaultLicenseTypeId != null, but Prisma's type
+      // stays nullable — guard defensively instead of asserting.
+      if (!app.defaultLicenseTypeId) {
+        this.logger.error(`FREE app "${app.name}" has no defaultLicenseTypeId - skipping`);
+        continue;
+      }
       try {
         await this.licensePoolService.provisionSubscription({
           tenantId,
           applicationId: app.id,
-          licenseTypeId: app.defaultLicenseTypeId!,
+          licenseTypeId: app.defaultLicenseTypeId,
           quantityPurchased: 1000,
         });
         this.logger.log(`Auto-provisioned FREE app "${app.name}" for tenant ${tenantId}`);

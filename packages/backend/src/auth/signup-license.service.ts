@@ -53,6 +53,13 @@ export class SignUpLicenseService {
         continue;
       }
 
+      // The query filters on defaultLicenseTypeId != null, but Prisma's type
+      // stays nullable — guard defensively instead of asserting.
+      if (!app.defaultLicenseTypeId) {
+        this.logger.error(`FREE app "${app.name}" has no defaultLicenseTypeId - skipping`);
+        continue;
+      }
+
       this.logger.log(
         `Auto-provisioning FREE app "${app.name}" for tenant ${tenantId}`,
       );
@@ -61,7 +68,7 @@ export class SignUpLicenseService {
         await this.licenseProvisioningService.provisionForNewTenant(
           tenantId,
           userId,
-          app.defaultLicenseTypeId!,
+          app.defaultLicenseTypeId,
           app.id,
         );
       } catch (err) {

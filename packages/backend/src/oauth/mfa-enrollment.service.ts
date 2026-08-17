@@ -9,6 +9,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { KeyService } from './key.service';
 import { OAuthService, AuthorizeParams } from './oauth.service';
+import { OAuthTokenService } from './oauth-token.service';
 import { MfaService } from '../auth/mfa/mfa.service';
 import { AuditService } from '../audit/audit.service';
 import { AUDIT_ACTIONS, AUDIT_TARGET_TYPES } from '../audit/audit-actions';
@@ -55,6 +56,7 @@ export class MfaEnrollmentService {
     private readonly prisma: PrismaService,
     private readonly keyService: KeyService,
     private readonly oauthService: OAuthService,
+    private readonly tokenService: OAuthTokenService,
     private readonly mfaService: MfaService,
     private readonly auditService: AuditService,
     private readonly configService: ConfigService,
@@ -141,12 +143,24 @@ export class MfaEnrollmentService {
    * check, and replay the original authorize request.
    *
    * Compliant OR within grace → { redirectUrl } assembled exactly like the
-   * normal authorize flow (code + state via URL.searchParams, so encoding is
-   * identical). Still non-compliant and out of grace → 403 interaction_required.
+   * normal authorize flow (code + state + session_state via URL.searchParams,
+   * so encoding is identical). Still non-compliant and out of grace → 403
+   * interaction_required.
+   *
+   * AMR PRAGMATIC RULE: the caller's idp_session cookie predates the TOTP
+   * enrollment that just happened, so its amr claim (sessionAmr) cannot
+   * contain 'otp'. When compliance.mfaEnabled is true at resume time, we
+   * append 'otp' anyway: enabling MFA required a LIVE TOTP verification
+   * moments earlier in this very browser session, which is materially
+   * equivalent to an OTP login step.
+   *
+   * @param sessionAmr - amr of the authenticated idp_session (from
+   *                     JwtAuthGuard). Undefined on legacy sessions → ['pwd'].
    */
   async resume(
     userId: string,
     resumeToken: string,
+    sessionAmr?: string[],
   ): Promise<{ redirectUrl: string }> {
     const payload = await this.verifyResumeToken(resumeToken, userId);
 
@@ -166,17 +180,31 @@ export class MfaEnrollmentService {
       });
     }
 
+    // See "AMR PRAGMATIC RULE" in the method doc.
+    const baseAmr = sessionAmr?.length ? sessionAmr : ['pwd'];
+    const amr =
+      compliance.mfaEnabled && !baseAmr.includes('otp')
+        ? [...baseAmr, 'otp']
+        : baseAmr;
+
     const code = await this.oauthService.authorize(
       userId,
       payload.authorizeParams,
+      amr,
     );
 
-    // Mirror OAuthController's redirect assembly (URL-encoded via searchParams).
+    // Mirror OAuthController's redirect assembly (URL-encoded via
+    // searchParams), including session_state for OIDC Session Management.
+    const sessionState = this.tokenService.generateSessionState(
+      payload.authorizeParams.clientId,
+      userId,
+    );
     const redirectUrl = new URL(payload.authorizeParams.redirectUri);
     redirectUrl.searchParams.set('code', code);
     if (payload.authorizeParams.state) {
       redirectUrl.searchParams.set('state', payload.authorizeParams.state);
     }
+    redirectUrl.searchParams.set('session_state', sessionState);
 
     // Audit (non-fatal): the interrupted flow successfully resumed.
     await this.auditService.log({

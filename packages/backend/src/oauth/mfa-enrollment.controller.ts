@@ -63,6 +63,8 @@ export class MfaEnrollmentController {
     if (!resume) {
       throw new BadRequestException('resume token is required');
     }
-    return this.enrollmentService.resume(req.user.id, resume);
+    // Pass the session's amr so the replayed authorize can apply the
+    // resume-time 'otp' append rule (see MfaEnrollmentService.resume).
+    return this.enrollmentService.resume(req.user.id, resume, req.user.amr);
   }
 }

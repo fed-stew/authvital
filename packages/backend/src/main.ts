@@ -1,5 +1,5 @@
 import * as path from 'path';
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 require('dotenv').config({ path: path.join(process.cwd(), '.env') });
 
 // Build DATABASE_URL from components if not provided directly (Cloud SQL socket connection)
@@ -14,7 +14,7 @@ if (!process.env.DATABASE_URL && process.env.DB_HOST && process.env.DB_USERNAME 
 
 // Validate required environment variables BEFORE importing anything else
 // This ensures we fail fast with a clear error message
-import { validateEnv } from './config/env.validation';
+import { validateEnv, getRequiredEnv } from './config/env.validation';
 import { validateSigningKeySecret } from './config/validate-secrets';
 validateEnv();
 validateSigningKeySecret();
@@ -87,9 +87,9 @@ async function bootstrap() {
 
   // CORS configuration
   // Supports exact origins and wildcard patterns like *.example.com
-  // BASE_URL is validated at startup - guaranteed to exist
+  // BASE_URL is validated at startup - getRequiredEnv throws if it is missing
   const corsOrigins = [
-    process.env.BASE_URL!,
+    getRequiredEnv('BASE_URL'),
     // Additional origins from env (comma-separated)
     // Supports: http://example.com, *.example.com, http://*.example.com
     ...(process.env.CORS_ORIGINS?.split(',').map(o => o.trim()) || []),
@@ -212,7 +212,7 @@ async function bootstrap() {
     }
   });
 
-  const port = parseInt(process.env.PORT!, 10);
+  const port = parseInt(process.env.PORT ?? '', 10);
   if (isNaN(port)) {
     console.error('PORT environment variable must be a valid number');
     process.exit(1);

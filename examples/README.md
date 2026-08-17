@@ -31,10 +31,12 @@ all fronted by Traefik behind `*.lvh.me`.
   brew install mkcert nss   # nss lets Firefox trust the local CA too
   make certs                # run this FIRST for a trusted cert
   ```
-  You don't need it: on a cold `make up`, the `examples-certs` init service mints
-  a **self-signed** cert automatically (dev-only; browser warns it's untrusted).
-  It **never overwrites** an existing cert, so `make certs` (mkcert) is a clean
-  opt-in upgrade — run it first and the init service simply skips.
+  You don't need to run it manually: on a cold `make up`, the Makefile runs
+  `examples/traefik/gen-certs.sh` when no cert exists — **mkcert-trusted if
+  mkcert is installed, self-signed (openssl) otherwise** (dev-only; browser
+  warns it's untrusted). The `examples-certs` init service inside compose is a
+  second safety net and **never overwrites** an existing cert. `make certs`
+  re-mints on demand (e.g. after installing mkcert).
 - **Outbound DNS** for `lvh.me`: no `/etc/hosts` edits needed — `lvh.me` and every
   `*.lvh.me` subdomain publicly resolve to `127.0.0.1`. Your network/DNS just has
   to be able to resolve `lvh.me` (a captive portal or aggressive DNS blocker can
@@ -79,10 +81,14 @@ Because Postgres lives in the named volume `authvital-pgdata`, `down` keeps data
 and `down -v` (via `make fresh`) wipes it. A fresh volume is always seeded
 directly against `https://auth.lvh.me`, so there's **no stale-issuer footgun**.
 
-`make` just wraps
+`make up` wraps
 `docker compose -f docker-compose.yml -f docker-compose.examples.yml …` with
-`POSTGRES_PORT=5433`. `npm run dev:examples` / `npm run fresh:examples` are
-equivalents. `http://localhost:8080` (base stack) keeps working unchanged.
+`POSTGRES_PORT=5433`, plus two copy-if-missing prep steps: it seeds a root
+`seed.config.yaml` from the committed `seed.config.uat.yaml` (a convenience
+for the base stack — the UAT stack mounts the committed file directly) and
+mints a TLS cert when none exists. `npm run dev:examples` /
+`npm run fresh:examples` are the compose-only equivalents.
+`http://localhost:8080` (base stack) keeps working unchanged.
 
 > **Seed reconciliation:** the bootstrap seed re-applies `seed.config.yaml` on
 > every boot. Edits to *seeded* entities in `/admin` get reconciled back — put
@@ -90,12 +96,14 @@ equivalents. `http://localhost:8080` (base stack) keeps working unchanged.
 > `make down`/`up` and is only removed by `make fresh`.
 
 > **Where the examples seed comes from:** this stack is seeded from the
-> **committed** `seed.config.examples.yaml` at the repo root —
+> **committed** `seed.config.uat.yaml` at the repo root —
 > `docker-compose.examples.yml` mounts it into the `api` (and `migrate`)
 > container as `/app/seed.config.yaml`, so a fresh clone's `make up` "just
 > works" with zero manual steps. A personal root `seed.config.yaml`
 > (gitignored) is only for the plain base stack / your own custom setups —
 > it is **not** used here.
+> *(Renamed from `seed.config.examples.yaml` to avoid confusion with
+> `seed.config.example.yaml`, the minimal template.)*
 
 ---
 
@@ -127,7 +135,9 @@ webhook_events: [subject.*, member.*, app_access.*, license.*, invite.*]
 
 The BFF verifies every delivery via **JWKS** (no shared secret) and shows the
 captured events + resulting in-memory identities at **https://bff.lvh.me/events**.
-`/events` starts empty and fills in as events fire — e.g. sign up a user scoped
+Because the page renders webhook payloads and identity PII, it **requires a
+signed-in session** (logged out → 401 "sign in first") and carries a demo-only
+PII warning banner. `/events` starts empty and fills in as events fire — e.g. sign up a user scoped
 to the Web BFF app, or grant/suspend an acme member (Alice is seeded with Web
 BFF access so acme member/app_access events reach the BFF). See the
 UAT-CHECKLIST for concrete triggers.
@@ -182,7 +192,8 @@ UAT-CHECKLIST for concrete triggers.
   the usual: encrypted httpOnly session cookie, `/api/protected` (JWKS token
   validation), `/api/permission` (claim checks), `/api/m2m` (client_credentials,
   sanitized to a token preview), `POST /webhooks` (JWKS-verified identity-sync
-  ingest) and `/events` (live view of captured events + in-memory identities).
+  ingest) and `/events` (session-required live view of captured events +
+  in-memory identities, with a demo-only PII warning banner).
   The three tenant-scoped Integration panels are "unavailable" on the org-less
   flat host and render once you pick an org.
 
@@ -294,7 +305,7 @@ examples/
   the callback subdomain. **After pulling this change you must reseed AND
   regenerate TLS certs** to pick up the new `*.bff.lvh.me` SAN: run `make fresh`
   (reseed) and either delete `examples/traefik/certs/lvh.me*.pem` then `make up`
-  (the init service re-mints), or run `npm run certs:examples` (mkcert). Without
+  (the Makefile re-mints), or run `make certs` (mkcert). Without
   the new SAN, `{tenant}.bff.lvh.me` will throw a TLS error.
 - **`allowed_web_origins` has no wildcards.** Every tenant subdomain that calls
   the IdP must be enumerated in `seed.config.yaml` (and mirrored in the api

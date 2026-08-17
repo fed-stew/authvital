@@ -57,11 +57,15 @@ The seed (`seed.config.yaml`) ships four tenants (**acme**, **globex**,
 
 All three are Makefile targets that wrap
 `docker compose -f docker-compose.yml -f docker-compose.examples.yml …` and set
-`POSTGRES_PORT=5433` for you, so you never pass flags or ports by hand.
+`POSTGRES_PORT=5433` for you, so you never pass flags or ports by hand. On a
+cold start, `make up` also self-provisions: it copies the committed
+`seed.config.uat.yaml` to `seed.config.yaml` if you don't have one (base-stack
+convenience; the UAT stack mounts the committed file directly) and generates a
+TLS cert when none exists (mkcert-trusted if installed, self-signed otherwise).
 
 | Command | What it does | Data |
 | --- | --- | --- |
-| `make up` | Builds + boots the whole stack detached. On first boot `examples-certs` mints a cert (if none exists) and the DB seeds. | **Kept** (created if absent) |
+| `make up` | Prep (seed + cert if missing), then builds + boots the whole stack detached. The DB seeds on first boot. | **Kept** (created if absent) |
 | `make down` | Stops & removes the containers. The `authvital-pgdata` volume is left intact. | **Kept** |
 | `make fresh` | `down -v` (drops the volume) then `up` — a brand-new DB, reseeded from `seed.config.yaml`. | **Wiped → reseeded** |
 | `make logs` | Follows logs for all services. | — |

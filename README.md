@@ -1,130 +1,155 @@
-# AuthVital SDK Documentation
+# AuthVital
 
-> Official TypeScript SDKs for integrating with the AuthVital Identity Provider.
+> A self-hostable, multi-tenant Identity Provider (IdP) — plus official
+> TypeScript SDKs for integrating it into your apps.
 
-> [!WARNING]
-> **This top-level reference is out of date and describes an API that does not
-> match the shipped code.** It is pending a full rewrite. Until then, treat the
-> per-package READMEs and the docs site as the source of truth:
->
-> - Browser/React: [`packages/sdk-browser/README.md`](./packages/sdk-browser/README.md) (accurate)
-> - Server/BFF: [`packages/sdk-server/README.md`](./packages/sdk-server/README.md) (accurate)
-> - Docs site: `docs/sdk/client-sdk/**`, `docs/sdk/server-sdk/**`
->
-> Known-fictional symbols referenced below that **do not exist** in the code:
-> `@authvital/sdk` (real packages are `@authvital/browser` and `@authvital/server`),
-> `createAuthVital()` (use `createServerClient()`),
-> `authvital.validateRequest()` / `authvital.hasAppPermission()` (use `verifyToken()`
-> and check claims yourself, or `client.integration.checkPermission()`),
-> `useOAuth` / `useInvitation` hooks (use `useAuth` + `client.login({ inviteToken })`),
-> `WebhookRouter` / `AuthVitalEventHandler` (verify webhooks via JWKS yourself),
-> `IdentitySyncHandler`, `printSchema`, `cleanupSessions`, and `getCleanupSQL`.
+## What is AuthVital?
 
----
+AuthVital is a multi-tenant IdP you run yourself (Docker image included). It
+provides:
 
-## Table of Contents
+- **OAuth2 / OIDC** — authorization code + PKCE, client credentials (M2M),
+  refresh-token rotation, JWKS-published signing keys.
+- **Multi-tenancy** — tenants (organizations), memberships, tenant roles
+  (owner / admin / billing-admin / member), per-application roles and
+  permissions surfaced as JWT claims (`tenant_roles`, `app_roles`,
+  `app_permissions`).
+- **Licensing** — per-seat license types, subscriptions, seat assignment, and
+  a `license` claim minted into tokens for entitlement checks.
+- **MFA with tenant-policy enforcement at token mint** — when a tenant's MFA
+  policy requires enrollment, token issuance/refresh is rejected with
+  `interaction_required`; the SDKs surface this as a typed
+  `InteractionRequiredError` so you can restart the authorize flow.
+- **Webhooks** — per-application identity-sync events (`subject.*`,
+  `member.*`, `app_access.*`, `license.*`, `invite.*`), signed by the IdP and
+  verifiable against its JWKS (no shared secrets).
+- **Hosted admin console** — a Super Admin dashboard at `/admin` and a
+  per-tenant console at `/tenant/:tenantId/*` (members, app access, licenses,
+  billing, SSO, domains, audit). The SDKs deep-link into it rather than
+  re-implementing management UI.
 
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Examples / Local UAT](#examples--local-uat)
-- [Server SDK](#server-sdk)
-  - [Creating the Client](#creating-the-client)
-  - [JWT Validation](#jwt-validation)
-  - [Permission & Role Helpers](#permission--role-helpers)
-  - [Namespaced APIs](#namespaced-apis)
-  - [OAuth Flow](#oauth-flow)
-  - [URL Builders](#url-builders)
-  - [Management URLs](#management-urls)
-- [Client SDK (React)](#client-sdk-react)
-  - [AuthVitalProvider](#authvitalprovider)
-  - [useAuth Hook](#useauth-hook)
-  - [useOAuth Hook](#useoauth-hook)
-  - [useInvitation Hook](#useinvitation-hook)
-- [Webhooks](#webhooks)
-  - [WebhookRouter](#webhookrouter)
-  - [AuthVitalEventHandler](#authvitaleventhandler)
-  - [Event Types](#event-types)
-- [Identity Sync](#identity-sync)
-  - [Prisma Schema](#prisma-schema)
-  - [IdentitySyncHandler](#identitysynchandler)
-  - [Session Cleanup](#session-cleanup)
-- [TypeScript Types](#typescript-types)
-- [Environment Variables](#environment-variables)
+## Quick start — run the IdP
 
----
-
-## Installation
+Docker is the only requirement:
 
 ```bash
-npm install @authvital/sdk
-# or
-yarn add @authvital/sdk
-# or
-pnpm add @authvital/sdk
+cp .env.example .env                                # configure secrets
+cp seed.config.example.yaml seed.config.yaml        # optional: seed users/tenants/apps
+docker compose up -d
 ```
 
----
+Then open:
 
-## Quick Start
+- App / login: <http://localhost:8080>
+- Admin dashboard: <http://localhost:8080/admin>
+- API health: <http://localhost:8080/api/health>
 
-### Server-Side (Node.js/Backend)
+Postgres data lives in the named volume `authvital-pgdata`:
+`docker compose down` keeps it, `docker compose down -v` wipes it, and the
+next `up` reseeds a fresh DB from `seed.config.yaml` (idempotent upserts).
+
+## Packages
+
+| Package | Purpose | Docs |
+| --- | --- | --- |
+| [`@authvital/browser`](./packages/sdk-browser) | SPA/browser SDK — PKCE login, in-memory access tokens, silent refresh, React hooks (`@authvital/browser/react`) | [README](./packages/sdk-browser/README.md) |
+| [`@authvital/server`](./packages/sdk-server) | Server/BFF SDK — encrypted session cookies (AES-256-GCM), `OAuthFlow`, JWT verification, API + M2M integration client, Express/Next.js adapters | [README](./packages/sdk-server/README.md) |
+| [`@authvital/core`](./packages/sdk-core) | Shared primitives — JWKS/JWT verification, PKCE utilities, OAuth URL builders, hosted-console deep-links (`getManagementUrls`) | [source](./packages/sdk-core/src) |
+
+The monorepo also contains the IdP itself (`packages/backend`,
+`packages/frontend`) and shared internals (`packages/contracts`,
+`packages/shared`).
+
+> **Note:** the `sdks/` directory (Python, Go, Rust, Java, .NET) contains
+> **namespace placeholders only** — every entry point throws
+> `NotImplemented`. Use the TypeScript SDKs today.
+
+## Server-side usage (`@authvital/server`)
+
+Verify an incoming access token against the IdP's JWKS, then call the
+AuthVital API on the user's behalf:
 
 ```typescript
-import { createAuthVital } from '@authvital/sdk/server';
+import { createServerClient, verifyToken } from '@authvital/server';
 
-const authvital = createAuthVital({
+// 1. Validate the JWT (signature, issuer, audience) via JWKS
+const result = await verifyToken(accessToken, {
+  jwksUri: `${process.env.AV_HOST}/.well-known/jwks.json`,
+  issuer: process.env.AV_HOST!,
+  audience: process.env.AV_CLIENT_ID!,
+});
+
+if (!result.valid) {
+  throw new Error(`Unauthorized: ${result.error}`);
+}
+console.log(result.payload.sub, result.payload.tenant_id);
+
+// 2. Call the AuthVital API with the user's tokens
+const client = createServerClient(
+  {
+    authVitalHost: process.env.AV_HOST!,
+    clientId: process.env.AV_CLIENT_ID!,
+    clientSecret: process.env.AV_CLIENT_SECRET!,
+  },
+  { accessToken, refreshToken },
+);
+
+const user = await client.getCurrentUser();
+
+// Server-to-server (M2M) automation uses the Client Credentials grant:
+const adminClient = createServerClient({
   authVitalHost: process.env.AV_HOST!,
-  clientId: process.env.AV_CLIENT_ID!,
-  clientSecret: process.env.AV_CLIENT_SECRET!,
+  clientId: process.env.AV_MACHINE_CLIENT_ID!,
+  clientSecret: process.env.AV_MACHINE_CLIENT_SECRET!,
 });
-
-// Validate JWT from incoming request
-app.get('/api/protected', async (req, res) => {
-  const { authenticated, user, error } = await authvital.getCurrentUser(req);
-
-  if (!authenticated) {
-    return res.status(401).json({ error: error || 'Unauthorized' });
-  }
-
-  res.json({ message: `Hello ${user.email}!` });
-});
+const members = await adminClient.integration.listTenantMembers({ tenantId: 'tenant-123' });
 ```
 
-### Client-Side (React)
+The server SDK also ships `OAuthFlow` (PKCE code flow), `createSessionStore`
+(encrypted httpOnly session cookies), and Express/Next.js middleware — see the
+[`@authvital/server` README](./packages/sdk-server/README.md).
+
+## React usage (`@authvital/browser`)
 
 ```tsx
-import { AuthVitalProvider, useAuth } from '@authvital/sdk/client';
+import { AuthVitalProvider, useAuth } from '@authvital/browser/react';
 
-function App({ initialUser, initialTenants }) {
+// Wrap your app with the provider
+function App() {
   return (
     <AuthVitalProvider
-      authVitalHost={import.meta.env.VITE_AV_HOST}
-      clientId={import.meta.env.VITE_AV_CLIENT_ID}
-      initialUser={initialUser}
-      initialTenants={initialTenants}
+      authVitalHost="https://auth.myapp.com"
+      clientId="my-app"
+      onAuthRequired={() => (window.location.href = '/login')}
     >
-      <MyApp />
+      <Profile />
     </AuthVitalProvider>
   );
 }
 
-function MyApp() {
-  const { user, isAuthenticated, login, logout } = useAuth();
+// Use authentication anywhere
+function Profile() {
+  const { user, isAuthenticated, isLoading, login, logout } = useAuth();
+
+  if (isLoading) return <div>Checking authentication...</div>;
 
   if (!isAuthenticated) {
-    return <button onClick={login}>Login</button>;
+    return <button onClick={() => login()}>Sign In</button>;
   }
 
   return (
     <div>
-      <p>Welcome, {user?.email}!</p>
-      <button onClick={logout}>Logout</button>
+      <h1>Hello, {user?.name || user?.email}</h1>
+      <button onClick={() => logout()}>Sign Out</button>
     </div>
   );
 }
 ```
 
----
+Access tokens live **in memory only** (never `localStorage`); refresh tokens
+live in httpOnly cookies. See the
+[`@authvital/browser` README](./packages/sdk-browser/README.md) for the
+vanilla-JS client, Axios interceptors, and the full hook list.
 
 ## Examples / Local UAT
 
@@ -135,970 +160,78 @@ Express BFF, all fronted by Traefik behind `*.lvh.me` and talking to a local
 AuthVital IdP.
 
 ```bash
-make up                            # cold start: builds images, auto certs, named volume + seed
+make up                            # cold start: auto seed + certs + named volume
 # make down    -> stop, KEEP data
 # make fresh   -> wipe DB volume (down -v) + reseed
 # make certs   -> optional: locally-TRUSTED mkcert cert (no browser warning)
 ```
 
-**Docker is the only requirement — no host `npm install`/`npm run build`.** Every
-image (IdP + the three example apps) builds the workspace SDKs from source *inside*
-the container, so a cold `make up` on a fresh checkout just works: zero cert
-pre-step, no `POSTGRES_PORT`, no one-time reset (self-signed cert auto-generated;
-Postgres in the named volume `authvital-pgdata`). Then open `https://app.lvh.me`,
-`https://seat.lvh.me`, and `https://bff.lvh.me`.
+**Docker is the only requirement — no host `npm install`/`npm run build`.**
+Every image (IdP + the three example apps) builds the workspace SDKs from
+source *inside* the container. On a cold `make up`, the Makefile
+self-provisions everything: it copies the committed UAT seed
+(`seed.config.uat.yaml`) to `seed.config.yaml` if you don't have one, mints a
+TLS cert if none exists (mkcert-trusted when installed, self-signed
+otherwise), and defaults the Postgres host port to `5433` so you never pass
+`POSTGRES_PORT` yourself (override with `make up POSTGRES_PORT=5544` if `5433`
+is taken). Then open `https://app.lvh.me`, `https://seat.lvh.me`, and
+`https://bff.lvh.me`.
 
 - **Full runbook:** [`examples/README.md`](./examples/README.md)
 - **Lifecycle guide:** [`docs/local-uat.md`](./docs/local-uat.md)
 - **Persona-by-persona pass/fail matrix:** [`examples/UAT-CHECKLIST.md`](./examples/UAT-CHECKLIST.md)
 
----
-
-## Server SDK
-
-### Creating the Client
-
-```typescript
-import { createAuthVital } from '@authvital/sdk/server';
-
-const authvital = createAuthVital({
-  authVitalHost: process.env.AV_HOST!,
-  clientId: process.env.AV_CLIENT_ID!,
-  clientSecret: process.env.AV_CLIENT_SECRET!,
-});
-```
-
-#### Configuration Options
-
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `authVitalHost` | `string` | Yes | AuthVital server URL (e.g., `https://auth.yourapp.com`) |
-| `clientId` | `string` | Yes | OAuth client ID |
-| `clientSecret` | `string` | Yes | OAuth client secret |
-| `scope` | `string` | No | Default scopes (default: `system:admin`) |
-
-> These `camelCase` options map to the `AV_`-prefixed environment variables. See [Env var ↔ SDK option naming](#env-var--sdk-option-naming).
-
----
-
-### JWT Validation
-
-#### getCurrentUser()
-
-Extracts and validates the JWT from an incoming request. Returns a result object (doesn't throw).
-
-```typescript
-const { authenticated, user, error } = await authvital.getCurrentUser(req);
-
-if (!authenticated) {
-  return res.status(401).json({ error: error || 'Unauthorized' });
-}
-
-// user contains decoded JWT claims
-console.log(user.sub);            // User ID
-console.log(user.email);          // Email address
-console.log(user.tenant_id);      // Tenant ID (if scoped)
-console.log(user.app_roles);      // ['admin', 'editor']
-console.log(user.app_permissions);// ['documents:read', 'documents:write']
-console.log(user.license);        // { type: 'pro', name: 'Pro Plan', features: ['sso', 'api'] }
-```
-
-#### validateRequest()
-
-Strict validation that **throws** if not authenticated or missing required claims.
-
-```typescript
-try {
-  const claims = await authvital.validateRequest(req);
-
-  // claims.tenantId is GUARANTEED to exist
-  console.log('User:', claims.sub);
-  console.log('Tenant:', claims.tenantId);
-  console.log('Email:', claims.email);
-
-  // Access full JWT payload if needed
-  console.log('License:', claims.payload.license);
-} catch (error) {
-  // AuthVitalError with descriptive message
-  res.status(401).json({ error: error.message });
-}
-```
-
-**ValidatedClaims Interface:**
-
-```typescript
-interface ValidatedClaims {
-  sub: string;              // User ID - always present
-  tenantId: string;         // Tenant ID - REQUIRED, throws if missing!
-  tenantSubdomain?: string; // Tenant subdomain (if available)
-  email?: string;           // User's email
-  tenant_roles?: string[];  // Tenant-level roles
-  payload: JwtPayload;      // Full JWT payload for advanced use
-}
-```
-
-**When to use which:**
-
-| Method | Use Case |
-|--------|----------|
-| `getCurrentUser()` | Soft check, custom error handling, optional auth |
-| `validateRequest()` | Strict check, guaranteed claims, tenant-required endpoints |
-
----
-
-### Permission & Role Helpers
-
-These methods read from the validated JWT - **no API calls needed!**
-
-```typescript
-// Check tenant permission (supports wildcards like 'licenses:*')
-if (await authvital.hasTenantPermission(req, 'licenses:manage')) {
-  // User can manage licenses
-}
-
-// Check app permission
-if (await authvital.hasAppPermission(req, 'projects:create')) {
-  // User can create projects
-}
-
-// Check feature from license
-if (await authvital.hasFeatureFromJwt(req, 'sso')) {
-  // User's tenant has SSO enabled
-}
-
-// Get license type
-const licenseType = await authvital.getLicenseTypeFromJwt(req);
-if (licenseType === 'enterprise') {
-  // Show enterprise features
-}
-
-// Get all permissions/roles
-const tenantPerms = await authvital.getTenantPermissions(req);
-const appPerms = await authvital.getAppPermissions(req);
-const tenantRoles = await authvital.getTenantRoles(req);
-const appRoles = await authvital.getAppRoles(req);
-```
-
----
-
-### Namespaced APIs
-
-The SDK provides namespaced methods for different operations. All methods that take a `request` parameter automatically extract the JWT for authentication.
-
-#### Invitations
-
-```typescript
-// Send an invitation (tenantId extracted from JWT)
-const { sub, expiresAt } = await authvital.invitations.send(req, {
-  email: 'newuser@example.com',
-  givenName: 'John',        // Optional
-  familyName: 'Doe',        // Optional
-  roleId: 'role-admin-id',  // Required - get from memberships.getTenantRoles()
-  expiresInDays: 7,         // Optional
-});
-
-// List pending invitations
-const { invitations, totalCount } = await authvital.invitations.listPending(req);
-
-// Resend an invitation
-const { expiresAt } = await authvital.invitations.resend(req, {
-  invitationId: 'inv-123',
-  expiresInDays: 7,
-});
-
-// Revoke an invitation
-await authvital.invitations.revoke(req, 'inv-123');
-```
-
-#### Memberships
-
-```typescript
-// List tenant members
-const { memberships, totalCount } = await authvital.memberships.listForTenant(req, {
-  status: 'ACTIVE',        // Optional: 'ACTIVE' | 'INVITED' | 'SUSPENDED'
-  includeRoles: true,      // Optional
-  appendClientId: true,    // Auto-appends ?client_id=... to initiateLoginUri
-});
-
-// Get user's tenants (from JWT)
-const { memberships } = await authvital.memberships.listTenantsForUser(req, {
-  status: 'ACTIVE',
-  includeRoles: true,
-  appendClientId: true,
-});
-
-// Get available tenant roles (for role pickers)
-const { roles } = await authvital.memberships.getTenantRoles();
-// roles = [{ slug: 'owner', name: 'Owner', permissions: [...] }, ...]
-
-// Get application roles (for your app)
-const { roles } = await authvital.memberships.getApplicationRoles();
-
-// Set a member's role
-const result = await authvital.memberships.setMemberRole(
-  req,
-  'membership-123',
-  'admin', // role slug
-);
-
-// Validate membership
-const { isMember, membership } = await authvital.memberships.validate(req);
-```
-
-#### Licenses
-
-```typescript
-// Grant a license to a user
-await authvital.licenses.grant(req, {
-  userId: 'user-123',        // Optional - defaults to authenticated user
-  applicationId: 'app-456',
-  licenseTypeId: 'license-pro',
-});
-
-// Revoke a license
-await authvital.licenses.revoke(req, {
-  userId: 'user-123',
-  applicationId: 'app-456',
-});
-
-// Change license type
-await authvital.licenses.changeType(req, {
-  userId: 'user-123',
-  applicationId: 'app-456',
-  newLicenseTypeId: 'license-enterprise',
-});
-
-// Check if user has a license
-const { hasLicense, licenseType, features } = await authvital.licenses.check(
-  req,
-  undefined,      // userId - null for authenticated user
-  'my-app-id',
-);
-
-// Check specific feature
-const { hasFeature } = await authvital.licenses.hasFeature(
-  req,
-  undefined,      // userId
-  'my-app-id',
-  'sso',          // feature key
-);
-
-// Get all licenses for a user
-const licenses = await authvital.licenses.listForUser(req);
-const licenses = await authvital.licenses.listForUser(req, 'other-user-id');
-
-// Get all license holders for an app
-const holders = await authvital.licenses.getHolders(req, 'app-456');
-
-// Get license audit log
-const auditLog = await authvital.licenses.getAuditLog(req, {
-  userId: 'user-123',
-  limit: 50,
-  offset: 0,
-});
-
-// Get usage overview
-const usage = await authvital.licenses.getUsageOverview(req);
-// { totalSeats: 10, seatsAssigned: 8, utilization: 80, ... }
-
-// Get usage trends
-const trends = await authvital.licenses.getUsageTrends(req, 30); // last 30 days
-```
-
-#### Sessions
-
-```typescript
-// List user's active sessions
-const { sessions, count } = await authvital.sessions.list(req);
-
-// Revoke a specific session
-await authvital.sessions.revoke(req, 'session-id');
-
-// Revoke ALL sessions (logout everywhere)
-const { count } = await authvital.sessions.revokeAll(req);
-
-// Logout current session (using refresh token)
-await authvital.sessions.logout(refreshToken);
-```
-
-#### Permissions (API Check)
-
-For API-based permission checks (when you need server-authoritative validation):
-
-```typescript
-// Check a single permission via API
-const { allowed, reason } = await authvital.permissions.check(req, {
-  userId: 'user-123',
-  tenantId: 'tenant-456',
-  permission: 'documents:write',
-});
-
-// Check multiple permissions
-const { results, allAllowed } = await authvital.permissions.checkMany(req, {
-  userId: 'user-123',
-  tenantId: 'tenant-456',
-  permissions: ['documents:read', 'documents:write', 'admin:access'],
-});
-// results = { 'documents:read': true, 'documents:write': true, 'admin:access': false }
-```
-
-#### Entitlements
-
-```typescript
-// Check feature entitlement
-const { hasAccess, licenseType, reason } = await authvital.entitlements.checkFeature(
-  req,
-  'advanced-analytics',
-);
-```
-
----
-
-### OAuth Flow
-
-For server-side OAuth with PKCE:
-
-```typescript
-import { OAuthFlow } from '@authvital/sdk/server';
-
-const oauth = new OAuthFlow({
-  authVitalHost: process.env.AV_HOST!,
-  clientId: process.env.AV_CLIENT_ID!,
-  clientSecret: process.env.AV_CLIENT_SECRET!,
-  redirectUri: 'https://myapp.com/api/auth/callback',
-});
-
-// GET /api/auth/login
-app.get('/api/auth/login', (req, res) => {
-  const { authorizeUrl, state, codeVerifier } = oauth.startFlow({
-    appState: req.query.returnTo, // Optional - passed through OAuth
-  });
-
-  // Store for callback verification
-  req.session.oauthState = state;
-  req.session.codeVerifier = codeVerifier;
-
-  res.redirect(authorizeUrl);
-});
-
-// GET /api/auth/callback
-app.get('/api/auth/callback', async (req, res) => {
-  const tokens = await oauth.handleCallback(
-    req.query.code,
-    req.query.state,
-    req.session.oauthState,
-    req.session.codeVerifier,
-  );
-
-  // tokens: { access_token, refresh_token, id_token, appState }
-  // Set cookies, redirect to appState or dashboard
-  res.cookie('access_token', tokens.access_token, { httpOnly: true });
-  res.redirect(tokens.appState || '/dashboard');
-});
-
-// Refresh tokens
-const newTokens = await oauth.refreshTokens(refreshToken);
-```
-
-#### Low-Level PKCE Utilities
-
-```typescript
-import {
-  generatePKCE,
-  buildAuthorizeUrl,
-  exchangeCodeForTokens,
-  encodeState,
-  decodeState,
-} from '@authvital/sdk/server';
-
-// Generate PKCE challenge
-const { codeVerifier, codeChallenge } = generatePKCE();
-
-// Encode/decode state with CSRF and app state
-const state = encodeState(csrfNonce, '/dashboard?tab=settings');
-const { csrf, appState } = decodeState(state);
-
-// Build authorization URL manually
-const authorizeUrl = buildAuthorizeUrl({
-  authVitalHost: 'https://auth.yourapp.com',
-  clientId: 'your-client-id',
-  redirectUri: 'https://yourapp.com/callback',
-  codeChallenge,
-  state,
-});
-
-// Exchange code for tokens
-const tokens = await exchangeCodeForTokens({
-  authVitalHost: 'https://auth.yourapp.com',
-  clientId: 'your-client-id',
-  clientSecret: 'your-client-secret',
-  code: 'authorization-code',
-  codeVerifier,
-  redirectUri: 'https://yourapp.com/callback',
-});
-```
-
----
-
-### URL Builders
-
-Simple URL builders for landing pages, emails, and marketing links (no PKCE needed):
-
-```typescript
-import {
-  getLoginUrl,
-  getSignupUrl,
-  getLogoutUrl,
-  getPasswordResetUrl,
-  getInviteAcceptUrl,
-  getAccountSettingsUrl,
-} from '@authvital/sdk/server';
-
-// Login URL
-const loginUrl = getLoginUrl({
-  authVitalHost: 'https://auth.myapp.com',
-  clientId: 'my-app',
-  redirectUri: 'https://app.myapp.com/dashboard',
-  tenantHint: 'acme-corp', // Optional
-});
-
-// Signup URL with pre-filled email
-const signupUrl = getSignupUrl({
-  authVitalHost: 'https://auth.myapp.com',
-  clientId: 'my-app',
-  redirectUri: 'https://app.myapp.com/onboarding',
-  email: 'user@example.com', // Optional
-});
-
-// Logout URL
-const logoutUrl = getLogoutUrl({
-  authVitalHost: 'https://auth.myapp.com',
-  postLogoutRedirectUri: 'https://myapp.com/',
-});
-
-// Password reset URL
-const resetUrl = getPasswordResetUrl({
-  authVitalHost: 'https://auth.myapp.com',
-  clientId: 'my-app',
-  email: 'user@example.com',
-});
-
-// Invitation acceptance URL (for emails)
-const inviteUrl = getInviteAcceptUrl({
-  authVitalHost: 'https://auth.myapp.com',
-  clientId: 'my-app',
-  inviteToken: 'abc123xyz',
-});
-
-// Account settings URL (standalone)
-const settingsUrl = getAccountSettingsUrl('https://auth.myapp.com');
-```
-
----
-
-### Management URLs (hosted-console deep-links)
-
-AuthVital is hosted-first: tenant admin lives in the console at
-`/tenant/:tenantId/*`. The `@authvital/core` helpers are **pure functions** that
-take `{ authVitalHost, tenantId }` (there is no fluent `authvital.*(req)`
-god-object):
-
-```typescript
-import { getManagementUrls, getAccountSettingsUrl } from '@authvital/core';
-
-// Get all management URLs at once
-const urls = getManagementUrls({ authVitalHost: 'https://auth.example.com', tenantId: 'abc' });
-// {
-//   root:         'https://auth.example.com/tenant/abc',
-//   overview:     'https://auth.example.com/tenant/abc/overview',
-//   members:      'https://auth.example.com/tenant/abc/members',
-//   applications: 'https://auth.example.com/tenant/abc/applications',
-//   accessMatrix: 'https://auth.example.com/tenant/abc/access-matrix',
-//   licenses:     'https://auth.example.com/tenant/abc/licenses',
-//   billing:      'https://auth.example.com/tenant/abc/billing',
-//   audit:        'https://auth.example.com/tenant/abc/audit',
-//   sso:          'https://auth.example.com/tenant/abc/sso',
-//   domains:      'https://auth.example.com/tenant/abc/domains',
-//   settings:     'https://auth.example.com/tenant/abc/general',
-// }
-
-// Or individually (each takes the same { authVitalHost, tenantId } config)
-import { getMembersUrl, getApplicationsUrl, getBillingUrl, getAuditUrl } from '@authvital/core';
-const membersUrl = getMembersUrl({ authVitalHost, tenantId });
-const billingUrl = getBillingUrl({ authVitalHost, tenantId });
-
-// Per-user account page (host string only — no tenant)
-const accountUrl = getAccountSettingsUrl('https://auth.example.com'); // /account/settings
-```
-
----
-
-## Client SDK (React)
-
-> ⚠️ **IMPORTANT**: The Client SDK manages state only - it does NOT call the AuthVital IDP directly. Auth tokens are stored in httpOnly cookies set by YOUR server. This is intentional for XSS protection.
-
-### AuthVitalProvider
-
-Wrap your app to enable authentication:
-
-```tsx
-import { AuthVitalProvider } from '@authvital/sdk/client';
-
-function App({ initialUser, initialTenants }) {
-  return (
-    <AuthVitalProvider
-      authVitalHost="https://auth.yourapp.com"
-      clientId="your-client-id"
-      initialUser={initialUser}      // From your server
-      initialTenants={initialTenants} // From your server
-    >
-      <Router>
-        <Routes />
-      </Router>
-    </AuthVitalProvider>
-  );
-}
-```
-
-#### Provider Props
-
-| Prop | Type | Required | Description |
-|------|------|----------|-------------|
-| `authVitalHost` | `string` | Yes | AuthVital server URL |
-| `clientId` | `string` | Yes | OAuth client ID |
-| `initialUser` | `AuthVitalUser \| null` | No | Pre-loaded user from server |
-| `initialTenants` | `AuthVitalTenant[]` | No | Pre-loaded tenants from server |
-
-> These `camelCase` props map to the `AV_`-prefixed environment variables. See [Env var ↔ SDK option naming](#env-var--sdk-option-naming).
-
----
-
-### useAuth Hook
-
-```tsx
-import { useAuth } from '@authvital/sdk/client';
-
-function Dashboard() {
-  const {
-    // State
-    isAuthenticated,
-    isLoading,
-    isSigningIn,
-    isSigningUp,
-    user,
-    tenants,
-    currentTenant,
-    error,
-
-    // Auth methods (redirect to OAuth)
-    login,
-    signUp,
-    signOut,
-    logout,
-
-    // Tenant methods
-    setActiveTenant,
-    switchTenant,
-
-    // State setters (after server verification)
-    setAuthState,
-    clearAuthState,
-  } = useAuth();
-
-  // Update state after server verification
-  const handleOAuthCallback = async (code) => {
-    const response = await fetch('/api/auth/callback', {
-      method: 'POST',
-      body: JSON.stringify({ code }),
-    });
-    const { user, tenants } = await response.json();
-    setAuthState(user, tenants);
-  };
-
-  return (
-    <div>
-      {isAuthenticated ? (
-        <>
-          <p>Welcome, {user?.email}!</p>
-          <button onClick={logout}>Logout</button>
-        </>
-      ) : (
-        <button onClick={login}>Login</button>
-      )}
-    </div>
-  );
-}
-```
-
----
-
-### useOAuth Hook
-
-For more control over OAuth redirects:
-
-```tsx
-import { useOAuth } from '@authvital/sdk/client';
-
-function LoginPage() {
-  const { isAuthenticated, isLoading, startLogin, startSignup, logout } = useOAuth({
-    redirectUri: '/api/auth/callback', // Optional
-  });
-
-  return (
-    <div>
-      <button onClick={() => startLogin({ state: '/dashboard' })}>
-        Login
-      </button>
-      <button onClick={() => startSignup()}>
-        Sign Up
-      </button>
-    </div>
-  );
-}
-```
-
----
-
-### useInvitation Hook
-
-Handle team invitation flows:
-
-```tsx
-import { useInvitation } from '@authvital/sdk/client';
-
-function AcceptInvitePage() {
-  const token = new URLSearchParams(location.search).get('token');
-
-  const {
-    invitation,
-    isLoading,
-    error,
-    consumed,
-    hasPendingInvite,
-    fetchInvitation,
-    acceptAndLogin,
-    consumeInvite,
-  } = useInvitation({
-    onConsumed: (result) => console.log('Joined tenant:', result.membership.tenant.name),
-    onError: (error) => console.error('Failed:', error),
-  });
-
-  useEffect(() => {
-    if (token) fetchInvitation(token);
-  }, [token]);
-
-  if (isLoading) return <p>Loading...</p>;
-  if (error) return <p>Error: {error.message}</p>;
-
-  return (
-    <div>
-      <h1>You've been invited to {invitation?.tenant.name}</h1>
-      <button onClick={() => acceptAndLogin(token!)}>
-        Accept & Login
-      </button>
-    </div>
-  );
-}
-```
-
----
-
-## Webhooks
-
-Webhooks are verified using JWKS - no shared secrets needed!
-
-### WebhookRouter
-
-```typescript
-import { WebhookRouter, IdentitySyncHandler } from '@authvital/sdk/server';
-
-// Option 1: Use built-in IdentitySyncHandler for database mirroring
-const router = new WebhookRouter({
-  authVitalHost: process.env.AV_HOST!,
-  handler: new IdentitySyncHandler(prisma),
-});
-
-app.post('/webhooks/authvital', router.expressHandler());
-```
-
-### AuthVitalEventHandler
-
-Create a custom handler by extending the base class:
-
-```typescript
-import { AuthVitalEventHandler, WebhookRouter } from '@authvital/sdk/server';
-
-class MyEventHandler extends AuthVitalEventHandler {
-  async onSubjectCreated(event) {
-    await sendWelcomeEmail(event.data.email);
-    await db.users.create({ id: event.data.sub, email: event.data.email });
-  }
-
-  async onMemberJoined(event) {
-    await notifyTeam(event.data.tenant_id, `${event.data.email} joined!`);
-  }
-
-  async onLicenseAssigned(event) {
-    await provisionResources(event.data.sub, event.data.license_type_name);
-  }
-
-  async onInviteAccepted(event) {
-    await notifyInviter(event.data.invited_by, event.data.email);
-  }
-}
-
-const router = new WebhookRouter({
-  authVitalHost: process.env.AV_HOST!,
-  handler: new MyEventHandler(),
-});
-
-app.post('/webhooks', router.expressHandler());
-```
-
-### Event Types
-
-| Event | Handler Method | Description |
-|-------|----------------|-------------|
-| `invite.created` | `onInviteCreated` | Invitation sent |
-| `invite.accepted` | `onInviteAccepted` | Invitation accepted |
-| `invite.deleted` | `onInviteDeleted` | Invitation revoked |
-| `invite.expired` | `onInviteExpired` | Invitation expired |
-| `subject.created` | `onSubjectCreated` | User/service account created |
-| `subject.updated` | `onSubjectUpdated` | User profile updated |
-| `subject.deleted` | `onSubjectDeleted` | User deleted |
-| `subject.deactivated` | `onSubjectDeactivated` | User deactivated |
-| `member.joined` | `onMemberJoined` | User joined tenant |
-| `member.left` | `onMemberLeft` | User left tenant |
-| `member.role_changed` | `onMemberRoleChanged` | Member role changed |
-| `member.suspended` | `onMemberSuspended` | Member suspended |
-| `member.activated` | `onMemberActivated` | Member reactivated |
-| `app_access.granted` | `onAppAccessGranted` | App access granted |
-| `app_access.revoked` | `onAppAccessRevoked` | App access revoked |
-| `app_access.role_changed` | `onAppAccessRoleChanged` | App role changed |
-| `license.assigned` | `onLicenseAssigned` | License assigned |
-| `license.revoked` | `onLicenseRevoked` | License revoked |
-| `license.changed` | `onLicenseChanged` | License type changed |
-
----
-
-## Identity Sync
-
-Mirror AuthVital identities to your local database for offline queries and reduced API calls.
-
-### Prisma Schema
-
-```typescript
-import { printSchema } from '@authvital/sdk/server';
-
-// Print schema to console, then copy to your schema.prisma
-printSchema();
-```
-
-This outputs:
-
-```prisma
-model Identity {
-  id            String    @id                      // AuthVital subject ID
-  email         String?   @unique
-  givenName     String?   @map("given_name")
-  familyName    String?   @map("family_name")
-  pictureUrl    String?   @map("picture_url")
-  thumbnailUrl  String?   @map("thumbnail_url")
-  tenantId      String?   @map("tenant_id")
-  appRole       String?   @map("app_role")
-  isActive      Boolean   @default(true) @map("is_active")
-  syncedAt      DateTime  @default(now()) @map("synced_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-
-  sessions      IdentitySession[]
-
-  @@map("identities")
-}
-
-model IdentitySession {
-  id            String    @id @default(cuid())
-  identityId    String    @map("identity_id")
-  identity      Identity  @relation(fields: [identityId], references: [id], onDelete: Cascade)
-  authSessionId String?   @unique @map("auth_session_id")
-  deviceInfo    String?   @map("device_info")
-  ipAddress     String?   @map("ip_address")
-  userAgent     String?   @map("user_agent")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  lastActiveAt  DateTime  @default(now()) @map("last_active_at")
-  expiresAt     DateTime  @map("expires_at")
-  revokedAt     DateTime? @map("revoked_at")
-
-  @@index([identityId])
-  @@map("identity_sessions")
-}
-```
-
-### IdentitySyncHandler
-
-```typescript
-import { IdentitySyncHandler, WebhookRouter } from '@authvital/sdk/server';
-import { prisma } from './prisma';
-
-const syncHandler = new IdentitySyncHandler(prisma);
-
-const router = new WebhookRouter({
-  authVitalHost: process.env.AV_HOST!,
-  handler: syncHandler,
-});
-
-app.post('/webhooks/authvital', router.expressHandler());
-```
-
-Enable these events in your AuthVital webhook configuration:
-
-- `subject.created` - New user registered
-- `subject.updated` - User profile changed
-- `subject.deleted` - User deleted
-- `subject.deactivated` - User deactivated
-- `member.joined` - User joined tenant
-- `member.left` - User left tenant
-- `member.role_changed` - User's role changed
-- `app_access.granted` - User granted app access
-- `app_access.revoked` - User's app access revoked
-
-### Session Cleanup
-
-```typescript
-import { cleanupSessions, getCleanupSQL } from '@authvital/sdk/server';
-
-// Run daily via cron
-cron.schedule('0 3 * * *', async () => {
-  const result = await cleanupSessions(prisma, {
-    expiredOlderThanDays: 30,  // Delete sessions expired 30+ days ago
-    deleteRevoked: false,       // Keep revoked for audit trail
-  });
-
-  console.log(`Cleaned up ${result.deletedCount} sessions`);
-});
-
-// Or get raw SQL for pg_cron
-const sql = getCleanupSQL({ expiredOlderThanDays: 30 });
-// DELETE FROM identity_sessions WHERE expires_at < NOW() - INTERVAL '30 days';
-```
-
----
-
-## TypeScript Types
-
-All types are exported for type-safe development:
-
-```typescript
-import type {
-  // Config
-  AuthVitalConfig,
-  OAuthFlowConfig,
-
-  // JWT & Auth
-  EnhancedJwtPayload,
-  ValidatedClaims,
-  GetCurrentUserResult,
-  TokenResponse,
-  JwtLicenseInfo,
-
-  // OAuth
-  StatePayload,
-  AuthorizeUrlParams,
-  TokenExchangeParams,
-
-  // Invitations
-  InvitationResponse,
-  PendingInvitation,
-  SendInvitationParams,
-  RevokeInvitationResponse,
-
-  // Memberships
-  TenantMembership,
-  MembershipUser,
-  UserTenantsResponse,
-  TenantRolesResponse,
-  ApplicationRolesResponse,
-
-  // Licenses
-  LicenseCheckResponse,
-  LicenseGrantResponse,
-  LicenseHolder,
-  SubscriptionSummary,
-  TenantLicenseOverview,
-
-  // Sessions
-  SessionInfo,
-  SessionsListResponse,
-
-  // Webhooks
-  SyncEvent,
-  SyncEventType,
-  SubjectCreatedEvent,
-  MemberJoinedEvent,
-  LicenseAssignedEvent,
-
-  // Sync
-  IdentityBase,
-  IdentityCreate,
-  SessionCleanupOptions,
-} from '@authvital/sdk/server';
-```
-
----
-
 ## Environment Variables
 
-All AuthVital environment variables use the `AV_` prefix. Front-end frameworks add their own public-exposure prefix in front (e.g. `VITE_AV_HOST`, `NEXT_PUBLIC_AV_HOST`, `REACT_APP_AV_HOST`).
+All AuthVital SDK environment variables use the `AV_` prefix. Front-end
+frameworks add their own public-exposure prefix in front (e.g. `VITE_AV_HOST`,
+`NEXT_PUBLIC_AV_HOST`).
 
 ```bash
-# --- Required (server-side) ---
+# --- Required ---
 AV_HOST=https://auth.yourapp.com       # Your AuthVital instance URL
-AV_CLIENT_ID=your-client-id            # OAuth client ID (identifies your app to AuthVital)
-AV_CLIENT_SECRET=your-client-secret    # OAuth client secret (server-side ONLY, never ship to browser)
+AV_CLIENT_ID=your-client-id            # OAuth client ID (identifies your app)
+AV_CLIENT_SECRET=your-client-secret    # OAuth client secret (server-side ONLY)
 
 # --- Required when using the server SDK's session cookies ---
-SESSION_SECRET=your-32-char-min-secret # Encryption key for session cookies (see below)
+SESSION_SECRET=your-32-char-min-secret # Encryption key for session cookies
 
 # --- Optional ---
-AV_REDIRECT_URI=https://yourapp.com/api/auth/callback  # OAuth callback (must match dashboard)
+AV_REDIRECT_URI=https://yourapp.com/api/auth/callback  # OAuth callback
 ```
 
 | Variable | Required | Scope | Purpose |
 | --- | --- | --- | --- |
 | `AV_HOST` | Yes | Server + client | Base URL of your AuthVital instance. JWKS and OAuth endpoints are derived from it. |
 | `AV_CLIENT_ID` | Yes | Server + client | Public OAuth client identifier. Safe to expose to the browser. |
-| `AV_CLIENT_SECRET` | Yes | **Server only** | Authenticates your backend *to AuthVital*. Never expose to the browser. |
+| `AV_CLIENT_SECRET` | Server SDK (confidential/M2M clients) | **Server only** | Authenticates your backend *to AuthVital*. Never expose to the browser. Public PKCE clients omit it. |
 | `SESSION_SECRET` | Server SDK only | **Server only** | Symmetric key the server SDK uses to encrypt/decrypt session cookies. |
-| `AV_REDIRECT_URI` | Optional | Server | OAuth callback URL. Must exactly match the one registered in the dashboard. |
+| `AV_REDIRECT_URI` | Optional | Server | OAuth callback URL. Must exactly match the one registered for the client. |
 
 ### Env var ↔ SDK option naming
 
-Environment variables use the `AV_` prefix and `SCREAMING_SNAKE_CASE`. The SDK **configuration options** are `camelCase`. They map one-to-one:
-
-| Environment variable | SDK option / prop |
-| --- | --- |
-| `AV_HOST` | `authVitalHost` |
-| `AV_CLIENT_ID` | `clientId` |
-| `AV_CLIENT_SECRET` | `clientSecret` |
-| `AV_REDIRECT_URI` | `redirectUri` |
-
-You wire them together yourself — the SDK does not read `process.env` for you:
-
-```typescript
-const client = createAuthVital({
-  authVitalHost: process.env.AV_HOST!,
-  clientId: process.env.AV_CLIENT_ID!,
-  clientSecret: process.env.AV_CLIENT_SECRET!,
-});
-```
+Environment variables use the `AV_` prefix and `SCREAMING_SNAKE_CASE`. The SDK
+**configuration options** are `camelCase`, mapping one-to-one: `AV_HOST` →
+`authVitalHost`, `AV_CLIENT_ID` → `clientId`, `AV_CLIENT_SECRET` →
+`clientSecret`, `AV_REDIRECT_URI` → `redirectUri`. You wire them together
+yourself — the SDK does not read `process.env` for you.
 
 ### About `SESSION_SECRET`
 
-`SESSION_SECRET` is **not** an AuthVital credential — that's why it has no `AV_` prefix. It belongs to *your* application. The server SDK (`@authvital/server`) uses it as the **AES-256-GCM encryption key** for the httpOnly session cookie that stores the user's access & refresh tokens (the Backend-for-Frontend pattern).
+`SESSION_SECRET` is **not** an AuthVital credential — that's why it has no
+`AV_` prefix. It belongs to *your* application. The server SDK
+(`@authvital/server`) uses it as the **AES-256-GCM encryption key** for the
+httpOnly session cookie that stores the user's access & refresh tokens (the
+Backend-for-Frontend pattern).
 
-- **Server-side only.** It never reaches the browser. Only the resulting *encrypted* cookie does — the browser can carry the ciphertext but cannot read it. If this key leaked to the client, an attacker could decrypt every user's tokens.
-- **Minimum 32 characters.** It's a real symmetric encryption key, not just a signing salt. Generate one with `openssl rand -hex 32`.
-- **How it differs from `AV_CLIENT_SECRET`.** `AV_CLIENT_SECRET` proves *your backend to AuthVital*. `SESSION_SECRET` is the key *your backend* uses to protect *its own* cookies. AuthVital never sees it.
+- **Server-side only.** The browser only ever carries the *encrypted* cookie.
+  If this key leaked to the client, an attacker could decrypt every user's
+  tokens.
+- **Minimum 32 characters.** It's a real symmetric encryption key. Generate
+  one with `openssl rand -hex 32`.
+- **How it differs from `AV_CLIENT_SECRET`.** `AV_CLIENT_SECRET` proves *your
+  backend to AuthVital*. `SESSION_SECRET` is the key *your backend* uses to
+  protect *its own* cookies. AuthVital never sees it.
 
 ```typescript
 import { createSessionStore } from '@authvital/server';
@@ -1110,10 +243,16 @@ const store = createSessionStore({
 
 > **Never commit real secrets.** Add your `.env` file to `.gitignore`.
 
----
+## Deployment
+
+[`scripts/deploy-gcp.sh`](./scripts/deploy-gcp.sh) is an idempotent script
+that provisions GCP infrastructure (Cloud SQL, Secret Manager) and deploys
+the IdP to Cloud Run from the published Docker image — no local build needed.
+Read the script header for prerequisites and options.
 
 ## License
 
-**TL;DR:** Free to use in your own projects. Modifications must be open-sourced. Commercial SaaS use requires written permission.
+**TL;DR:** Free to use in your own projects. Modifications must be
+open-sourced. Commercial SaaS use requires written permission.
 
 See [LICENSE](./LICENSE) for full terms.

@@ -70,7 +70,7 @@ export class OAuthSessionController {
       const result = await this.oauthService.revokeSession(sid);
       this.clearAuthCookies(res);
       return result;
-    } catch (error) {
+    } catch (_error) {
       this.clearAuthCookies(res);
       return { success: true, message: 'Logged out' };
     }

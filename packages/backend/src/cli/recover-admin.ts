@@ -365,7 +365,8 @@ async function main(): Promise<void> {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`\n❌ Error: ${errorMessage}`);
-    auditLog(args.action!, args.email!, 'FAILURE', errorMessage);
+    // action/email may be missing if parsing failed before they were set.
+    auditLog(args.action ?? 'unknown', args.email ?? 'unknown', 'FAILURE', errorMessage);
     process.exit(1);
   } finally {
     await prisma.$disconnect();

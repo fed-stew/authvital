@@ -10,6 +10,7 @@ import {
   HttpStatus,
   UseGuards,
   BadRequestException,
+  UnauthorizedException,
   Req,
 } from '@nestjs/common';
 import { Request } from 'express';
@@ -170,7 +171,11 @@ export class IntegrationTenantsController {
     @Req() req: RequestWithM2M,
     @Param('invitationId') invitationId: string,
   ) {
-        return this.invitationsService.revokeInvitation(invitationId, req.m2m!.clientId);
+    const m2m = req.m2m;
+    if (!m2m?.clientId) {
+      throw new UnauthorizedException('M2M client information not found');
+    }
+    return this.invitationsService.revokeInvitation(invitationId, m2m.clientId);
   }
 
   /**
@@ -184,6 +189,10 @@ export class IntegrationTenantsController {
     @Req() req: RequestWithM2M,
     @Param('invitationId') invitationId: string,
   ) {
-    return this.invitationsService.resendInvitation(invitationId, req.m2m!.clientId);
+    const m2m = req.m2m;
+    if (!m2m?.clientId) {
+      throw new UnauthorizedException('M2M client information not found');
+    }
+    return this.invitationsService.resendInvitation(invitationId, m2m.clientId);
   }
 }

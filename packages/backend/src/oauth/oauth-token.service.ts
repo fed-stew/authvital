@@ -11,6 +11,7 @@ import { OAuthSessionService } from './oauth-session.service';
 import { OAuthLicenseService } from './oauth-license.service';
 import { MfaService, MfaComplianceResult } from '../auth/mfa/mfa.service';
 import { resolveEffectiveTenantPermissions } from '../authorization/utils/tenant-permissions.util';
+import { hashAuthorizationCode } from './utils/hash-code';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { CodeChallengeMethod, Prisma } from '@prisma/client';
@@ -152,13 +153,17 @@ export class OAuthTokenService {
       throw new BadRequestException('Missing code parameter');
     }
 
+    // Codes are stored hashed at rest — look up (and log) by digest only,
+    // never the plaintext (see utils/hash-code.ts).
+    const codeHash = hashAuthorizationCode(params.code);
+
     this.logger.debug(
-      `[OAuth Token] Exchanging code: ${params.code.substring(0, 8)}...`,
+      `[OAuth Token] Exchanging code (sha256 ${codeHash.substring(0, 8)}...)`,
     );
 
-    // Find authorization code
+    // Find authorization code by its hash
     const authCode = await this.prisma.authorizationCode.findUnique({
-      where: { code: params.code },
+      where: { codeHash },
       include: {
         user: {
           include: {
@@ -288,7 +293,8 @@ export class OAuthTokenService {
       authCode.tenantId,
     );
 
-    // Generate tokens with optional tenant scope
+    // Generate tokens with optional tenant scope. The code row carries the
+    // session-level amr persisted by the authorize endpoint.
     return this.generateTokens(
       authCode.user,
       authCode.applicationClient,
@@ -301,6 +307,7 @@ export class OAuthTokenService {
           }
         : null,
       mfaCompliance,
+      authCode.amr,
     );
   }
 
@@ -429,7 +436,9 @@ export class OAuthTokenService {
       refreshToken.tenantId,
     );
 
-    // Maintain tenant scope when refreshing tokens
+    // Maintain tenant scope when refreshing tokens. The refresh-token row
+    // carries the ORIGINAL session's amr, so refreshed tokens keep reporting
+    // how the user actually logged in.
     return this.generateTokens(
       refreshToken.user,
       refreshToken.applicationClient,
@@ -442,6 +451,7 @@ export class OAuthTokenService {
           }
         : null,
       mfaCompliance,
+      refreshToken.amr,
     );
   }
 
@@ -578,7 +588,15 @@ export class OAuthTokenService {
    * @param tenantScope - Optional tenant scope. If provided, token ONLY includes this tenant.
    *                      This enables "separate token per tenant" pattern for strict isolation.
    * @param mfaCompliance - Tenant MFA compliance at mint time (null for org-less mints).
-   *                        Drives the amr and mfa_grace_expires_at claims.
+   *                        Drives the mfa_grace_expires_at claim; the
+   *                        compliance check itself still gates minting.
+   * @param sessionAmr - AMR (RFC 8176) of the ORIGINAL IdP session, read from
+   *                     the AuthorizationCode/RefreshToken row. 'otp' here
+   *                     means the session truly verified a TOTP code at login.
+   *                     Empty/undefined = legacy pre-amr session → ['pwd']
+   *                     (every pre-amr console login was at least
+   *                     password-authenticated; we claim the weakest method
+   *                     rather than inventing 'otp').
    */
   async generateTokens(
     user: UserWithMemberships,
@@ -587,19 +605,13 @@ export class OAuthTokenService {
     nonce?: string | null,
     tenantScope?: TenantScope | null,
     mfaCompliance?: MfaComplianceResult | null,
+    sessionAmr?: string[] | null,
   ): Promise<TokenResponse> {
     const scopes = scope.split(' ');
 
-    // AMR (Authentication Method References, RFC 8176).
-    // APPROXIMATION / TODO(session-amr): the IdP session does not yet record
-    // whether THIS login actually verified a TOTP code, so we include 'otp'
-    // when the user has MFA enabled AND the tenant policy check confirmed it
-    // (mfaCompliance.mfaEnabled). True session-level amr tracking (stamping
-    // the verification method onto the idp_session at login) is future work.
-    const amr = ['pwd'];
-    if (mfaCompliance?.mfaEnabled) {
-      amr.push('otp');
-    }
+    // AMR (Authentication Method References, RFC 8176): stamped from the
+    // persisted session amr — no approximation.
+    const amr = sessionAmr?.length ? [...sessionAmr] : ['pwd'];
 
     // Minted under grace: policy requires MFA, user not enrolled, window open.
     const mfaGraceExpiresAt =
@@ -666,7 +678,8 @@ export class OAuthTokenService {
       expiresIn: application.accessTokenTtl,
     });
 
-    // Create refresh token session (Token Ghosting)
+    // Create refresh token session (Token Ghosting). Persist the session amr
+    // so the refresh grant re-stamps the ORIGINAL login's methods.
     const refreshTokenRecord = await this.prisma.refreshToken.create({
       data: {
         scope,
@@ -676,6 +689,7 @@ export class OAuthTokenService {
         revoked: false,
         tenantId: tenantScope?.tenantId,
         tenantSubdomain: tenantScope?.tenantSubdomain,
+        amr,
       },
     });
 

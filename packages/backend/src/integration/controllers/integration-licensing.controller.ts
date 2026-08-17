@@ -236,11 +236,15 @@ export class IntegrationLicensingController {
     @Req() req: RequestWithM2M,
     @Body() dto: SetMemberRoleDto,
   ) {
+    const m2m = req.m2m;
+    if (!m2m?.clientId) {
+      throw new UnauthorizedException('M2M client information not found');
+    }
     return this.rolesService.setMemberRole(
       dto.membershipId,
       dto.roleId,
       dto.applicationId,
-      req.m2m!.clientId,
+      m2m.clientId,
     );
   }
 }

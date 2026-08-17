@@ -11,7 +11,7 @@
     <Version>0.0.1</Version>
     <Authors>AuthVital Contributors</Authors>
     <Company>AuthVital</Company>
-    <Description>Official .NET SDK for AuthVital Identity Platform - Coming Soon</Description>
+    <Description>PLACEHOLDER (not yet functional) - reserves the AuthVital .NET SDK namespace; APIs throw NotImplementedException. Use the TypeScript SDKs (@authvital/server, @authvital/browser) today.</Description>
     <PackageTags>authvital;authentication;identity;oauth;sdk;oidc</PackageTags>
     <PackageProjectUrl>https://github.com/authvital/authvital</PackageProjectUrl>
     <RepositoryUrl>https://github.com/authvital/authvital</RepositoryUrl>

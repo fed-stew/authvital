@@ -207,7 +207,10 @@ enum AccessMode {
 /// AuthorizationCode: Pending OAuth authorization codes with PKCE
 model AuthorizationCode {
   id          String  @id @default(cuid())
-  code        String  @unique @default(uuid())
+  // SHA-256 hex of the authorization code. The plaintext code is NEVER
+  // stored — it exists only in the redirect to the client. Generated and
+  // hashed in src/oauth/utils/hash-code.ts (256-bit CSPRNG, base64url).
+  codeHash    String  @unique @map("code_hash")
   redirectUri String  @map("redirect_uri") // Must match exactly on token exchange
   scope       String? // Requested scopes
   state       String? // Client state parameter
@@ -222,6 +225,12 @@ model AuthorizationCode {
   tenantId        String? @map("tenant_id") // The specific tenant this code is for
   tenantSubdomain String? @map("tenant_subdomain") // The subdomain (e.g., "acme")
 
+  // AMR (RFC 8176): how the IdP session that authorized this code actually
+  // authenticated (e.g. ["pwd"], ["pwd","otp"], ["fed"]). Stamped into the
+  // minted access/ID tokens. Empty array = legacy pre-amr code, treated as
+  // ["pwd"] at exchange time.
+  amr String[] @default([])
+
   expiresAt DateTime  @map("expires_at") // Short-lived (typically 10 minutes)
   usedAt    DateTime? @map("used_at") // Mark as used to prevent replay
   createdAt DateTime  @default(now()) @map("created_at")
@@ -231,7 +240,6 @@ model AuthorizationCode {
   applicationClientId String            @map("application_client_id")
   applicationClient   ApplicationClient @relation(fields: [applicationClientId], references: [id], onDelete: Cascade)
 
-  @@index([code])
   @@index([userId])
   @@index([applicationClientId])
   @@map("authorization_codes")
@@ -264,6 +272,12 @@ model RefreshToken {
   // When set, refreshed tokens will ONLY include this tenant
   tenantId        String? @map("tenant_id") // The specific tenant this token is for
   tenantSubdomain String? @map("tenant_subdomain") // The subdomain (e.g., "acme")
+
+  // AMR (RFC 8176) of the ORIGINAL IdP session that started this token
+  // family. Copied from the authorization code at first mint and re-stamped
+  // on every refresh, so refreshed tokens keep reporting how the user
+  // actually logged in. Empty array = legacy row, treated as ["pwd"].
+  amr String[] @default([])
 
   userId              String            @map("user_id")
   user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)

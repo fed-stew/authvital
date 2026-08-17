@@ -21,6 +21,10 @@ export interface RequiredEnvVars {
   CORS_ORIGINS?: string;
   KEY_ROTATION_INTERVAL_SECONDS?: string;
   PASSIVE_KEY_LIFETIME_HOURS?: string;
+  // Console session TTLs (rolling window + absolute cap, in seconds).
+  // See auth/constants/token-ttl.ts for defaults and semantics.
+  CONSOLE_SESSION_TTL_SECONDS?: string;
+  CONSOLE_SESSION_ABSOLUTE_TTL_SECONDS?: string;
   
   // SendGrid (optional - falls back to console logging)
   SENDGRID_API_KEY?: string;
@@ -65,6 +69,17 @@ export function validateEnv(): void {
   // Validate PORT is a number
   if (process.env.PORT && isNaN(parseInt(process.env.PORT, 10))) {
     missing.push('PORT (must be a valid number)');
+  }
+
+  // Optional console-session TTL overrides must be positive integers
+  for (const ttlVar of [
+    'CONSOLE_SESSION_TTL_SECONDS',
+    'CONSOLE_SESSION_ABSOLUTE_TTL_SECONDS',
+  ] as const) {
+    const raw = process.env[ttlVar];
+    if (raw !== undefined && (isNaN(parseInt(raw, 10)) || parseInt(raw, 10) <= 0)) {
+      missing.push(`${ttlVar} (must be a positive number of seconds)`);
+    }
   }
   
   // Warn about optional but recommended variables

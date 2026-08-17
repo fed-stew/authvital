@@ -15,6 +15,15 @@ export interface JwtPayload {
   // Application-specific roles (just slugs - no permissions)
   // Permission checking happens in the consuming application layer
   app_roles?: string[];
+  // AMR (RFC 8176): how this session/token actually authenticated.
+  // Missing on legacy tokens minted before session-amr tracking → consumers
+  // treat that as ['pwd'].
+  amr?: string[];
+  // Open MFA-enrollment grace window for the token's tenant (unix seconds).
+  mfa_grace_expires_at?: number;
+  // Console-session claim: first-login timestamp (unix seconds), preserved
+  // across sliding re-issues (see SessionRefreshInterceptor).
+  session_start?: number;
   // License info
   license?: {
     type: string;

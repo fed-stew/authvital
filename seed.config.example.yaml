@@ -314,7 +314,7 @@ applications:
   # it's normalized into a one-credential container at seed time). To give ONE
   # app BOTH a browser (SPA) identity and a server (MACHINE) identity, use the
   # nested `credentials:` list instead — see the "Web BFF" app in
-  # seed.config.examples.yaml for a worked example:
+  # seed.config.uat.yaml for a worked example:
   #
   #   - name: "Backend API Worker"
   #     slug: backend-api

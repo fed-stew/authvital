@@ -292,6 +292,11 @@ export class AuthController {
       userId: req.user.id,
       email: req.user.email || user?.email || '',
       expiresAt: new Date(Date.now() + 30 * 1000),
+      // Carry the session's amr + session_start across the redirect hop so
+      // the exchanged session neither upgrades its auth level nor restarts
+      // the absolute-cap clock. Legacy sessions have neither claim.
+      amr: req.user.amr,
+      sessionStart: req.user.session_start,
     });
 
     return { redirectToken: token };

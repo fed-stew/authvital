@@ -8,7 +8,7 @@
  */
 
 import * as path from 'path';
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 require('dotenv').config({ path: path.join(process.cwd(), '.env') });
 
 // Build DATABASE_URL from components if not provided directly (Cloud SQL socket connection)

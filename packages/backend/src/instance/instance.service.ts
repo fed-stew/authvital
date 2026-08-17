@@ -58,15 +58,19 @@ export class InstanceService implements OnModuleInit {
       where: { id: this.SINGLETON_ID },
     });
 
-    if (!instance) {
-      // Should not happen after ensureSingleton, but handle defensively
-      await this.ensureSingleton();
-      return this.prisma.instanceMeta.findUnique({
-        where: { id: this.SINGLETON_ID },
-      });
+    if (instance) {
+      return instance;
     }
 
-    return instance;
+    // Should not happen after ensureSingleton, but handle defensively
+    await this.ensureSingleton();
+    const recreated = await this.prisma.instanceMeta.findUnique({
+      where: { id: this.SINGLETON_ID },
+    });
+    if (!recreated) {
+      throw new Error('InstanceMeta singleton missing even after ensureSingleton()');
+    }
+    return recreated;
   }
 
   /**
@@ -75,7 +79,7 @@ export class InstanceService implements OnModuleInit {
    */
   async getInstanceUuid(): Promise<string> {
     const instance = await this.getInstanceMeta();
-    return instance!.instanceUuid;
+    return instance.instanceUuid;
   }
 
   /**
@@ -115,15 +119,15 @@ export class InstanceService implements OnModuleInit {
   async getSignupConfig() {
     const instance = await this.getInstanceMeta();
     return {
-      allowSignUp: instance!.allowSignUp,
-      autoCreateTenant: instance!.autoCreateTenant,
-      allowGenericDomains: instance!.allowGenericDomains,
-      allowAnonymousSignUp: instance!.allowAnonymousSignUp,
-      requiredUserFields: instance!.requiredUserFields,
-      defaultTenantRoleIds: instance!.defaultTenantRoleIds,
+      allowSignUp: instance.allowSignUp,
+      autoCreateTenant: instance.autoCreateTenant,
+      allowGenericDomains: instance.allowGenericDomains,
+      allowAnonymousSignUp: instance.allowAnonymousSignUp,
+      requiredUserFields: instance.requiredUserFields,
+      defaultTenantRoleIds: instance.defaultTenantRoleIds,
       // Single-tenant mode
-      singleTenantMode: instance!.singleTenantMode,
-      defaultTenantId: instance!.defaultTenantId,
+      singleTenantMode: instance.singleTenantMode,
+      defaultTenantId: instance.defaultTenantId,
     };
   }
 
@@ -133,16 +137,16 @@ export class InstanceService implements OnModuleInit {
   async getBrandingConfig() {
     const instance = await this.getInstanceMeta();
     return {
-      name: instance!.brandingName || instance!.name,
-      logoUrl: instance!.brandingLogoUrl,
-      iconUrl: instance!.brandingIconUrl,
-      primaryColor: instance!.brandingPrimaryColor,
-      backgroundColor: instance!.brandingBackgroundColor,
-      accentColor: instance!.brandingAccentColor,
-      supportUrl: instance!.brandingSupportUrl,
-      privacyUrl: instance!.brandingPrivacyUrl,
-      termsUrl: instance!.brandingTermsUrl,
-      initiateLoginUri: instance!.initiateLoginUri,
+      name: instance.brandingName || instance.name,
+      logoUrl: instance.brandingLogoUrl,
+      iconUrl: instance.brandingIconUrl,
+      primaryColor: instance.brandingPrimaryColor,
+      backgroundColor: instance.brandingBackgroundColor,
+      accentColor: instance.brandingAccentColor,
+      supportUrl: instance.brandingSupportUrl,
+      privacyUrl: instance.brandingPrivacyUrl,
+      termsUrl: instance.brandingTermsUrl,
+      initiateLoginUri: instance.initiateLoginUri,
     };
   }
 }

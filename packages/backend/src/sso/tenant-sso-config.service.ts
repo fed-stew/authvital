@@ -102,22 +102,26 @@ export class TenantSsoConfigService {
       return null;
     }
 
-    // Merge configs - tenant overrides instance
-    const hasCustomCredentials = tenantConfig?.clientId && tenantConfig?.clientSecretEnc;
+    // Merge configs - tenant overrides instance. Capturing both fields in one
+    // narrowed object lets TS track non-nullness without assertions.
+    const customCredentials =
+      tenantConfig?.clientId && tenantConfig.clientSecretEnc
+        ? { clientId: tenantConfig.clientId, clientSecretEnc: tenantConfig.clientSecretEnc }
+        : null;
 
     return {
       provider,
       enabled: tenantConfig?.enabled ?? instanceConfig.enabled,
-      clientId: hasCustomCredentials ? tenantConfig!.clientId! : instanceConfig.clientId,
-      clientSecret: hasCustomCredentials
-        ? this.encryption.decrypt(tenantConfig!.clientSecretEnc!)
+      clientId: customCredentials ? customCredentials.clientId : instanceConfig.clientId,
+      clientSecret: customCredentials
+        ? this.encryption.decrypt(customCredentials.clientSecretEnc)
         : this.encryption.decrypt(instanceConfig.clientSecretEnc),
       scopes: instanceConfig.scopes, // Always use instance scopes
       allowedDomains: tenantConfig?.allowedDomains?.length
         ? tenantConfig.allowedDomains
         : instanceConfig.allowedDomains,
       enforced: tenantConfig?.enforced ?? false,
-      source: hasCustomCredentials ? 'tenant' : 'instance',
+      source: customCredentials ? 'tenant' : 'instance',
     };
   }
 

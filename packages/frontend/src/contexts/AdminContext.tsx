@@ -66,7 +66,7 @@ function AdminProvider({ children }: AdminProviderProps) {
       const profile = await superAdminApi.getProfile();
       setAdmin(profile);
       setIsAuthenticated(true);
-    } catch (error) {
+    } catch (_error) {
       // Not authenticated or session expired
       setAdmin(null);
       setIsAuthenticated(false);

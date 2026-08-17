@@ -74,6 +74,8 @@ personas to exercise the gating.
 
 No webhook prereq: the Web BFF webhook is **seeded** (URL + enabled + event
 filter), so `/events` works out of the box — no `/admin` step (README §3).
+Note: `/events` displays webhook PII and therefore **requires a signed-in
+session** — logged out it returns **401** with a "sign in first" page.
 
 | Step                                   | Host / endpoint                          | Expected outcome                                                                                                   | Pass/Fail |
 | -------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | --------- |
@@ -82,7 +84,8 @@ filter), so `/events` works out of the box — no `/admin` step (README §3).
 | Protected route (logged **in**)        | `https://bff.lvh.me/api/protected`       | Returns **200** with validated claims                                                                              |  |
 | Permission check                       | `https://bff.lvh.me/api/permission?permission=content:edit` | JSON reflects `hasAppPermission` for the logged-in user's claims                              |  |
 | M2M token                              | `https://bff.lvh.me/api/m2m`             | Returns token **metadata only** (`token_preview`, scopes, subject, exp) — never the raw token                     |  |
-| Webhook round-trip                     | trigger an event for the **Web BFF app** → `https://bff.lvh.me/events` | `/events` shows the **verified event (Verified = yes) + updated in-memory identity** — no config needed |  |
+| Events viewer (logged **out**)         | `https://bff.lvh.me/events`              | Returns **401** with a "sign in first" page (no webhook PII leaked)                                                |  |
+| Webhook round-trip (logged **in**)     | trigger an event for the **Web BFF app** → `https://bff.lvh.me/events` | `/events` shows a **PII warning banner** + the **verified event (Verified = yes) + updated in-memory identity** — no config needed |  |
 
 ### Suggested webhook triggers (Step 6)
 

@@ -75,8 +75,14 @@ export class PasswordResetService {
     const resetUrl = `${this.baseUrl}/auth/reset-password?token=${resetToken}`;
 
     // Send the password reset email
-    // Note: user.email is guaranteed to exist since we queried by email
-    const userEmail = user.email!;
+    // Note: user.email is expected to exist since we queried by email, but the
+    // column is nullable in the schema — bail out quietly (same generic
+    // response as the user-not-found path) rather than crash.
+    const userEmail = user.email;
+    if (!userEmail) {
+      this.logger.warn(`Password reset requested for user ${user.id} with no email on record`);
+      return { success: true };
+    }
     await this.emailService.sendPasswordResetEmail(userEmail, resetToken, {
       name: user.givenName || undefined,
       resetUrl,

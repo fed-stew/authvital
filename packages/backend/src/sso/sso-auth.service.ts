@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuthService } from '../auth/auth.service';
 import { SsoProviderService } from './sso-provider.service';
 import { TenantSsoConfigService } from './tenant-sso-config.service';
 import { GoogleProvider } from './providers/google.provider';
@@ -45,6 +46,7 @@ export class SsoAuthService {
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly authService: AuthService,
     private readonly ssoProviderService: SsoProviderService,
     private readonly tenantSsoConfigService: TenantSsoConfigService,
     private readonly googleProvider: GoogleProvider,
@@ -222,7 +224,9 @@ export class SsoAuthService {
     return {
       user: {
         id: user.id,
-        email: user.email!,
+        // The DB column is nullable, but the SSO profile email is what
+        // matched/created this user — fall back to it rather than assert.
+        email: user.email ?? profile.email,
         displayName: user.displayName || undefined,
       },
       isNewUser,
@@ -365,23 +369,23 @@ export class SsoAuthService {
   }
 
   /**
-   * Generate access token for user
-   * TODO: Refactor to use shared AuthService method
+   * Generate the console/IdP session token for a federated login.
+   *
+   * Delegates to the ONE canonical console-JWT mint (AuthService.generateJwt,
+   * RS256 via the rotating signing keys — the previous HS256/MASTER_SECRET
+   * token here could never be verified by JwtAuthGuard). amr is ['fed']
+   * (RFC 8176): the external IdP authenticated the user; no local MFA step
+   * runs in this flow, so 'otp' is never appended here.
    */
   private async generateAccessToken(userId: string): Promise<string> {
-    const jwt = await import('jsonwebtoken');
-    const secret = this.configService.getOrThrow<string>('MASTER_SECRET');
-
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, email: true },
     });
 
-    return jwt.sign(
-      { sub: userId, email: user?.email },
-      secret,
-      { expiresIn: '7d' },
-    );
+    return this.authService.generateJwt(userId, user?.email || '', {
+      amr: ['fed'],
+    });
   }
 
   /**

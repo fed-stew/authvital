@@ -147,7 +147,7 @@ services:
       # Seed the examples/UAT stack from the COMMITTED canonical seed (overrides
       # the base file's ./seed.config.yaml mount by container-path). This is what
       # makes a fresh clone's `make up` boot the full lvh.me demo with zero setup.
-      - ./seed.config.examples.yaml:/app/seed.config.yaml:ro
+      - ./seed.config.uat.yaml:/app/seed.config.yaml:ro
     environment:
       # Issuer / OAuth base URL must match how browsers reach the IdP
       BASE_URL: https://auth.lvh.me
@@ -192,7 +192,7 @@ services:
       # production (docker-compose.yml / deploy scripts) never sets this.
       SEED_SUPER_ADMIN_USE_YAML_PASSWORD: "true"
     volumes:
-      - ./seed.config.examples.yaml:/app/seed.config.yaml:ro
+      - ./seed.config.uat.yaml:/app/seed.config.yaml:ro
 
   # ===========================================================================
   # spa-react - "My Local App" SPA  ->  app.lvh.me (+ {tenant}.app.lvh.me)

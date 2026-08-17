@@ -1,8 +1,12 @@
 # AuthVital SDK for Python
 
-> **🚧 Coming Soon**
+> **⚠️ PLACEHOLDER — not yet functional.** This package reserves the
+> namespace; every API throws `NotImplementedError`. Use the TypeScript SDKs
+> ([`@authvital/server`](https://github.com/authvital/authvital/tree/main/packages/sdk-server),
+> [`@authvital/browser`](https://github.com/authvital/authvital/tree/main/packages/sdk-browser))
+> today.
 
-Official Python SDK for [AuthVital](https://github.com/authvital/authvital) Identity Platform.
+Python SDK namespace reservation for [AuthVital](https://github.com/authvital/authvital) Identity Platform.
 
 ## Installation
 
@@ -12,7 +16,9 @@ pip install authvital-sdk
 
 ## Status
 
-This package is a placeholder. The full SDK is under active development.
+**Placeholder — not yet functional.** Installing it works, but every entry
+point raises `NotImplementedError`. The full SDK is under active development;
+until it ships, integrate via the TypeScript SDKs above.
 
 Follow the [main repository](https://github.com/authvital/authvital) for updates!
 

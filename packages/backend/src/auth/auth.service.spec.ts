@@ -36,6 +36,7 @@ describe("AuthService", () => {
   const mockMfaService = {
     isMfaEnabled: jest.fn().mockResolvedValue(false),
     verifyToken: jest.fn(),
+    verifyUserMfa: jest.fn(),
     generateSetup: jest.fn(),
   };
 
@@ -98,7 +99,7 @@ describe("AuthService", () => {
       });
 
       expect(mockKeyService.signJwt).toHaveBeenCalledWith(
-        { email: "" },
+        expect.objectContaining({ email: "" }),
         expect.objectContaining({ subject: "u1" }),
       );
       expect(result.user.email).toBe("");
@@ -236,10 +237,11 @@ describe("AuthService", () => {
       });
 
       expect(mockKeyService.signJwt).toHaveBeenCalledWith(
-        { email: "" },
+        expect.objectContaining({ email: "" }),
         expect.objectContaining({ subject: "u1" }),
       );
-      expect(result.user!.email).toBeNull();
+      expect(result.user).toBeDefined();
+      expect(result.user?.email).toBeNull();
     });
   });
 
@@ -268,20 +270,71 @@ describe("AuthService", () => {
       expect(result).toEqual({ id: "u1" });
     });
 
-    it("generateJwt signs with issuer and 7-day expiration", async () => {
+    it("generateJwt signs with issuer and the rolling console TTL (default 1h), stamping amr ['pwd'] and session_start", async () => {
       mockKeyService.signJwt.mockResolvedValue("token");
+      const before = Math.floor(Date.now() / 1000);
 
       const token = await service.generateJwt("u1", "u@example.com");
 
       expect(mockKeyService.signJwt).toHaveBeenCalledWith(
-        { email: "u@example.com" },
+        {
+          email: "u@example.com",
+          amr: ["pwd"],
+          session_start: expect.any(Number),
+        },
         {
           subject: "u1",
           issuer: "https://issuer.example.com",
-          expiresIn: 7 * 24 * 60 * 60,
+          expiresIn: 60 * 60,
         },
       );
+      const sessionStart =
+        mockKeyService.signJwt.mock.calls[0][0].session_start;
+      expect(sessionStart).toBeGreaterThanOrEqual(before);
       expect(token).toBe("token");
+    });
+
+    it("generateJwt preserves an explicit amr / session_start / expiresIn (sliding re-issue)", async () => {
+      mockKeyService.signJwt.mockResolvedValue("token");
+
+      await service.generateJwt("u1", "u@example.com", {
+        amr: ["pwd", "otp"],
+        sessionStart: 1_234_567,
+        expiresIn: 120,
+      });
+
+      expect(mockKeyService.signJwt).toHaveBeenCalledWith(
+        {
+          email: "u@example.com",
+          amr: ["pwd", "otp"],
+          session_start: 1_234_567,
+        },
+        expect.objectContaining({ expiresIn: 120 }),
+      );
+    });
+
+    it("verifyMfaAndCompleteLogin mints the session with amr ['pwd','otp']", async () => {
+      mockKeyService.verifyJwt.mockResolvedValue({
+        type: "mfa_challenge",
+        userType: "user",
+        sub: "u1",
+      });
+      mockMfaService.verifyUserMfa.mockResolvedValue(undefined);
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: "u1",
+        email: "u@example.com",
+        givenName: null,
+        familyName: null,
+        memberships: [],
+      });
+      mockKeyService.signJwt.mockResolvedValue("jwt-token");
+
+      await service.verifyMfaAndCompleteLogin("challenge-token", "123456");
+
+      expect(mockKeyService.signJwt).toHaveBeenCalledWith(
+        expect.objectContaining({ amr: ["pwd", "otp"] }),
+        expect.objectContaining({ subject: "u1" }),
+      );
     });
 
     it("validateJwt returns payload when verification succeeds", async () => {

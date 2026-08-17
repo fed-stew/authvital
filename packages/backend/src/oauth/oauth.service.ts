@@ -15,8 +15,11 @@ import { MfaService } from '../auth/mfa/mfa.service';
 import { MfaEnrollmentRequiredException } from '../auth/mfa/mfa-enrollment-required.exception';
 import { AuditService } from '../audit/audit.service';
 import { AUDIT_ACTIONS, AUDIT_TARGET_TYPES } from '../audit/audit-actions';
-import { v4 as uuidv4 } from 'uuid';
 import * as crypto from 'crypto';
+import {
+  generateAuthorizationCode,
+  hashAuthorizationCode,
+} from './utils/hash-code';
 import { ApplicationType, CodeChallengeMethod } from '@prisma/client';
 
 export interface AuthorizeParams {
@@ -71,8 +74,17 @@ export class OAuthService {
 
   /**
    * Validate authorize request and generate authorization code
+   *
+   * @param sessionAmr - AMR (RFC 8176) of the VERIFIED idp_session that is
+   *                     authorizing this request. Persisted on the code row
+   *                     and stamped into the eventually-minted tokens.
+   *                     Undefined/empty (legacy pre-amr sessions) → ['pwd'].
    */
-  async authorize(userId: string, params: AuthorizeParams): Promise<string> {
+  async authorize(
+    userId: string,
+    params: AuthorizeParams,
+    sessionAmr?: string[],
+  ): Promise<string> {
     // Verify user exists (handles stale sessions after database reseed)
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -163,14 +175,16 @@ export class OAuthService {
       // so nothing extra needs to be persisted on the authorization code.
     }
 
-    // Generate authorization code
-    const code = uuidv4();
+    // Generate authorization code: 256 bits of CSPRNG entropy. Only the
+    // SHA-256 hash is persisted — the plaintext exists solely in the
+    // redirect back to the client (see utils/hash-code.ts).
+    const code = generateAuthorizationCode();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    // Store authorization code with PKCE data and optional tenant scope
+    // Store authorization code (hashed) with PKCE data and optional tenant scope
     await this.prisma.authorizationCode.create({
       data: {
-        code,
+        codeHash: hashAuthorizationCode(code),
         redirectUri: params.redirectUri,
         scope: params.scope || 'openid profile email',
         state: params.state,
@@ -184,6 +198,8 @@ export class OAuthService {
         applicationClientId: app.id,
         tenantId: params.tenantId,
         tenantSubdomain: params.tenantSubdomain,
+        // Session-level amr: how the authorizing idp_session authenticated.
+        amr: sessionAmr?.length ? sessionAmr : ['pwd'],
       },
     });
 

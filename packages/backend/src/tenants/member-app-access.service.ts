@@ -530,7 +530,7 @@ export class MemberAppAccessService {
         applicationId,
         revokedById: options?.performedById,
       });
-    } catch (e) {
+    } catch (_e) {
       this.logger.debug(`No access record to revoke for user ${membership.user.id}`);
     }
 

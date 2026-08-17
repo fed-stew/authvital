@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as sgMail from '@sendgrid/mail';
+import { getRequiredEnv } from '../config/env.validation';
 
 /**
  * Email Service
@@ -15,8 +16,8 @@ export class EmailService {
   private readonly baseUrl: string;
 
   constructor() {
-    // BASE_URL is validated at startup - guaranteed to exist
-    this.baseUrl = process.env.BASE_URL!;
+    // BASE_URL is validated at startup - getRequiredEnv throws if it is missing
+    this.baseUrl = getRequiredEnv('BASE_URL');
     // SendGrid config is optional - falls back to console logging if not configured
     this.fromEmail = process.env.SENDGRID_FROM_EMAIL ?? '';
     this.fromName = process.env.SENDGRID_FROM_NAME ?? '';

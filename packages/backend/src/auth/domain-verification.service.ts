@@ -310,6 +310,12 @@ export class DomainVerificationService {
 
     await this.prisma.$transaction(async (tx) => {
       for (const user of users) {
+        // Users were matched by email domain, so email should exist — but the
+        // column is nullable, so skip defensively instead of asserting.
+        if (!user.email) {
+          continue;
+        }
+
         // Check if already a member
         const existingMembership = user.memberships.find(
           (m) => m.tenantId === domain.tenantId,
@@ -345,7 +351,7 @@ export class DomainVerificationService {
 
         results.push({
           id: user.id,
-          email: user.email!,
+          email: user.email,
           previousTenantId: previousTenant?.tenantId || null,
         });
       }
@@ -400,8 +406,7 @@ export class DomainVerificationService {
         }
       }
       return false;
-    } catch (error) {
-      // DNS lookup failed (NXDOMAIN, SERVFAIL, etc.)
+    } catch (_error) {      // DNS lookup failed (NXDOMAIN, SERVFAIL, etc.)
       return false;
     }
   }

@@ -2,9 +2,7 @@ jest.mock("./key.service", () => ({
   KeyService: class MockKeyService {},
 }));
 
-// uuid ships ESM-only; jest's transformIgnorePatterns only whitelists jose.
-jest.mock("uuid", () => ({ v4: () => "mock-uuid-code" }));
-
+import * as crypto from "crypto";
 import { ConfigService } from "@nestjs/config";
 import { OAuthService, AuthorizeParams } from "./oauth.service";
 import { MfaEnrollmentRequiredException } from "../auth/mfa/mfa-enrollment-required.exception";
@@ -171,6 +169,62 @@ describe("OAuthService — MFA-at-mint enforcement in authorize()", () => {
 
     expect(mockMfaService.checkUserMfaCompliance).not.toHaveBeenCalled();
     expect(mockPrisma.authorizationCode.create).toHaveBeenCalled();
+  });
+
+  describe("authorization code hashing at rest", () => {
+    it("persists only the SHA-256 hash of the code — never the plaintext", async () => {
+      const code = await service.authorize("u1", baseParams);
+
+      const { data } = mockPrisma.authorizationCode.create.mock.calls[0][0];
+      expect(data.codeHash).toBe(
+        crypto.createHash("sha256").update(code).digest("hex"),
+      );
+      expect(data).not.toHaveProperty("code");
+    });
+
+    it("returns a 256-bit base64url code, fresh per authorize call", async () => {
+      const first = await service.authorize("u1", baseParams);
+      const second = await service.authorize("u1", baseParams);
+
+      // 32 CSPRNG bytes → 43 unpadded base64url chars.
+      expect(first).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(second).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(first).not.toBe(second);
+    });
+  });
+
+  describe("session-level amr persistence", () => {
+    it("persists the verified session amr on the authorization code row", async () => {
+      await service.authorize("u1", baseParams, ["pwd", "otp"]);
+
+      expect(mockPrisma.authorizationCode.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ amr: ["pwd", "otp"] }),
+      });
+    });
+
+    it("federated sessions persist ['fed']", async () => {
+      await service.authorize("u1", baseParams, ["fed"]);
+
+      expect(mockPrisma.authorizationCode.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ amr: ["fed"] }),
+      });
+    });
+
+    it("legacy sessions without an amr claim persist ['pwd']", async () => {
+      await service.authorize("u1", baseParams); // no sessionAmr
+
+      expect(mockPrisma.authorizationCode.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ amr: ["pwd"] }),
+      });
+    });
+
+    it("an EMPTY amr array is normalized to ['pwd'] too", async () => {
+      await service.authorize("u1", baseParams, []);
+
+      expect(mockPrisma.authorizationCode.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ amr: ["pwd"] }),
+      });
+    });
   });
 
   describe("issueMfaEnrollmentResumeToken", () => {

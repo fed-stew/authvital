@@ -241,8 +241,25 @@ distinction is exposed machine-readably — Express sets
 `req.authFailureReason = 'interaction_required'` (readable from guards and
 exception filters), and the Next.js helpers return a context with
 `failureReason: 'interaction_required'` (the edge middleware redirects to
-your login page with `?reason=interaction_required`). Branch on these to
-restart the authorize flow instead of showing a generic 401.
+your login page with `?reason=interaction_required` AND an
+`x-authvital-reason: interaction_required` response header, for apps or
+proxies that strip query params). Branch on these to restart the authorize
+flow instead of showing a generic 401.
+
+#### Breaking-ish change (0.2.0): generic refresh failures
+
+Previously, when a silent token refresh failed for a **generic** reason
+(revoked session, `invalid_grant`, IdP unreachable, ...), the middlewares
+still attached an authenticated context carrying the **expired** access
+token. As of 0.2.0 they no longer do: on ANY refresh failure the session
+cookie is cleared and the request continues **unauthenticated**, with the
+reason exposed the same way as above but as `'refresh_failed'` (Express:
+`res.locals.authFailureReason`, NestJS: `req.authFailureReason`, Next.js
+helpers: `failureReason`; the Next.js edge middleware redirects with
+`?reason=refresh_failed` plus an `x-authvital-reason: refresh_failed`
+response header). If your app relied on receiving a stale
+`req.authVital` after a failed refresh, treat these requests as logged-out
+instead.
 
 ---
 
@@ -388,6 +405,42 @@ export async function GET(request: NextRequest) {
 
   const user = await auth.client.getCurrentUser();
   return NextResponse.json({ user });
+}
+```
+
+#### Clearing the session cookie (RSC gap)
+
+`getServerAuth` runs in a Server Component and **cannot** clear cookies. When
+it reports `failureReason`, clear the stale session from a route handler or
+server action with `clearSessionCookie` — it uses the exact same cookie
+name/options as the middleware:
+
+```typescript
+// app/api/logout/route.ts — NextResponse flavor
+import { NextResponse } from 'next/server';
+import { clearSessionCookie } from '@authvital/server/nextjs';
+
+export async function POST(request: Request) {
+  const response = NextResponse.redirect(new URL('/login', request.url));
+  clearSessionCookie(response, {
+    secret: process.env.SESSION_SECRET!,
+    authVitalHost: process.env.AV_HOST!,
+  });
+  return response;
+}
+```
+
+```typescript
+// app/actions.ts — server action flavor (mutable cookie store)
+'use server';
+import { cookies } from 'next/headers';
+import { clearSessionCookie } from '@authvital/server/nextjs';
+
+export async function logout() {
+  clearSessionCookie(await cookies(), {
+    secret: process.env.SESSION_SECRET!,
+    authVitalHost: process.env.AV_HOST!,
+  });
 }
 ```
 

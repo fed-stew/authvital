@@ -11,6 +11,10 @@ export interface RedirectTokenData {
   tenantId?: string;
   tenantSlug?: string;
   expiresAt: Date;
+  /** AMR of the session that minted this token (RFC 8176). Missing = ['pwd']. */
+  amr?: string[];
+  /** session_start of the originating console session (unix seconds). */
+  sessionStart?: number;
 }
 
 // Single shared Map for all controllers

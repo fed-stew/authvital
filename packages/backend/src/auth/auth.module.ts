@@ -1,4 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../prisma/prisma.module';
 import { InstanceModule } from '../instance/instance.module';
@@ -25,6 +26,7 @@ import { PasswordBreachCheckService } from './password-breach-check.service';
 
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { OptionalAuthGuard } from './guards/optional-auth.guard';
+import { SessionRefreshInterceptor } from './session-refresh.interceptor';
 import { ApiKeyService } from './api-key.service';
 import { ApiKeyController } from './api-key.controller';
 import { MfaModule } from './mfa';
@@ -63,6 +65,10 @@ import { MfaModule } from './mfa';
     JwtAuthGuard,
     OptionalAuthGuard,
     ApiKeyService,
+    // Sliding re-issuance of the idp_session cookie. Registered globally so
+    // it covers the same scope as the cookie-reading guards (JwtAuthGuard /
+    // OptionalAuthGuard) on every route.
+    { provide: APP_INTERCEPTOR, useClass: SessionRefreshInterceptor },
   ],
   exports: [AuthService, JwtAuthGuard, OptionalAuthGuard, SignUpService, ApiKeyService, KeyModule, EmailService, MfaModule, PasswordBreachCheckService],
 })

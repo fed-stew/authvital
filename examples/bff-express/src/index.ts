@@ -345,7 +345,26 @@ app.post('/webhooks', express.raw({ type: '*/*' }), async (req: Request, res: Re
 });
 
 // ---- Events viewer --------------------------------------------------------
-app.get('/events', (_req: Request, res: Response) => {
+// ⚠️ SECURITY: this page renders captured webhook payloads and identity PII
+// (emails, memberships, licenses). It MUST stay behind a valid session — and
+// even authenticated, it's a demo-only viewer. Never expose anything like
+// this in production.
+app.get('/events', async (req: Request, res: Response) => {
+  const validation = await validateRequest(getSessionTokens(req));
+  if (!validation.valid) {
+    res.status(401).send(
+      page('Sign in first', `
+      <h1>Sign in first</h1>
+      <div class="card">
+        <p>The <code>/events</code> viewer shows captured webhook payloads and
+        identity PII, so it requires a signed-in session
+        (<span class="muted">${esc(validation.reason)}</span>).</p>
+        <a class="btn" href="/api/auth/login">Log in (PKCE)</a>
+      </div>`),
+    );
+    return;
+  }
+
   const events = getEvents();
   const identities = getIdentities();
 
@@ -370,6 +389,9 @@ app.get('/events', (_req: Request, res: Response) => {
 
   res.send(
     page('Webhook events', `
+    <div class="card" style="border-color:#b45309;background:#3b2410">
+      <strong>⚠️ Demo viewer — exposes webhook PII; never expose in production.</strong>
+    </div>
     <h1>Captured webhook events</h1>
     <p class="muted">Verified via JWKS (${esc(jwksUri)}). Newest first. In-memory only.</p>
     <table>

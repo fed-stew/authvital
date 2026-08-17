@@ -5,6 +5,7 @@ import {
   Res,
   Logger,
   BadRequestException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
@@ -39,14 +40,23 @@ export class SuperAdminAuthController {
       const result = await this.authService.login(body.email, body.password);
 
       if (result.mfaRequired || result.mfaSetupRequired) {
+        if (!result.mfaChallengeToken) {
+          // Service invariant: an MFA response always carries a challenge token.
+          throw new UnauthorizedException('MFA challenge could not be created');
+        }
         return {
           status: 200 as const,
           body: {
             mfaRequired: true as const,
             mfaSetupRequired: result.mfaSetupRequired,
-            mfaChallengeToken: result.mfaChallengeToken!,
+            mfaChallengeToken: result.mfaChallengeToken,
           } as any,
         };
+      }
+
+      if (!result.admin) {
+        // Service invariant: a non-MFA login result always carries the admin.
+        throw new UnauthorizedException('Login failed');
       }
 
       res.cookie('super_admin_session', result.accessToken, getSuperAdminCookieOptions());
@@ -54,7 +64,7 @@ export class SuperAdminAuthController {
       return {
         status: 200 as const,
         body: {
-          admin: result.admin!,
+          admin: result.admin,
           mustChangePassword: result.mustChangePassword,
         } as any,
       };

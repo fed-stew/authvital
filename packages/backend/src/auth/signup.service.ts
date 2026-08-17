@@ -382,7 +382,7 @@ export class SignUpService {
 
       this.syncEventService
         .emit(SYNC_EVENT_TYPES.MEMBER_JOINED, result.tenant.id, appId, {
-          membership_id: result.membership!.id,
+          membership_id: result.membership.id,
           sub: result.user.id,
           email: result.user.email,
           tenant_roles: tenantRoleSlugs,

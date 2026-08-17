@@ -18,6 +18,7 @@ describe("MfaEnrollmentService — resume-token hardening & interrupt flow", () 
 
   const mockKeyService = { verifyJwt: jest.fn() };
   const mockOAuthService = { authorize: jest.fn() };
+  const mockTokenService = { generateSessionState: jest.fn() };
   const mockMfaService = { checkUserMfaCompliance: jest.fn() };
   const mockAuditService = { log: jest.fn().mockResolvedValue(undefined) };
   const mockConfigService = {
@@ -62,6 +63,7 @@ describe("MfaEnrollmentService — resume-token hardening & interrupt flow", () 
       mockPrisma as any,
       mockKeyService as any,
       mockOAuthService as any,
+      mockTokenService as any,
       mockMfaService as any,
       mockAuditService as any,
       mockConfigService,
@@ -72,6 +74,7 @@ describe("MfaEnrollmentService — resume-token hardening & interrupt flow", () 
     mockPrisma.tenant.findUnique.mockResolvedValue({ name: "Acme Corp" });
     mockMfaService.checkUserMfaCompliance.mockResolvedValue(compliance());
     mockOAuthService.authorize.mockResolvedValue("auth-code-123");
+    mockTokenService.generateSessionState.mockReturnValue("ss-resume");
   });
 
   // ===========================================================================
@@ -159,18 +162,67 @@ describe("MfaEnrollmentService — resume-token hardening & interrupt flow", () 
 
   describe("resume", () => {
     it("consumes the jti and replays authorize, assembling the redirect like the normal flow", async () => {
-      const result = await service.resume("u1", "tok");
+      const result = await service.resume("u1", "tok", ["pwd"]);
 
       expect(mockPrisma.consumedJti.create).toHaveBeenCalledWith({
         data: { jti: "jti-1", expiresAt: new Date(futureExp * 1000) },
       });
+      // compliance.mfaEnabled is true at resume time → 'otp' is appended to
+      // the session amr (pragmatic rule: enabling MFA required a live TOTP
+      // verify moments earlier).
       expect(mockOAuthService.authorize).toHaveBeenCalledWith(
         "u1",
         expect.objectContaining({ clientId: "client-1", tenantId: "t1" }),
+        ["pwd", "otp"],
       );
       // code + state via URL.searchParams — state is URL-encoded ("&" -> %26)
+      // — plus session_state, exactly like the normal authorize redirect.
+      expect(mockTokenService.generateSessionState).toHaveBeenCalledWith(
+        "client-1",
+        "u1",
+      );
       expect(result.redirectUrl).toBe(
-        "https://app.example.com/cb?code=auth-code-123&state=st%26val",
+        "https://app.example.com/cb?code=auth-code-123&state=st%26val&session_state=ss-resume",
+      );
+    });
+
+    it("legacy session without amr resumes as ['pwd'] (+ 'otp' when enrolled)", async () => {
+      await service.resume("u1", "tok"); // no sessionAmr
+
+      expect(mockOAuthService.authorize).toHaveBeenCalledWith(
+        "u1",
+        expect.anything(),
+        ["pwd", "otp"],
+      );
+    });
+
+    it("does NOT append 'otp' when the user is still not MFA-enabled (grace resume)", async () => {
+      mockMfaService.checkUserMfaCompliance.mockResolvedValue(
+        compliance({
+          compliant: false,
+          withinGrace: true,
+          mfaEnabled: false,
+          requiresSetup: true,
+          gracePeriodEndsAt: new Date(Date.now() + 86_400_000),
+        }),
+      );
+
+      await service.resume("u1", "tok", ["pwd"]);
+
+      expect(mockOAuthService.authorize).toHaveBeenCalledWith(
+        "u1",
+        expect.anything(),
+        ["pwd"],
+      );
+    });
+
+    it("never duplicates 'otp' when the session already carries it", async () => {
+      await service.resume("u1", "tok", ["pwd", "otp"]);
+
+      expect(mockOAuthService.authorize).toHaveBeenCalledWith(
+        "u1",
+        expect.anything(),
+        ["pwd", "otp"],
       );
     });
 

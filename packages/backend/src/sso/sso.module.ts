@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../prisma/prisma.module';
+import { AuthModule } from '../auth/auth.module';
 import { SsoProviderService } from './sso-provider.service';
 import { SsoAuthService } from './sso-auth.service';
 import { SsoAuthController } from './sso-auth.controller';
@@ -10,7 +11,9 @@ import { MicrosoftProvider } from './providers/microsoft.provider';
 import { SsoEncryptionService } from './sso-encryption.service';
 
 @Module({
-  imports: [PrismaModule, ConfigModule],
+  // AuthModule: SSO logins mint the console session JWT through the shared
+  // AuthService.generateJwt (amr ['fed']) instead of a bespoke signer.
+  imports: [PrismaModule, ConfigModule, AuthModule],
   controllers: [SsoAuthController],
   providers: [
     SsoProviderService,

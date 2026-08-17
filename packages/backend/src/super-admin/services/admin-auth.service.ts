@@ -263,8 +263,8 @@ export class AdminAuthService {
     }
 
     // Generate password if not provided
-    const generatedPassword = data.password ? null : this.generateSecurePassword();
-    const finalPassword = data.password || generatedPassword!;
+    const finalPassword = data.password || this.generateSecurePassword();
+    const generatedPassword = data.password ? null : finalPassword;
     const passwordHash = await bcrypt.hash(finalPassword, this.SALT_ROUNDS);
 
     // Build display name if not provided

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as crypto from 'crypto';
+import { getRequiredEnv } from '../config/env.validation';
 import { LicensePoolService } from '../licensing/services/license-pool.service';
 import { LicenseAssignmentService } from '../licensing/services/license-assignment.service';
 import { LicenseProvisioningService } from '../licensing/services/license-provisioning.service';
@@ -198,7 +199,7 @@ export class InvitationsService {
     });
 
     // Send invitation email
-    const baseUrl = process.env.BASE_URL!;
+    const baseUrl = getRequiredEnv('BASE_URL');
     const inviteUrl = `${baseUrl}/invite?token=${result.invitation.token}`;
 
     await this.emailService.sendInvitationEmail(email, {
@@ -309,6 +310,9 @@ export class InvitationsService {
     if (!invitation.membership) throw new BadRequestException('Invalid invitation - no membership linked');
 
     const user = invitation.membership.user;
+    // Captured for use inside transaction callbacks below, where TS cannot
+    // carry the `!invitation.membership` narrowing across the closure boundary.
+    const membershipId = invitation.membership.id;
 
     // If user has no password, they need to set one
     if (!user.passwordHash && !password) {
@@ -343,7 +347,7 @@ export class InvitationsService {
         : user;
 
       const updatedMembership = await tx.membership.update({
-        where: { id: invitation.membership!.id },
+        where: { id: membershipId },
         data: { status: 'ACTIVE', joinedAt: new Date() },
         include: { tenant: { select: { id: true, name: true, slug: true } } },
       });
@@ -431,6 +435,9 @@ export class InvitationsService {
     } | null = null;
 
     if (applicationId) {
+      if (!tenantId) {
+        throw new BadRequestException('Tenant ID is required when inviting to an application');
+      }
       // clientId now lives on the (SPA) ApplicationClient; flatten it in.
       const app = await this.prisma.application.findUnique({
         where: { id: applicationId },
@@ -455,7 +462,7 @@ export class InvitationsService {
         clientId: app.clients[0]?.clientId ?? null,
       };
 
-      const accessCheck = await this.licensePoolService.checkMemberAccess(tenantId!, application.id);
+      const accessCheck = await this.licensePoolService.checkMemberAccess(tenantId, application.id);
       if (!accessCheck.allowed) {
         throw new ForbiddenException(accessCheck.reason || 'Cannot add member to this application');
       }
@@ -474,7 +481,7 @@ export class InvitationsService {
         }
 
         const capacity = await this.licensePoolService.getAvailableCapacity(
-          tenantId!,
+          tenantId,
           application.id,
           licenseTypeId,
         );

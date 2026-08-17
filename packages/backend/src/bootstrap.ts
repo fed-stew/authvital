@@ -102,7 +102,10 @@ async function createSuperAdminFromYaml(
   // the random-password + email behavior.
   const useConfigPassword =
     !isProduction || process.env.SEED_SUPER_ADMIN_USE_YAML_PASSWORD === 'true';
-  const superAdminConfig = yamlConfig.super_admin!;
+  const superAdminConfig = yamlConfig.super_admin;
+  if (!superAdminConfig) {
+    throw new Error('Seed config is missing the super_admin section');
+  }
 
   // Normalize email
   const email = superAdminConfig.email.toLowerCase();

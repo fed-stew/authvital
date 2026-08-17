@@ -110,12 +110,15 @@ export interface RequestWithAuthVital extends Request {
   authVital?: AuthVitalContext;
   /**
    * Machine-readable reason why no auth context was attached.
-   * Set to 'interaction_required' when the IdP refused the token refresh
-   * because the user must re-authenticate interactively (e.g. tenant MFA
-   * policy). Guards/exception filters can read this to redirect the user
-   * through /oauth/authorize instead of treating it as a plain 401.
+   * - 'interaction_required': the IdP refused the token refresh because the
+   *   user must re-authenticate interactively (e.g. tenant MFA policy).
+   *   Guards/exception filters can read this to redirect the user through
+   *   /oauth/authorize instead of treating it as a plain 401.
+   * - 'refresh_failed': any other refresh failure (revoked session,
+   *   invalid_grant, network error, ...). The session cookie has been
+   *   cleared; the user must log in again.
    */
-  authFailureReason?: 'interaction_required';
+  authFailureReason?: 'interaction_required' | 'refresh_failed';
 }
 
 /**
@@ -175,6 +178,11 @@ export const AUTHVITAL_SESSION_STORE = Symbol('AUTHVITAL_SESSION_STORE');
  * `req.authFailureReason = 'interaction_required'` so the app can branch on
  * the distinction (e.g. in an exception filter) and restart the authorize
  * flow rather than just returning 401.
+ *
+ * Any OTHER refresh failure is handled the same way with
+ * `req.authFailureReason = 'refresh_failed'`: the session cookie is cleared
+ * and NO auth context is attached — a stale (expired) access token is never
+ * surfaced on `req.authVital`.
  *
  * @example
  * ```typescript
@@ -253,42 +261,51 @@ export class AuthVitalMiddleware implements NestMiddleware {
           return next();
         }
 
-        if (refreshResult.success && refreshResult.tokens) {
-          tokens = {
-            accessToken: refreshResult.tokens.access_token,
-            refreshToken: refreshResult.tokens.refresh_token ?? tokens.refreshToken,
-            expiresAt: Math.floor(Date.now() / 1000) + refreshResult.tokens.expires_in,
-            sessionId: tokens.sessionId,
-          };
-          refreshed = true;
+        if (!refreshResult.success || !refreshResult.tokens) {
+          // GENERIC refresh failure (revoked session, invalid_grant, network
+          // error, ...): the access token we hold is expired and could not
+          // be renewed. Never attach an authenticated context around a stale
+          // token — clear the cookie and continue unauthenticated, telling
+          // the app why.
+          res.setHeader('Set-Cookie', this.sessionStore.createClearCookieHeader());
+          req.authFailureReason = 'refresh_failed';
+          return next();
+        }
 
-          // Rotate session cookie with new tokens
-          const cookieHeader = req.headers.cookie;
-          const currentCookie = cookieHeader
-            ? this.sessionStore.getSessionTokens(cookieHeader)
-            : null;
+        tokens = {
+          accessToken: refreshResult.tokens.access_token,
+          refreshToken: refreshResult.tokens.refresh_token ?? tokens.refreshToken,
+          expiresAt: Math.floor(Date.now() / 1000) + refreshResult.tokens.expires_in,
+          sessionId: tokens.sessionId,
+        };
+        refreshed = true;
 
-          if (currentCookie) {
-            // Extract encrypted value from cookie header
-            const encryptedValue = this.extractCookieValue(cookieHeader);
+        // Rotate session cookie with new tokens
+        const cookieHeader = req.headers.cookie;
+        const currentCookie = cookieHeader
+          ? this.sessionStore.getSessionTokens(cookieHeader)
+          : null;
 
-            if (encryptedValue) {
-              const rotation = this.sessionStore.rotateSession(
-                encryptedValue,
-                refreshResult.tokens,
-                {
-                  userAgent: req.headers['user-agent'],
-                  ipAddress: req.ip ?? undefined,
-                }
-              );
+        if (currentCookie) {
+          // Extract encrypted value from cookie header
+          const encryptedValue = this.extractCookieValue(cookieHeader);
 
-              if (rotation.success && rotation.setCookieHeader) {
-                res.setHeader('Set-Cookie', rotation.setCookieHeader);
+          if (encryptedValue) {
+            const rotation = this.sessionStore.rotateSession(
+              encryptedValue,
+              refreshResult.tokens,
+              {
+                userAgent: req.headers['user-agent'],
+                ipAddress: req.ip ?? undefined,
+              }
+            );
 
-                // Call user callback
-                if (this.options.onRefresh) {
-                  this.options.onRefresh(refreshResult.tokens, req, res);
-                }
+            if (rotation.success && rotation.setCookieHeader) {
+              res.setHeader('Set-Cookie', rotation.setCookieHeader);
+
+              // Call user callback
+              if (this.options.onRefresh) {
+                this.options.onRefresh(refreshResult.tokens, req, res);
               }
             }
           }
@@ -654,7 +671,7 @@ export class AuthVitalJwtGuard implements CanActivate {
       };
 
       return true;
-    } catch (error) {
+    } catch (_error) {
       throw new UnauthorizedException('Invalid or expired token');
     }
   }

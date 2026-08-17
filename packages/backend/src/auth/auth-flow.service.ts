@@ -18,6 +18,7 @@ import { OAuthSessionService } from '../oauth/oauth-session.service';
 import { KeyService } from '../oauth/key.service';
 import { redirectTokens } from './redirect-tokens';
 import { ensureInternalClient } from './internal-client';
+import { CONSOLE_SESSION_TTL_SECONDS } from './constants/token-ttl';
 
 const getClearCookieOptions = getBaseCookieOptions;
 const getRefreshCookieOptions = getRefreshTokenCookieOptions;
@@ -138,6 +139,8 @@ export class AuthFlowService {
         revoked: false,
         tenantId: session.tenantId,
         tenantSubdomain: session.tenantSubdomain,
+        // Preserve the ORIGINAL session's amr across rotations.
+        amr: session.amr,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         userAgent: (req as any).headers?.['user-agent'] || null,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -180,6 +183,10 @@ export class AuthFlowService {
       accessTokenPayload.given_name = session.user.givenName;
       accessTokenPayload.family_name = session.user.familyName;
     }
+
+    // Re-stamp the ORIGINAL session's amr (RFC 8176). Legacy rows carry an
+    // empty array → treated as password-only.
+    accessTokenPayload.amr = session.amr.length > 0 ? session.amr : ['pwd'];
 
     // Add roles/permissions if tenant-scoped
     if (session.tenantId) {
@@ -329,7 +336,8 @@ export class AuthFlowService {
 
     if (memberships.length > 1) {
       const params = new URLSearchParams();
-      params.set('client_id', app!.clientId);
+      // app was looked up by dto.clientId, so pass the same value through.
+      params.set('client_id', dto.clientId);
       return res.redirect(302, `/auth/org-picker?${params.toString()}`);
     }
 
@@ -429,8 +437,8 @@ export class AuthFlowService {
     }
     res.cookie('idp_session', result.accessToken, getSessionCookieOptions());
 
-    // Calculate expires_in (7 days in seconds - matches JWT expiry)
-    const expiresIn = 7 * 24 * 60 * 60;
+    // Matches the console JWT expiry (rolling window; see token-ttl.ts)
+    const expiresIn = CONSOLE_SESSION_TTL_SECONDS;
 
     // Handle redirect flow
     let redirectUrl: string | null = null;
@@ -492,8 +500,12 @@ export class AuthFlowService {
 
     if (!user) return { success: false, error: 'User not found' };
 
-    // Generate access token
-    const accessToken = await this.authService.generateJwt(user.id, user.email || '');
+    // Generate access token, inheriting the originating session's amr and
+    // session_start (this exchange is a handoff, not a fresh authentication).
+    const accessToken = await this.authService.generateJwt(user.id, user.email || '', {
+      amr: tokenData.amr,
+      sessionStart: tokenData.sessionStart,
+    });
 
     // Internal auth-flow sessions are not tied to a customer OAuth app, so they
     // hang off the reserved internal ApplicationClient. Get-or-create keeps this
@@ -508,6 +520,7 @@ export class AuthFlowService {
         userId: user.id,
         applicationClientId: internalClient.id,
         revoked: false,
+        amr: tokenData.amr ?? ['pwd'],
       },
     });
 
@@ -525,8 +538,8 @@ export class AuthFlowService {
 
     console.log(`[Auth] Session established for user ${user.email} via exchange-token`);
 
-    // Calculate expires_in (7 days in seconds - matches JWT expiry)
-    const expiresIn = 7 * 24 * 60 * 60;
+    // Matches the console JWT expiry (rolling window; see token-ttl.ts)
+    const expiresIn = CONSOLE_SESSION_TTL_SECONDS;
 
     return {
       success: true,

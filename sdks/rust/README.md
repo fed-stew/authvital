@@ -1,8 +1,13 @@
 # AuthVital SDK for Rust
 
-> **🚧 Coming Soon**
+> **⚠️ PLACEHOLDER — not yet functional.** This crate reserves the
+> namespace; every API panics via `unimplemented!`. Use the TypeScript
+> SDKs
+> ([`@authvital/server`](https://github.com/authvital/authvital/tree/main/packages/sdk-server),
+> [`@authvital/browser`](https://github.com/authvital/authvital/tree/main/packages/sdk-browser))
+> today.
 
-Official Rust SDK for [AuthVital](https://github.com/authvital/authvital) Identity Platform.
+Rust SDK namespace reservation for [AuthVital](https://github.com/authvital/authvital) Identity Platform.
 
 ## Installation
 
@@ -15,7 +20,9 @@ authvital = "0.0.1"
 
 ## Status
 
-This crate is a placeholder. The full SDK is under active development.
+**Placeholder — not yet functional.** Every entry point panics via
+`unimplemented!`. The full SDK is under active development; until it ships,
+integrate via the TypeScript SDKs above.
 
 Follow the [main repository](https://github.com/authvital/authvital) for updates!
 

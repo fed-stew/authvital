@@ -6,6 +6,7 @@ import { KeyEncryptionService } from "./key-encryption.service";
 import { SigningKeyStatus } from "@prisma/client";
 import {
   CONSOLE_SESSION_TTL_SECONDS,
+  DEFAULT_PASSIVE_KEY_LIFETIME_HOURS,
   MIN_PASSIVE_KEY_LIFETIME_SECONDS,
 } from "../auth/constants/token-ttl";
 import * as crypto from "crypto";
@@ -42,15 +43,19 @@ export class KeyManagerService implements OnModuleInit {
   private readonly CACHE_TTL_MS = 60 * 1000; // 1 minute cache
 
   // How long passive keys are kept before archiving, configurable via the
-  // PASSIVE_KEY_LIFETIME_HOURS env var. Default: 192h (8 days).
+  // PASSIVE_KEY_LIFETIME_HOURS env var. Default: 192h = 8 days (token-ttl.ts).
   //
   // INVARIANT: PASSIVE_KEY_LIFETIME_HOURS must exceed the longest-lived token
-  // TTL — currently the 7-day console session JWT minted by
-  // AuthService.generateJwt (CONSOLE_SESSION_TTL_SECONDS). Otherwise tokens
-  // signed just before a rotation become unverifiable while still valid.
-  // The default is max token TTL (7d) + 24h margin = 8 days.
+  // TTL, otherwise tokens signed just before a rotation become unverifiable
+  // while still valid. The binding constraint is the default refresh token
+  // TTL (7 days) — refresh tokens are RS256 JWTs verified via JWKS, so a
+  // refresh JWT signed by a just-demoted key must stay verifiable for its
+  // full lifetime. Console session JWTs are rolling 1-hour tokens
+  // (CONSOLE_SESSION_TTL_SECONDS); sliding re-issues are freshly SIGNED, so
+  // only one rolling window must stay verifiable. Per-client OAuth token
+  // TTLs are cross-checked in onModuleInit.
   private readonly DEFAULT_PASSIVE_KEY_LIFETIME_HOURS =
-    MIN_PASSIVE_KEY_LIFETIME_SECONDS / 3600; // 192 hours
+    DEFAULT_PASSIVE_KEY_LIFETIME_HOURS; // 192 hours (8 days)
   private readonly passiveKeyLifetimeHours: number;
 
   // Key rotation interval in seconds (default: 30 days)
@@ -81,18 +86,20 @@ export class KeyManagerService implements OnModuleInit {
       ? parsedPassiveLifetime
       : this.DEFAULT_PASSIVE_KEY_LIFETIME_HOURS;
 
-    // Startup assertion: passive keys must outlive the longest-lived token,
-    // or tokens signed right before a rotation die early. Log loudly; do not
-    // crash — an operator can still fix the env and redeploy.
+    // Startup assertion: passive keys must outlive the console session JWT
+    // (plus a 1h safety margin), or tokens signed right before a rotation die
+    // early. Log loudly; do not crash — an operator can still fix the env and
+    // redeploy. Per-client OAuth token TTLs are checked in onModuleInit once
+    // the database is reachable.
     const passiveLifetimeSeconds = this.passiveKeyLifetimeHours * 3600;
-    if (passiveLifetimeSeconds < CONSOLE_SESSION_TTL_SECONDS) {
+    if (passiveLifetimeSeconds < MIN_PASSIVE_KEY_LIFETIME_SECONDS) {
       this.logger.error(
         `PASSIVE_KEY_LIFETIME_HOURS=${this.passiveKeyLifetimeHours}h ` +
-          `(${passiveLifetimeSeconds}s) is SHORTER than the max token TTL of ` +
-          `${CONSOLE_SESSION_TTL_SECONDS}s (7-day console session JWT). ` +
-          `Tokens signed just before a key rotation will become unverifiable ` +
-          `before they expire. Set PASSIVE_KEY_LIFETIME_HOURS to at least ` +
-          `${MIN_PASSIVE_KEY_LIFETIME_SECONDS / 3600} hours.`,
+          `(${passiveLifetimeSeconds}s) is SHORTER than the console session ` +
+          `TTL of ${CONSOLE_SESSION_TTL_SECONDS}s plus a 1-hour margin. ` +
+          `Console tokens signed just before a key rotation will become ` +
+          `unverifiable before they expire. Set PASSIVE_KEY_LIFETIME_HOURS ` +
+          `to at least ${Math.ceil(MIN_PASSIVE_KEY_LIFETIME_SECONDS / 3600)} hours.`,
       );
     }
 
@@ -107,6 +114,57 @@ export class KeyManagerService implements OnModuleInit {
     await this.ensureActiveKey();
     // Check if rotation is needed on startup
     await this.checkAndRotateIfNeeded();
+    // Cross-check per-client OAuth token TTLs against the passive lifetime
+    await this.assertClientTokenTtlsFitPassiveLifetime();
+  }
+
+  /**
+   * Startup check: no ApplicationClient may mint tokens that outlive the
+   * passive signing-key lifetime.
+   *
+   * BOTH TTLs matter — access tokens are obviously JWTs, and refresh tokens
+   * are Token-Ghosting JWTs too (verified against these keys via
+   * OAuthSessionService.verifyRefreshTokenJwt before any DB lookup), so a
+   * refresh token that outlives its signing key becomes unverifiable while
+   * its DB session is still valid.
+   *
+   * Logs an ERROR naming each offending client. Never throws — a
+   * misconfigured client must not take the whole IdP down.
+   */
+  async assertClientTokenTtlsFitPassiveLifetime(): Promise<void> {
+    const passiveLifetimeSeconds = this.passiveKeyLifetimeHours * 3600;
+    try {
+      const offenders = await this.prisma.applicationClient.findMany({
+        where: {
+          OR: [
+            { accessTokenTtl: { gt: passiveLifetimeSeconds } },
+            { refreshTokenTtl: { gt: passiveLifetimeSeconds } },
+          ],
+        },
+        select: {
+          clientId: true,
+          accessTokenTtl: true,
+          refreshTokenTtl: true,
+          application: { select: { name: true } },
+        },
+      });
+
+      for (const client of offenders) {
+        this.logger.error(
+          `ApplicationClient ${client.clientId} (app "${client.application.name}") ` +
+            `mints tokens that outlive the passive signing-key lifetime of ` +
+            `${passiveLifetimeSeconds}s (PASSIVE_KEY_LIFETIME_HOURS=${this.passiveKeyLifetimeHours}h): ` +
+            `accessTokenTtl=${client.accessTokenTtl}s, refreshTokenTtl=${client.refreshTokenTtl}s. ` +
+            `Tokens signed just before a key rotation will become unverifiable ` +
+            `before they expire. Raise PASSIVE_KEY_LIFETIME_HOURS or lower the client's TTLs.`,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Could not verify client token TTLs against the passive key lifetime: ` +
+          `${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   /**

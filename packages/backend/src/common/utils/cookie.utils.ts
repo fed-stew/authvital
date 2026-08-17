@@ -3,6 +3,7 @@
  *
  * Centralized cookie configuration to ensure consistent security settings.
  */
+import { CONSOLE_SESSION_ABSOLUTE_TTL_SECONDS } from '../../auth/constants/token-ttl';
 
 export interface CookieOptions {
   httpOnly: boolean;
@@ -72,12 +73,18 @@ export function getBaseCookieOptions(): CookieOptions {
 }
 
 /**
- * Cookie options for session cookies (7-day expiry)
+ * Cookie options for the console/IdP session cookie (`idp_session`).
+ *
+ * The cookie lives for the ABSOLUTE session cap (default 7 days) while the
+ * JWT inside it is short-lived and rolling (see constants/token-ttl.ts and
+ * SessionRefreshInterceptor). Once the JWT expires the stale cookie simply
+ * fails verification — the long cookie maxAge just avoids the browser
+ * dropping it between sliding re-issues.
  */
 export function getSessionCookieOptions(): CookieOptions {
   return {
     ...getBaseCookieOptions(),
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    maxAge: CONSOLE_SESSION_ABSOLUTE_TTL_SECONDS * 1000,
   };
 }
 

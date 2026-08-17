@@ -115,6 +115,47 @@ describe("OAuthController — MFA enrollment interrupt redirect", () => {
     );
   });
 
+  it("GET /oauth/authorize-tenant success redirect carries session_state (same assembly as /oauth/authorize)", async () => {
+    mockOAuthService.getUserInfo.mockResolvedValue({
+      tenants: [{ id: "t1", slug: "acme" }],
+    });
+    mockOAuthService.validateJwt.mockResolvedValue({
+      userId: "u1",
+      amr: ["pwd", "otp"],
+    });
+    mockOAuthService.authorize.mockResolvedValue("auth-code");
+    mockTokenService.generateSessionState.mockReturnValue("ss-tenant");
+
+    await controller.authorizeTenant(
+      "t1",
+      "acme",
+      "client-1",
+      "https://acme.app.example.com/cb",
+      "code",
+      "openid profile email",
+      "st",
+      "n",
+      undefined as any,
+      undefined as any,
+      req,
+      res as any,
+    );
+
+    // The verified session amr travels into authorize().
+    expect(mockOAuthService.authorize).toHaveBeenCalledWith(
+      "u1",
+      expect.objectContaining({ clientId: "client-1", tenantId: "t1" }),
+      ["pwd", "otp"],
+    );
+    expect(mockTokenService.generateSessionState).toHaveBeenCalledWith(
+      "client-1",
+      "u1",
+    );
+    const redirected = res.redirect.mock.calls[0][0] as string;
+    expect(redirected).toContain("code=auth-code");
+    expect(redirected).toContain("session_state=ss-tenant");
+  });
+
   it("GET /oauth/authorize completes normally when no interrupt is thrown", async () => {
     mockOAuthService.authorize.mockResolvedValue("auth-code");
     mockTokenService.generateSessionState.mockReturnValue("ss");

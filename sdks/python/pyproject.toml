@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "authvital-sdk"
 version = "0.0.1"
-description = "Official Python SDK for AuthVital Identity Platform - Coming Soon"
+description = "PLACEHOLDER (not yet functional) - reserves the AuthVital Python SDK namespace; APIs raise NotImplementedError. Use the TypeScript SDKs (@authvital/server, @authvital/browser) today."
 readme = "README.md"
 license = {text = "AuthVital Community License v1.0"}
 authors = [

@@ -94,6 +94,12 @@ export interface RouteOptions {
  * so route handlers can distinguish "send the user back through
  * /oauth/authorize" from an ordinary missing session.
  *
+ * Any OTHER refresh failure (revoked session, invalid_grant, network error,
+ * ...) is handled the same way with
+ * `res.locals.authFailureReason = 'refresh_failed'`: the session cookie is
+ * cleared and NO auth context is attached — a stale (expired) access token
+ * is never surfaced on `req.authVital`.
+ *
  * @param config - Middleware configuration
  * @returns Express middleware function
  *
@@ -193,42 +199,51 @@ export function authVitalMiddleware(config: AuthVitalMiddlewareConfig) {
           return next();
         }
 
-        if (refreshResult.success && refreshResult.tokens) {
-          tokens = {
-            accessToken: refreshResult.tokens.access_token,
-            refreshToken: refreshResult.tokens.refresh_token ?? tokens.refreshToken,
-            expiresAt: Math.floor(Date.now() / 1000) + refreshResult.tokens.expires_in,
-            sessionId: tokens.sessionId,
-          };
-          refreshed = true;
+        if (!refreshResult.success || !refreshResult.tokens) {
+          // GENERIC refresh failure (revoked session, invalid_grant, network
+          // error, ...): the access token we hold is expired and could not
+          // be renewed. Never attach an authenticated context around a stale
+          // token — clear the cookie and continue unauthenticated, telling
+          // the app why.
+          res.setHeader('Set-Cookie', sessionStore.createClearCookieHeader());
+          res.locals.authFailureReason = 'refresh_failed';
+          return next();
+        }
 
-          // Rotate session cookie with new tokens
-          const cookieHeader = req.headers.cookie;
-          const currentCookie = cookieHeader
-            ? sessionStore.getSessionTokens(cookieHeader)
-            : null;
+        tokens = {
+          accessToken: refreshResult.tokens.access_token,
+          refreshToken: refreshResult.tokens.refresh_token ?? tokens.refreshToken,
+          expiresAt: Math.floor(Date.now() / 1000) + refreshResult.tokens.expires_in,
+          sessionId: tokens.sessionId,
+        };
+        refreshed = true;
 
-          if (currentCookie) {
-            const rotation = sessionStore.rotateSession(
-              // We need the encrypted value, but we have tokens. Create a dummy encrypted value
-              // by serializing the cookie header extraction
-              req.headers.cookie?.split(';')
-                .find(c => c.trim().startsWith(`${sessionStore.cookieName}=`))
-                ?.split('=')[1] || '',
-              refreshResult.tokens,
-              {
-                userAgent: req.headers['user-agent'],
-                ipAddress: req.ip,
-              }
-            );
+        // Rotate session cookie with new tokens
+        const cookieHeader = req.headers.cookie;
+        const currentCookie = cookieHeader
+          ? sessionStore.getSessionTokens(cookieHeader)
+          : null;
 
-            if (rotation.success && rotation.setCookieHeader) {
-              res.setHeader('Set-Cookie', rotation.setCookieHeader);
+        if (currentCookie) {
+          const rotation = sessionStore.rotateSession(
+            // We need the encrypted value, but we have tokens. Create a dummy encrypted value
+            // by serializing the cookie header extraction
+            req.headers.cookie?.split(';')
+              .find(c => c.trim().startsWith(`${sessionStore.cookieName}=`))
+              ?.split('=')[1] || '',
+            refreshResult.tokens,
+            {
+              userAgent: req.headers['user-agent'],
+              ipAddress: req.ip,
+            }
+          );
 
-              // Call user callback
-              if (config.onRefresh) {
-                config.onRefresh(refreshResult.tokens, req, res);
-              }
+          if (rotation.success && rotation.setCookieHeader) {
+            res.setHeader('Set-Cookie', rotation.setCookieHeader);
+
+            // Call user callback
+            if (config.onRefresh) {
+              config.onRefresh(refreshResult.tokens, req, res);
             }
           }
         }

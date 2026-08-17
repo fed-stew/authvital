@@ -6,6 +6,17 @@
  * - Pages Router (getServerSideProps) helpers
  * - Edge Runtime middleware
  * - API route handlers
+ *
+ * Failure-reason signalling: when the edge middleware redirects to the login
+ * page because a token refresh failed, the reason is exposed BOTH as a
+ * `?reason=` query parameter on the redirect Location AND as an
+ * `x-authvital-reason` response header — so apps (or proxies) that strip
+ * query params can still observe why the session was rejected.
+ *
+ * RSC gap: `getServerAuth` runs in a Server Component and therefore cannot
+ * clear cookies. Use {@link clearSessionCookie} from a route handler or
+ * server action to clear the session cookie with the exact same name and
+ * options the middleware uses.
  */
 
 import type { NextRequest, NextResponse } from 'next/server';
@@ -44,12 +55,15 @@ export interface NextAuthContext {
   refreshed: boolean;
   /**
    * Machine-readable reason for an unauthenticated result.
-   * Set to 'interaction_required' when the IdP refused the token refresh
-   * because the user must re-authenticate interactively (e.g. tenant MFA
-   * policy). The app should clear the session and restart the authorize
-   * flow — retrying the refresh will never succeed.
+   * - 'interaction_required': the IdP refused the token refresh because the
+   *   user must re-authenticate interactively (e.g. tenant MFA policy). The
+   *   app should clear the session and restart the authorize flow —
+   *   retrying the refresh will never succeed.
+   * - 'refresh_failed': any other refresh failure (revoked session,
+   *   invalid_grant, network error, ...). The stale access token is never
+   *   surfaced; clear the session and log in again.
    */
-  failureReason?: 'interaction_required';
+  failureReason?: 'interaction_required' | 'refresh_failed';
 }
 
 /**
@@ -188,47 +202,68 @@ export function createAuthMiddleware(config: EdgeMiddlewareConfig) {
             loginUrl.searchParams.set('redirect', pathname);
             loginUrl.searchParams.set('reason', 'interaction_required');
             response = NextResponse.redirect(loginUrl);
+            // Also expose the reason as a header for apps/proxies that strip
+            // query params from the redirect Location.
+            response.headers.set('x-authvital-reason', 'interaction_required');
           }
           response.cookies.delete(cookieName);
           return response;
         }
 
         const newTokens = refreshResult.tokens;
-        if (newTokens) {
-          _currentTokens = {
-            accessToken: newTokens.access_token,
-            refreshToken: newTokens.refresh_token ?? tokens.refreshToken,
-            expiresAt: now + newTokens.expires_in,
-            sessionId: tokens.sessionId,
-          };
-          _refreshed = true;
-
-          // Update cookie
-          const newCookieValue = rotateSessionCookie(
-            cookie.value,
-            newTokens,
-            config.secret
-          );
-
-          // Build response with refreshed cookie
-          const response = isPublic
-            ? NextResponse.next()
-            : NextResponse.next();
-
-          const cookieOptions = buildCookieOptions(config.cookie, config.isProduction);
-          const { name: _name, ...restOptions } = cookieOptions;
-          response.cookies.set({
-            name: cookieName,
-            value: newCookieValue,
-            ...restOptions,
-          });
-
-          if (config.onRefresh) {
-            config.onRefresh(newTokens);
+        if (!newTokens) {
+          // GENERIC refresh failure (revoked session, invalid_grant, network
+          // error, ...): never let a stale session through as valid — clear
+          // the cookie and send the user to login, flagging the reason.
+          let response: NextResponse;
+          if (isPublic) {
+            response = NextResponse.next();
+          } else {
+            const loginUrl = new URL(loginPath, request.url);
+            loginUrl.searchParams.set('redirect', pathname);
+            loginUrl.searchParams.set('reason', 'refresh_failed');
+            response = NextResponse.redirect(loginUrl);
+            // Also expose the reason as a header for apps/proxies that strip
+            // query params from the redirect Location.
+            response.headers.set('x-authvital-reason', 'refresh_failed');
           }
-
+          response.cookies.delete(cookieName);
           return response;
         }
+
+        _currentTokens = {
+          accessToken: newTokens.access_token,
+          refreshToken: newTokens.refresh_token ?? tokens.refreshToken,
+          expiresAt: now + newTokens.expires_in,
+          sessionId: tokens.sessionId,
+        };
+        _refreshed = true;
+
+        // Update cookie
+        const newCookieValue = rotateSessionCookie(
+          cookie.value,
+          newTokens,
+          config.secret
+        );
+
+        // Build response with refreshed cookie
+        const response = isPublic
+          ? NextResponse.next()
+          : NextResponse.next();
+
+        const cookieOptions = buildCookieOptions(config.cookie, config.isProduction);
+        const { name: _name, ...restOptions } = cookieOptions;
+        response.cookies.set({
+          name: cookieName,
+          value: newCookieValue,
+          ...restOptions,
+        });
+
+        if (config.onRefresh) {
+          config.onRefresh(newTokens);
+        }
+
+        return response;
       }
 
       // Valid session - allow through
@@ -256,6 +291,12 @@ export function createAuthMiddleware(config: EdgeMiddlewareConfig) {
  * If the IdP rejects the token refresh with `interaction_required`, the
  * returned context is unauthenticated with `failureReason` set — redirect
  * the user back through the authorize flow instead of retrying.
+ *
+ * NOTE: Server Components cannot mutate cookies, so this helper can never
+ * clear a stale session cookie itself. When `failureReason` is set, clear
+ * the cookie from a route handler or server action via
+ * {@link clearSessionCookie} (which uses the exact same cookie name/options
+ * as the middleware).
  *
  * @param cookieStore - Next.js cookie store (from cookies())
  * @param config - Server client configuration
@@ -323,15 +364,21 @@ export async function getServerAuth(
       }
 
       const newTokens = refreshResult.tokens;
-      if (newTokens) {
-        currentTokens = {
-          accessToken: newTokens.access_token,
-          refreshToken: newTokens.refresh_token ?? tokens.refreshToken,
-          expiresAt: now + newTokens.expires_in,
-          sessionId: tokens.sessionId,
-        };
-        refreshed = true;
+      if (!newTokens) {
+        // GENERIC refresh failure — never report an authenticated context
+        // holding a stale access token. (Server Components cannot clear the
+        // cookie; the app should do so via clearSessionCookie in a route
+        // handler or server action.)
+        return unauthenticatedContext(clientConfig, 'refresh_failed');
       }
+
+      currentTokens = {
+        accessToken: newTokens.access_token,
+        refreshToken: newTokens.refresh_token ?? tokens.refreshToken,
+        expiresAt: now + newTokens.expires_in,
+        sessionId: tokens.sessionId,
+      };
+      refreshed = true;
     }
 
     return {
@@ -496,25 +543,30 @@ export async function getServerSideAuth(
       }
 
       const newTokens = refreshResult.tokens;
-      if (newTokens) {
-        currentTokens = {
-          accessToken: newTokens.access_token,
-          refreshToken: newTokens.refresh_token ?? tokens.refreshToken,
-          expiresAt: now + newTokens.expires_in,
-          sessionId: tokens.sessionId,
-        };
-        refreshed = true;
+      if (!newTokens) {
+        // GENERIC refresh failure — clear the session cookie and never
+        // report an authenticated context holding a stale access token.
+        context.res.setHeader('Set-Cookie', sessionStore.createClearCookieHeader());
+        return unauthenticatedContext(clientConfig, 'refresh_failed');
+      }
 
-        // Update cookie in response
-        const rotation = sessionStore.rotateSession(
-          sessionCookie,
-          newTokens,
-          {}
-        );
+      currentTokens = {
+        accessToken: newTokens.access_token,
+        refreshToken: newTokens.refresh_token ?? tokens.refreshToken,
+        expiresAt: now + newTokens.expires_in,
+        sessionId: tokens.sessionId,
+      };
+      refreshed = true;
 
-        if (rotation.success && rotation.setCookieHeader) {
-          context.res.setHeader('Set-Cookie', rotation.setCookieHeader);
-        }
+      // Update cookie in response
+      const rotation = sessionStore.rotateSession(
+        sessionCookie,
+        newTokens,
+        {}
+      );
+
+      if (rotation.success && rotation.setCookieHeader) {
+        context.res.setHeader('Set-Cookie', rotation.setCookieHeader);
       }
     }
 
@@ -605,15 +657,20 @@ export async function getRouteAuth(
       }
 
       const newTokens = refreshResult.tokens;
-      if (newTokens) {
-        currentTokens = {
-          accessToken: newTokens.access_token,
-          refreshToken: newTokens.refresh_token ?? tokens.refreshToken,
-          expiresAt: now + newTokens.expires_in,
-          sessionId: tokens.sessionId,
-        };
-        refreshed = true;
+      if (!newTokens) {
+        // GENERIC refresh failure — never report an authenticated context
+        // holding a stale access token. Clear the session via
+        // clearRouteSession in the handler.
+        return unauthenticatedContext(clientConfig, 'refresh_failed');
       }
+
+      currentTokens = {
+        accessToken: newTokens.access_token,
+        refreshToken: newTokens.refresh_token ?? tokens.refreshToken,
+        expiresAt: now + newTokens.expires_in,
+        sessionId: tokens.sessionId,
+      };
+      refreshed = true;
     }
 
     return {
@@ -686,6 +743,70 @@ export function setRouteSession(
 }
 
 /**
+ * Minimal writable cookie jar — matches both `NextResponse.cookies` and the
+ * mutable cookie store returned by `cookies()` inside route handlers and
+ * server actions (Next.js 14: sync, 15+: awaited).
+ */
+export interface WritableCookieStore {
+  set(cookie: { name: string; value: string } & Partial<CookieOptions>): unknown;
+}
+
+/**
+ * Clear the AuthVital session cookie with the exact same name and options
+ * the middleware uses to set it.
+ *
+ * Server Components (`getServerAuth`) cannot clear cookies — when they
+ * report `failureReason`, call this from a route handler or server action
+ * to actually remove the stale session.
+ *
+ * Accepts either a `NextResponse` (route handler) or a mutable cookie store
+ * (`await cookies()` in a server action / route handler).
+ *
+ * @param target - NextResponse or writable cookie store to clear the cookie on
+ * @param config - Session configuration (same values passed to the middleware)
+ * @returns The target, for chaining
+ *
+ * @example
+ * ```typescript
+ * // app/api/logout/route.ts (NextResponse flavor)
+ * import { NextResponse } from 'next/server';
+ * import { clearSessionCookie } from '@authvital/server/middleware';
+ *
+ * export async function POST() {
+ *   const response = NextResponse.redirect(new URL('/login', process.env.APP_URL!));
+ *   clearSessionCookie(response, { secret: process.env.SESSION_SECRET!, authVitalHost: process.env.AV_HOST! });
+ *   return response;
+ * }
+ *
+ * // app/actions.ts (server action flavor)
+ * 'use server';
+ * import { cookies } from 'next/headers';
+ * import { clearSessionCookie } from '@authvital/server/middleware';
+ *
+ * export async function logout() {
+ *   clearSessionCookie(await cookies(), { secret: process.env.SESSION_SECRET!, authVitalHost: process.env.AV_HOST! });
+ * }
+ * ```
+ */
+export function clearSessionCookie<T extends NextResponse | WritableCookieStore>(
+  target: T,
+  config: SessionStoreConfig
+): T {
+  const cookieOptions = buildCookieOptions(config.cookie, config.isProduction);
+  const { name, maxAge: _maxAge, ...restOptions } = cookieOptions;
+
+  // NextResponse exposes its jar at `.cookies`; a cookie store IS the jar.
+  const jar: WritableCookieStore =
+    'cookies' in target ? (target.cookies as WritableCookieStore) : target;
+
+  // Same name + path/domain/httpOnly/secure/sameSite as the middleware set it
+  // with, but expired immediately (maxAge: 0) so the browser drops it.
+  jar.set({ name, value: '', ...restOptions, maxAge: 0 });
+
+  return target;
+}
+
+/**
  * Clear session cookie.
  *
  * @param response - NextResponse to modify
@@ -755,7 +876,7 @@ async function refreshTokens(
 /** Build the unauthenticated NextAuthContext shape (DRY across helpers). */
 function unauthenticatedContext(
   clientConfig: ServerClientConfig,
-  failureReason?: 'interaction_required'
+  failureReason?: NextAuthContext['failureReason']
 ): NextAuthContext {
   return {
     isAuthenticated: false,

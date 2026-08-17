@@ -74,12 +74,15 @@ export class PubSubConfigService implements OnModuleInit {
    * otherwise reloads from the database first.
    */
   async getConfig(): Promise<CachedPubSubConfig> {
-    if (this.isCacheFresh()) {
-      return this.cachedConfig!;
+    if (this.isCacheFresh() && this.cachedConfig) {
+      return this.cachedConfig;
     }
 
     await this.refreshCache();
-    return this.cachedConfig!;
+    if (!this.cachedConfig) {
+      throw new Error('Pub/Sub config cache is empty after refresh - this is a bug');
+    }
+    return this.cachedConfig;
   }
 
   /**

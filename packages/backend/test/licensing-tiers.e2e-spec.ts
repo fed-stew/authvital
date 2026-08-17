@@ -33,7 +33,7 @@ import * as path from 'path';
 // loads it, but Prisma reads process.env.DATABASE_URL eagerly). Best-effort.
 for (const p of ['../.env', '../../../.env']) {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     require('dotenv').config({ path: path.resolve(__dirname, p) });
   } catch {
     /* dotenv not present or file missing — rely on the ambient environment */
@@ -159,14 +159,21 @@ describe('Tenant licensing permission tiers (e2e)', () => {
         roles: [{ name: 'Member', slug: 'member', is_default: true }],
       } as any,
     ]);
-    seatAppId = appIdMap.get(APP_SLUG)!.id;
+    const seatApp = appIdMap.get(APP_SLUG);
+    if (!seatApp) throw new Error(`Seed failed: application "${APP_SLUG}" was not created`);
+    seatAppId = seatApp.id;
 
     const tenantIdMap = await seedTenants(prisma, [
       { name: 'E2E License Co', slug: T_LICENSECO },
       { name: 'E2E Other Co', slug: T_OTHERCO },
     ]);
-    licensecoId = tenantIdMap.get(T_LICENSECO)!;
-    othercoId = tenantIdMap.get(T_OTHERCO)!;
+    const licensecoSeedId = tenantIdMap.get(T_LICENSECO);
+    const othercoSeedId = tenantIdMap.get(T_OTHERCO);
+    if (!licensecoSeedId || !othercoSeedId) {
+      throw new Error('Seed failed: expected tenants were not created');
+    }
+    licensecoId = licensecoSeedId;
+    othercoId = othercoSeedId;
 
     await seedUsers(
       prisma,
@@ -184,7 +191,8 @@ describe('Tenant licensing permission tiers (e2e)', () => {
     const basic = await prisma.licenseType.findFirst({
       where: { applicationId: seatAppId, slug: 'basic-seat' },
     });
-    basicTypeId = basic!.id;
+    if (!basic) throw new Error('Seed failed: basic-seat license type was not created');
+    basicTypeId = basic.id;
   });
 
   afterAll(async () => {

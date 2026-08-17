@@ -31,6 +31,11 @@ export class OAuthIntrospectionService {
   /**
    * Validate JWT token - verifies RSA signature
    * Returns user info if valid, null if invalid/forged
+   *
+   * `amr` (RFC 8176) is surfaced from the VERIFIED payload so the authorize
+   * endpoint can persist how the session actually authenticated. Undefined on
+   * legacy sessions minted before session-amr tracking (callers treat that
+   * as ['pwd']).
    */
   async validateJwt(
     token: string,
@@ -39,6 +44,7 @@ export class OAuthIntrospectionService {
     email: string | null;
     clientId?: string;
     scope?: string;
+    amr?: string[];
   } | null> {
     try {
       const payload = await this.keyService.verifyJwt(token, this.issuer);
@@ -51,6 +57,7 @@ export class OAuthIntrospectionService {
         email: (payload.email as string) || null,
         clientId: payload.client_id as string,
         scope: payload.scope as string,
+        amr: Array.isArray(payload.amr) ? (payload.amr as string[]) : undefined,
       };
     } catch {
       return null; // Invalid, expired, or forged token

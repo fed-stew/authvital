@@ -103,6 +103,46 @@ describe("env.validation", () => {
     );
   });
 
+  it("accepts valid console-session TTL overrides", () => {
+    process.env.BASE_URL = "https://idp.example.com";
+    process.env.DATABASE_URL = "postgres://db";
+    process.env.MASTER_SECRET = "secret";
+    process.env.PORT = "3000";
+    process.env.CONSOLE_SESSION_TTL_SECONDS = "1800";
+    process.env.CONSOLE_SESSION_ABSOLUTE_TTL_SECONDS = "86400";
+
+    const exitSpy = jest
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
+
+    validateEnv();
+
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "CONSOLE_SESSION_TTL_SECONDS",
+    "CONSOLE_SESSION_ABSOLUTE_TTL_SECONDS",
+  ])("exits when %s is not a positive number", (varName) => {
+    const exitSpy = jest
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
+
+    process.env.BASE_URL = "https://idp.example.com";
+    process.env.DATABASE_URL = "postgres://db";
+    process.env.MASTER_SECRET = "secret";
+    process.env.PORT = "3000";
+    process.env[varName] = "-5";
+
+    validateEnv();
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    const errorCalls = (console.error as jest.Mock).mock.calls.flat().join(" ");
+    expect(errorCalls).toContain(
+      `${varName} (must be a positive number of seconds)`,
+    );
+  });
+
   it("getRequiredEnv returns value when present", () => {
     process.env.MY_TEST_VAR = "woof";
     expect(getRequiredEnv("MY_TEST_VAR")).toBe("woof");

@@ -51,7 +51,7 @@ export class SuperAdminGuard implements CanActivate {
       };
 
       return true;
-    } catch (error) {
+    } catch (_error) {
       throw new UnauthorizedException('Invalid token');
     }
   }

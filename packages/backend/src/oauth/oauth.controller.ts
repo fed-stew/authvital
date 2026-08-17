@@ -106,7 +106,7 @@ export class OAuthController {
 
     let code: string;
     try {
-      code = await this.oauthService.authorize(user.userId, authorizeParams);
+      code = await this.oauthService.authorize(user.userId, authorizeParams, user.amr);
     } catch (error) {
       if (error instanceof MfaEnrollmentRequiredException) {
         // Browser flow: interrupt with a redirect to MFA enrollment instead of
@@ -116,9 +116,14 @@ export class OAuthController {
       throw error;
     }
 
+    // Generate session_state for OIDC Session Management — assembled exactly
+    // like the standard /oauth/authorize redirect.
+    const sessionState = this.tokenService.generateSessionState(clientId, user.userId);
+
     const redirectUrl = new URL(redirectUri);
     redirectUrl.searchParams.set('code', code);
     if (state) redirectUrl.searchParams.set('state', state);
+    redirectUrl.searchParams.set('session_state', sessionState);
 
     return res.redirect(redirectUrl.toString());
   }
@@ -171,7 +176,7 @@ export class OAuthController {
       try {
         const code = await this.oauthService.authorize(user.userId, {
           clientId, redirectUri, responseType, scope, state, nonce, codeChallenge, codeChallengeMethod,
-        });
+        }, user.amr);
 
         // Generate session_state for OIDC Session Management
         const sessionState = this.tokenService.generateSessionState(clientId, user.userId);
@@ -231,7 +236,7 @@ export class OAuthController {
     };
 
     try {
-      const code = await this.oauthService.authorize(user.userId, fullAuthorizeParams);
+      const code = await this.oauthService.authorize(user.userId, fullAuthorizeParams, user.amr);
 
       // Generate session_state for OIDC Session Management
       const sessionState = this.tokenService.generateSessionState(clientId, user.userId);
@@ -320,7 +325,7 @@ export class OAuthController {
     try {
       const padded = encodedVerifier + '==='.slice(0, (4 - (encodedVerifier.length % 4)) % 4);
       codeVerifier = Buffer.from(padded.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf-8');
-    } catch (err) {
+    } catch (_err) {
       throw new BadRequestException('Invalid state format - could not decode verifier');
     }
 

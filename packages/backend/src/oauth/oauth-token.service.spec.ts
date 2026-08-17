@@ -7,9 +7,14 @@ jest.mock("./key.service", () => ({
   KeyService: class MockKeyService {},
 }));
 
+import * as crypto from "crypto";
 import { UnauthorizedException, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { OAuthTokenService } from "./oauth-token.service";
+
+/** Codes are stored hashed at rest; rows carry codeHash, never plaintext. */
+const sha256Hex = (value: string) =>
+  crypto.createHash("sha256").update(value).digest("hex");
 
 describe("OAuthTokenService", () => {
   const mockPrisma = {
@@ -91,7 +96,7 @@ describe("OAuthTokenService", () => {
 
   const buildAuthCode = (overrides: Record<string, unknown> = {}) => ({
     id: "ac1",
-    code: "code-123",
+    codeHash: sha256Hex("code-123"),
     userId: "u1",
     applicationClientId: "appc1",
     usedAt: null,
@@ -103,6 +108,7 @@ describe("OAuthTokenService", () => {
     scope: "openid profile email",
     tenantId: null,
     tenantSubdomain: null,
+    amr: [] as string[], // legacy pre-amr row by default
     user,
     applicationClient,
     ...overrides,
@@ -118,6 +124,7 @@ describe("OAuthTokenService", () => {
     scope: "openid profile email",
     tenantId: null,
     tenantSubdomain: null,
+    amr: [] as string[], // legacy pre-amr row by default
     user,
     applicationClient,
     ...overrides,
@@ -168,6 +175,13 @@ describe("OAuthTokenService", () => {
 
       const result = await service.token(params);
 
+      // Codes are stored hashed at rest — the lookup must be by SHA-256
+      // digest, never the plaintext code.
+      expect(mockPrisma.authorizationCode.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { codeHash: sha256Hex("code-123") },
+        }),
+      );
       expect(mockPrisma.authorizationCode.updateMany).toHaveBeenCalledWith({
         where: { id: "ac1", usedAt: null },
         data: { usedAt: expect.any(Date) },
@@ -339,9 +353,9 @@ describe("OAuthTokenService", () => {
     /** The first signJwt call is the access token; return its payload. */
     const accessTokenPayload = () => mockKeyService.signJwt.mock.calls[0][0];
 
-    it("org-less code exchange never consults the MFA policy and carries amr ['pwd']", async () => {
+    it("org-less code exchange never consults the MFA policy; legacy no-amr code → amr ['pwd']", async () => {
       mockPrisma.authorizationCode.findUnique.mockResolvedValue(
-        buildAuthCode(),
+        buildAuthCode(), // amr: [] — minted before session-amr tracking
       );
       mintHappyPath();
 
@@ -407,12 +421,13 @@ describe("OAuthTokenService", () => {
       expect(idTokenPayload.amr).toEqual(["pwd"]);
     });
 
-    it("MFA-enabled user gets amr ['pwd', 'otp'] on tenant-scoped mint", async () => {
+    it("stamps the SESSION amr persisted on the code row (no mfaEnabled approximation)", async () => {
       mockPrisma.authorizationCode.findUnique.mockResolvedValue(
         buildAuthCode({
           tenantId: "t1",
           tenantSubdomain: "acme",
           user: tenantUser,
+          amr: ["pwd", "otp"], // this login truly did TOTP
         }),
       );
       mintHappyPath();
@@ -423,6 +438,79 @@ describe("OAuthTokenService", () => {
       await service.token(codeParams);
 
       expect(accessTokenPayload().amr).toEqual(["pwd", "otp"]);
+      // The session amr is persisted onto the new refresh-token row so the
+      // refresh grant can re-stamp the ORIGINAL login's methods.
+      expect(mockPrisma.refreshToken.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ amr: ["pwd", "otp"] }),
+      });
+    });
+
+    it("mfaEnabled alone no longer fabricates 'otp' — a pwd-only session stays ['pwd']", async () => {
+      mockPrisma.authorizationCode.findUnique.mockResolvedValue(
+        buildAuthCode({
+          tenantId: "t1",
+          tenantSubdomain: "acme",
+          user: tenantUser,
+          amr: ["pwd"],
+        }),
+      );
+      mintHappyPath();
+      mockMfaService.checkUserMfaCompliance.mockResolvedValue(
+        compliance({ mfaEnabled: true, tenantPolicy: "OPTIONAL" }),
+      );
+
+      await service.token(codeParams);
+
+      expect(accessTokenPayload().amr).toEqual(["pwd"]);
+    });
+
+    it("federated session amr ['fed'] flows through code exchange untouched", async () => {
+      mockPrisma.authorizationCode.findUnique.mockResolvedValue(
+        buildAuthCode({ amr: ["fed"] }),
+      );
+      mintHappyPath();
+
+      await service.token(codeParams);
+
+      expect(accessTokenPayload().amr).toEqual(["fed"]);
+      expect(mockPrisma.refreshToken.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ amr: ["fed"] }),
+      });
+    });
+
+    it("refresh grant re-stamps the ORIGINAL session amr from the token row and persists it onward", async () => {
+      mockSessionService.verifyRefreshTokenJwt.mockResolvedValue(
+        refreshJwtPayload,
+      );
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        buildRefreshToken({ amr: ["pwd", "otp"] }),
+      );
+      mintHappyPath();
+
+      await service.token(refreshParams);
+
+      expect(accessTokenPayload().amr).toEqual(["pwd", "otp"]);
+      // Rotation carries the amr onto the NEW refresh-token row.
+      expect(mockPrisma.refreshToken.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ amr: ["pwd", "otp"] }),
+      });
+    });
+
+    it("legacy refresh row (empty amr) re-stamps ['pwd']", async () => {
+      mockSessionService.verifyRefreshTokenJwt.mockResolvedValue(
+        refreshJwtPayload,
+      );
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        buildRefreshToken(), // amr: []
+      );
+      mintHappyPath();
+
+      await service.token(refreshParams);
+
+      expect(accessTokenPayload().amr).toEqual(["pwd"]);
+      expect(mockPrisma.refreshToken.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ amr: ["pwd"] }),
+      });
     });
 
     it("refresh after grace expiry rejects with interaction_required WITHOUT revoking the family", async () => {

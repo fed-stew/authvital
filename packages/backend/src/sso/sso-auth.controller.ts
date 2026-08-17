@@ -59,12 +59,12 @@ export class SsoAuthController {
    */
   @Get(':provider/authorize')
   async authorize(
+    @Res() res: Response,
     @Param('provider') providerParam: string,
     @Query('tenant_id') tenantId?: string,
     @Query('tenant_slug') tenantSlug?: string,
     @Query('client_id') clientId?: string,
     @Query('redirect_uri') redirectUri?: string,
-    @Res() res?: Response,
   ) {
     const provider = this.parseProvider(providerParam);
 
@@ -78,7 +78,7 @@ export class SsoAuthController {
     });
 
     // Redirect to provider
-    return res!.redirect(302, authorizationUrl);
+    return res.redirect(302, authorizationUrl);
   }
 
   /**
@@ -86,44 +86,44 @@ export class SsoAuthController {
    */
   @Get(':provider/callback')
   async callback(
+    @Res() res: Response,
     @Param('provider') providerParam: string,
     @Query('code') code: string,
     @Query('state') state: string,
     @Query('error') error?: string,
     @Query('error_description') errorDescription?: string,
-    @Res() res?: Response,
   ) {
     const provider = this.parseProvider(providerParam);
 
     // Handle OAuth error
     if (error) {
       this.logger.warn(`SSO callback error: ${error} - ${errorDescription}`);
-      return res!.redirect(
+      return res.redirect(
         `/auth/login?error=sso_failed&message=${encodeURIComponent(errorDescription || error)}`,
       );
     }
 
     if (!code || !state) {
-      return res!.redirect('/auth/login?error=sso_failed&message=Missing+code+or+state');
+      return res.redirect('/auth/login?error=sso_failed&message=Missing+code+or+state');
     }
 
     try {
       const result = await this.ssoAuthService.handleCallback(provider, code, state);
 
       // Set session cookie (idp_session only - auth_token was deprecated)
-      res!.cookie('idp_session', result.accessToken, getIdpCookieOptions());
+      res.cookie('idp_session', result.accessToken, getIdpCookieOptions());
 
       this.logger.log(`SSO login successful for ${result.user.email}, redirecting to ${result.redirectTo}`);
 
       // Redirect to appropriate destination
-      return res!.redirect(302, result.redirectTo || '/auth/app-picker');
+      return res.redirect(302, result.redirectTo || '/auth/app-picker');
     } catch (err: any) {
       this.logger.error(`SSO callback error: ${err.message}`);
       // SECURITY: Map known exceptions to safe messages, hide internal errors
       const safeMessage = err instanceof UnauthorizedException || err instanceof BadRequestException
         ? err.message
         : 'An error occurred during sign-in. Please try again.';
-      return res!.redirect(
+      return res.redirect(
         `/auth/login?error=sso_failed&message=${encodeURIComponent(safeMessage)}`,
       );
     }

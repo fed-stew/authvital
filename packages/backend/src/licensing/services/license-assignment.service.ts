@@ -423,10 +423,9 @@ export class LicenseAssignmentService {
 
     const assignmentsByUser = new Map<string, typeof assignments>();
     for (const assignment of assignments) {
-      if (!assignmentsByUser.has(assignment.userId)) {
-        assignmentsByUser.set(assignment.userId, []);
-      }
-      assignmentsByUser.get(assignment.userId)!.push(assignment);
+      const userAssignments = assignmentsByUser.get(assignment.userId) ?? [];
+      userAssignments.push(assignment);
+      assignmentsByUser.set(assignment.userId, userAssignments);
     }
 
     return memberships.map((membership) => {

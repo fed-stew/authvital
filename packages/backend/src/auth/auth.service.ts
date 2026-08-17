@@ -17,6 +17,26 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtPayload, AuthResponse } from './interfaces/auth.interface';
 import { CONSOLE_SESSION_TTL_SECONDS } from './constants/token-ttl';
 
+/**
+ * Options for minting a console/IdP session JWT.
+ *
+ * - `amr` (RFC 8176): how THIS login actually authenticated. Defaults to
+ *   ['pwd'] — the password-only path. Callers that ran an extra factor or a
+ *   federated login MUST override (e.g. ['pwd','otp'] after TOTP, ['fed']
+ *   after SSO).
+ * - `sessionStart`: unix seconds of the FIRST login of this session. Defaults
+ *   to now; the sliding-refresh interceptor passes the original value through
+ *   so re-issued cookies never extend past the absolute session cap.
+ * - `expiresIn`: token lifetime in seconds. Defaults to the rolling
+ *   CONSOLE_SESSION_TTL_SECONDS; the sliding-refresh interceptor clamps it
+ *   down near the absolute cap so no token ever outlives the cap.
+ */
+export interface ConsoleSessionOptions {
+  amr?: string[];
+  sessionStart?: number;
+  expiresIn?: number;
+}
+
 @Injectable()
 export class AuthService {
   private readonly SALT_ROUNDS = 12;
@@ -227,8 +247,11 @@ export class AuthService {
       throw new UnauthorizedException('Invalid challenge token');
     }
 
-    // Generate access token
-    const accessToken = await this.generateJwt(user.id, user.email || '');
+    // Generate access token. This login verified a TOTP code moments ago, so
+    // the session's amr is password + one-time password (RFC 8176).
+    const accessToken = await this.generateJwt(user.id, user.email || '', {
+      amr: ['pwd', 'otp'],
+    });
 
     return {
       accessToken,
@@ -342,18 +365,36 @@ export class AuthService {
   }
 
   /**
-   * Generate a JWT for a user (used after signup, token exchange, etc.)
-   * Uses RSA signing via KeyService
+   * Generate a console/IdP session JWT for a user (used after login, signup,
+   * SSO, invite-accept, token exchange, sliding re-issue). Uses RSA signing
+   * via KeyService.
+   *
+   * Every console JWT carries:
+   *  - `amr`           — how this session authenticated (default ['pwd'])
+   *  - `session_start` — unix seconds of the session's FIRST login (default
+   *                      now), preserved across sliding re-issues so the
+   *                      absolute session cap holds.
+   *
+   * Lifetime is the rolling CONSOLE_SESSION_TTL_SECONDS window (default 1h);
+   * the SessionRefreshInterceptor slides active cookie sessions forward up to
+   * CONSOLE_SESSION_ABSOLUTE_TTL_SECONDS. See constants/token-ttl.ts, which
+   * also documents the coupling with the passive signing-key lifetime.
    */
-  async generateJwt(userId: string, email: string): Promise<string> {
+  async generateJwt(
+    userId: string,
+    email: string,
+    options?: ConsoleSessionOptions,
+  ): Promise<string> {
     return this.keyService.signJwt(
-      { email },
+      {
+        email,
+        amr: options?.amr ?? ['pwd'],
+        session_start: options?.sessionStart ?? Math.floor(Date.now() / 1000),
+      },
       {
         subject: userId,
         issuer: this.issuer,
-        // 7 days. Shared constant — key-manager's passive-key lifetime
-        // assertion depends on this value (see constants/token-ttl.ts).
-        expiresIn: CONSOLE_SESSION_TTL_SECONDS,
+        expiresIn: options?.expiresIn ?? CONSOLE_SESSION_TTL_SECONDS,
       },
     );
   }

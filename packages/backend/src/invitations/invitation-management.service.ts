@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { SyncEventService, SYNC_EVENT_TYPES } from '../sync';
 import { EmailService } from '../auth/email.service';
+import { getRequiredEnv } from '../config/env.validation';
 
 /**
  * InvitationManagementService - Administrative invitation operations
@@ -155,7 +156,7 @@ export class InvitationManagementService {
       throw new BadRequestException('This invitation has expired');
     }
 
-    const baseUrl = process.env.BASE_URL!;
+    const baseUrl = getRequiredEnv('BASE_URL');
     const inviteUrl = `${baseUrl}/invite?token=${invitation.token}`;
 
     await this.emailService.sendInvitationEmail(invitation.email, {
@@ -218,15 +219,16 @@ export class InvitationManagementService {
         throw new BadRequestException('Invalid role ID');
       }
 
+      // Capture narrowed values: TS cannot carry the outer `data.roleId &&
+      // invitation.membership` narrowing into the transaction callback.
+      const membershipId = invitation.membership.id;
+      const tenantRoleId = data.roleId;
       await this.prisma.$transaction(async (tx) => {
         await tx.membershipTenantRole.deleteMany({
-          where: { membershipId: invitation.membership!.id },
+          where: { membershipId },
         });
         await tx.membershipTenantRole.create({
-          data: {
-            membershipId: invitation.membership!.id,
-            tenantRoleId: data.roleId!,
-          },
+          data: { membershipId, tenantRoleId },
         });
       });
 

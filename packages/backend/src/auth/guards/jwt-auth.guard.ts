@@ -44,11 +44,16 @@ import { extractSessionJwt } from '../utils/extract-jwt';
  * lifetime, so the existence check is what cuts off deleted/deactivated users
  * immediately instead of letting them ride out the remainder of their token.
  *
- * === TOKEN LIFETIME ===
+ * === TOKEN LIFETIME (rolling window + absolute cap) ===
  * Console session tokens (both the Bearer JWT and the `idp_session` cookie
- * value) live for CONSOLE_SESSION_TTL_SECONDS (currently 7 days) — see
- * `auth/constants/token-ttl.ts`, which also documents the coupling between
- * this TTL and the passive signing-key lifetime in KeyManagerService.
+ * value) live for CONSOLE_SESSION_TTL_SECONDS (default 1 hour). Cookie
+ * sessions do not simply die after an hour: SessionRefreshInterceptor
+ * re-issues the `idp_session` cookie on active use once a token passes half
+ * its TTL, preserving the token's `session_start` claim so no session can
+ * slide past CONSOLE_SESSION_ABSOLUTE_TTL_SECONDS (default 7 days) from the
+ * original login. See `auth/constants/token-ttl.ts`, which also documents
+ * the coupling between these TTLs and the passive signing-key lifetime in
+ * KeyManagerService.
  *
  * @see {@link extractSessionJwt} - Header/cookie token extraction utility
  * @see CONSOLE_SESSION_TTL_SECONDS - Console session TTL (auth/constants/token-ttl.ts)
@@ -135,6 +140,10 @@ export class JwtAuthGuard implements CanActivate {
         // window for the token's tenant.
         amr: payload.amr,
         mfa_grace_expires_at: payload.mfa_grace_expires_at,
+        // Console-session claim: first-login timestamp (unix seconds). Used
+        // by flows that hand the session off (e.g. redirect-token exchange)
+        // so derived sessions inherit the original absolute-cap clock.
+        session_start: payload.session_start,
       };
 
       return true;
