@@ -262,10 +262,14 @@ export function CompleteSignup() {
             redirectUrl = result.initiateLoginUri.replace('{tenant}', result.tenant.slug);
             console.log('[CompleteSignup] Using initiateLoginUri:', result.initiateLoginUri);
           } else {
-            // Fallback to localhost (development) - just go to root
-            const port = window.location.port ? `:${window.location.port}` : '';
-            redirectUrl = `${window.location.protocol}//${result.tenant.slug}.localhost${port}/`;
-            console.log('[CompleteSignup] No initiateLoginUri, using localhost fallback');
+            // No initiateLoginUri configured — land on the IdP's own hosted
+            // app picker for the new tenant (current origin), mirroring the
+            // post-login single-tenant flow. The session cookie set by
+            // /signup/complete authenticates the /api/auth/apps call there.
+            const params = new URLSearchParams({ tenant: result.tenant.slug });
+            if (result.tenant.name) params.set('tenant_name', result.tenant.name);
+            redirectUrl = `/auth/app-picker?${params.toString()}`;
+            console.log('[CompleteSignup] No initiateLoginUri, using hosted app-picker fallback');
           }
           
           console.log('[CompleteSignup] Tenant created:', result.tenant.slug);

@@ -10,6 +10,7 @@ import type { SessionTokens, SessionStore } from '../session/index.js';
 import { ServerClient, type ServerClientConfig } from '../client/server-client.js';
 import { createSessionStore, type SessionStoreConfig } from '../session/store.js';
 import { extractUserAndTenant } from '../utils/jwt.js';
+import { singleFlight } from '../utils/single-flight.js';
 import { parseInteractionRequired } from '../errors.js';
 import type { TokenResponse } from '@authvital/shared';
 
@@ -284,7 +285,24 @@ interface RefreshResult {
   interactionRequired?: boolean;
 }
 
+/**
+ * Refresh tokens for a session, de-duplicating concurrent calls per session
+ * id (single-flight): with rotating refresh tokens, parallel refreshes from
+ * multi-tab BFFs — or even parallel requests from ONE tab — would present the
+ * same token twice and trip the IdP's theft response. Per-process only; the
+ * server-side rotation-reuse grace interval covers multi-instance deployments.
+ */
 async function performTokenRefresh(
+  tokens: SessionTokens,
+  config: ServerClientConfig,
+  sessionStore: SessionStore
+): Promise<RefreshResult> {
+  return singleFlight(`refresh:${tokens.sessionId}`, () =>
+    executeTokenRefresh(tokens, config, sessionStore)
+  );
+}
+
+async function executeTokenRefresh(
   tokens: SessionTokens,
   config: ServerClientConfig,
   _sessionStore: SessionStore

@@ -7,7 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { KeyService } from './key.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, RevokedReason } from '@prisma/client';
 
 /**
  * Manages OAuth sessions using the Token Ghosting pattern.
@@ -112,9 +112,13 @@ export class OAuthSessionService {
   /**
    * Revoke a specific session by ID (Token Ghosting logout)
    * This is called when user logs out of a specific session.
+   *
+   * @param reason - Why the session is being revoked (audit + grace-window
+   *                 eligibility). Defaults to ADMIN (session-management UI).
    */
   async revokeSession(
     sessionId: string,
+    reason: RevokedReason = RevokedReason.ADMIN,
   ): Promise<{ success: boolean; message: string }> {
     const result = await this.prisma.refreshToken.updateMany({
       where: {
@@ -124,6 +128,7 @@ export class OAuthSessionService {
       data: {
         revoked: true,
         revokedAt: new Date(),
+        revokedReason: reason,
       },
     });
 
@@ -144,6 +149,7 @@ export class OAuthSessionService {
   async revokeAllUserSessions(
     userId: string,
     applicationId?: string,
+    reason: RevokedReason = RevokedReason.ADMIN,
   ): Promise<{ success: boolean; count: number }> {
     // Sessions FK to ApplicationClient now; scope by the owning application
     // (covers all of that application's clients) via a relation filter.
@@ -162,6 +168,7 @@ export class OAuthSessionService {
       data: {
         revoked: true,
         revokedAt: new Date(),
+        revokedReason: reason,
       },
     });
 
@@ -172,7 +179,11 @@ export class OAuthSessionService {
    * Revoke all tokens for a user/application-client pair
    * Used for security events (e.g., authorization code replay attack)
    */
-  async revokeUserAppTokens(userId: string, applicationClientId: string) {
+  async revokeUserAppTokens(
+    userId: string,
+    applicationClientId: string,
+    reason: RevokedReason = RevokedReason.REUSE_DETECTED,
+  ) {
     await this.prisma.refreshToken.updateMany({
       where: {
         userId,
@@ -182,6 +193,7 @@ export class OAuthSessionService {
       data: {
         revoked: true,
         revokedAt: new Date(),
+        revokedReason: reason,
       },
     });
   }
@@ -295,9 +307,14 @@ export class OAuthSessionService {
 
     try {
       const { sid } = await this.verifyRefreshTokenJwt(token);
+      // RFC 7009 revocation is a client-initiated logout of this session.
       await this.prisma.refreshToken.updateMany({
         where: { id: sid, revoked: false },
-        data: { revoked: true, revokedAt: new Date() },
+        data: {
+          revoked: true,
+          revokedAt: new Date(),
+          revokedReason: RevokedReason.LOGOUT,
+        },
       });
     } catch {
       // Invalid JWT - nothing to revoke

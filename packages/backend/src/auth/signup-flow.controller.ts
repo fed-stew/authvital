@@ -86,12 +86,34 @@ export class SignupFlowController {
       // clientId lives on ApplicationClient; resolve back to the container.
       const client = await this.prisma.applicationClient.findUnique({
         where: { clientId },
-        select: { application: { select: { id: true, name: true } } },
+        select: {
+          application: {
+            select: {
+              id: true,
+              name: true,
+              // A signup started FOR an app must be able to land the user in
+              // that app afterwards — which requires a SPA credential with an
+              // initiateLoginUri. Checked here (before the PendingSignup +
+              // email) so the failure doesn't surface only after verification.
+              clients: {
+                where: { type: 'SPA', initiateLoginUri: { not: null } },
+                select: { id: true },
+                take: 1,
+              },
+            },
+          },
+        },
       });
       const app = client?.application ?? null;
 
       if (!app) {
         throw new BadRequestException('Invalid application');
+      }
+
+      if (app.clients.length === 0) {
+        throw new BadRequestException(
+          'This application is not configured for signup. Please contact the application administrator.',
+        );
       }
 
       applicationId = app.id;

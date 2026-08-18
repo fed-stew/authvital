@@ -32,6 +32,8 @@ import { OAuthSessionService } from '../oauth/oauth-session.service';
 import { KeyService } from '../oauth/key.service';
 import * as crypto from 'crypto';
 import { redirectTokens } from './redirect-tokens';
+import { RevokedReason } from '@prisma/client';
+import { isPostLogoutRedirectAllowed } from './utils/post-logout-redirect.util';
 
 const getClearCookieOptions = getBaseCookieOptions;
 
@@ -81,6 +83,21 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60_000 } }) // strict: credential creation
   async register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
+  }
+
+  /**
+   * Friendly GET fallback for the login endpoint.
+   *
+   * Browsers only ever GET this path via a misconfigured initiateLoginUri
+   * (pointing back at the IdP itself) or manual navigation — real logins are
+   * POST /api/auth/login. Instead of the JSON 404 the API prefix would
+   * produce, 302 to the hosted login page, preserving any query string.
+   */
+  @Get('login')
+  loginPage(@Req() req: ExpressRequest, @Res() res: Response) {
+    const queryIndex = req.originalUrl.indexOf('?');
+    const query = queryIndex >= 0 ? req.originalUrl.slice(queryIndex) : '';
+    return res.redirect(302, `/auth/login${query}`);
   }
 
   /**
@@ -222,10 +239,25 @@ export class AuthController {
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
     @Body('redirect_uri') redirectUri?: string,
+    @Body('everywhere') everywhere?: boolean,
   ) {
     const userId = req.user?.id;
     if (userId) {
       console.log(`[AUDIT] User logout: userId=${userId}, email=${req.user?.email}`);
+    }
+
+    // Actually revoke the session behind the refresh_token cookie — clearing
+    // cookies alone leaves the session alive server-side.
+    await this.revokeRefreshCookieSession(req);
+
+    // Opt-in "log out everywhere": revoke every session of the authenticated
+    // user. Requires authentication — an anonymous caller can't nuke anyone.
+    if (everywhere === true && userId) {
+      await this.oauthSessionService.revokeAllUserSessions(
+        userId,
+        undefined,
+        RevokedReason.LOGOUT,
+      );
     }
 
     const clearOpts = getClearCookieOptions();
@@ -240,26 +272,59 @@ export class AuthController {
     };
   }
 
+  /**
+   * Best-effort revocation of the session referenced by the refresh_token
+   * cookie. Invalid/expired/missing cookies are tolerated silently — logout
+   * must always succeed and clear cookies regardless.
+   */
+  private async revokeRefreshCookieSession(req: ExpressRequest): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const refreshToken = (req as any).cookies?.['refresh_token'];
+    if (!refreshToken) return;
+
+    try {
+      const { sid } =
+        await this.oauthSessionService.verifyRefreshTokenJwt(refreshToken);
+      await this.oauthSessionService.revokeSession(sid, RevokedReason.LOGOUT);
+      this.logger.debug(`[Logout] Revoked session ${sid}`);
+    } catch {
+      this.logger.debug(
+        '[Logout] refresh_token cookie invalid or expired — nothing to revoke',
+      );
+    }
+  }
+
   @Get('logout/redirect')
-  async logoutRedirect(@Query('post_logout_redirect_uri') postLogoutRedirectUri: string, @Res() res: Response) {
+  async logoutRedirect(@Query('post_logout_redirect_uri') postLogoutRedirectUri: string, @Req() req: ExpressRequest, @Res() res: Response) {
+    // Same server-side revocation as POST /auth/logout (best-effort).
+    await this.revokeRefreshCookieSession(req);
+
     const clearOpts = getClearCookieOptions();
     res.clearCookie('idp_session', clearOpts);
     res.clearCookie('auth_token', clearOpts);
     res.clearCookie('refresh_token', clearOpts);
 
     if (postLogoutRedirectUri) {
-      try {
-        const redirectUrl = new URL(postLogoutRedirectUri);
-        const allowedPatterns = [
-          /^https?:\/\/([a-z0-9-]+\.)?localhost(:\d+)?$/,
-          /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
-        ];
-        const isAllowed = allowedPatterns.some((pattern) => pattern.test(redirectUrl.origin));
-        if (isAllowed) {
-          return res.redirect(postLogoutRedirectUri);
-        }
-      } catch {
-        // Invalid URL - fall through
+      // Allow the redirect when its ORIGIN matches any URI registered on an
+      // active client (redirectUris / initiateLoginUri / postLogoutRedirectUris,
+      // with {tenant} as a single-label wildcard), or the localhost dev
+      // patterns. Rare endpoint → one DB query per request is fine.
+      const clients = await this.prisma.applicationClient.findMany({
+        where: { isActive: true, application: { is: { isActive: true } } },
+        select: {
+          redirectUris: true,
+          postLogoutRedirectUris: true,
+          initiateLoginUri: true,
+        },
+      });
+      const registeredUris = clients.flatMap((client) => [
+        ...client.redirectUris,
+        ...client.postLogoutRedirectUris,
+        ...(client.initiateLoginUri ? [client.initiateLoginUri] : []),
+      ]);
+
+      if (isPostLogoutRedirectAllowed(postLogoutRedirectUri, registeredUris)) {
+        return res.redirect(postLogoutRedirectUri);
       }
     }
 

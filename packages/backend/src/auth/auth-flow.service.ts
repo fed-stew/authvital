@@ -19,6 +19,7 @@ import { KeyService } from '../oauth/key.service';
 import { redirectTokens } from './redirect-tokens';
 import { ensureInternalClient } from './internal-client';
 import { CONSOLE_SESSION_TTL_SECONDS } from './constants/token-ttl';
+import { RevokedReason } from '@prisma/client';
 
 const getClearCookieOptions = getBaseCookieOptions;
 const getRefreshCookieOptions = getRefreshTokenCookieOptions;
@@ -125,6 +126,7 @@ export class AuthFlowService {
       data: {
         revoked: true,
         revokedAt: new Date(),
+        revokedReason: RevokedReason.ROTATED,
       },
     });
     this.logger.debug(`[Token Ghosting] Revoked old session ${session.id}`);
@@ -146,6 +148,13 @@ export class AuthFlowService {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ipAddress: (req as any).ip || null,
       },
+    });
+
+    // Chain the rotated-out session to its successor (forensics, matches the
+    // OAuth refresh grant). First rotation wins; never overwritten.
+    await this.prisma.refreshToken.updateMany({
+      where: { id: session.id, successorId: null },
+      data: { successorId: newSession.id },
     });
 
     // Generate new refresh token JWT with new session ID

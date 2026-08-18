@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { ApplicationClient, ApplicationType, Prisma } from '@prisma/client';
@@ -29,6 +30,7 @@ export interface PublicApplicationClient {
   initiateLoginUri: string | null;
   accessTokenTtl: number;
   refreshTokenTtl: number;
+  rotationReuseIntervalSeconds: number;
   hasClientSecret: boolean;
   m2mTrustedAllTenants: boolean;
   m2mAllowedScopes: string[];
@@ -47,6 +49,7 @@ export type CreateClientInput =
       initiateLoginUri?: string;
       accessTokenTtl?: number;
       refreshTokenTtl?: number;
+      rotationReuseIntervalSeconds?: number;
     }
   | {
       type: 'MACHINE';
@@ -63,6 +66,7 @@ export interface UpdateClientInput {
   initiateLoginUri?: string | null;
   accessTokenTtl?: number;
   refreshTokenTtl?: number;
+  rotationReuseIntervalSeconds?: number;
   m2mTrustedAllTenants?: boolean;
   m2mAllowedScopes?: string[];
   isActive?: boolean;
@@ -83,7 +87,10 @@ export interface UpdateClientInput {
 export class AdminApplicationClientsService {
   private readonly logger = new Logger(AdminApplicationClientsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+  ) {}
 
   // ===========================================================================
   // MAPPING
@@ -101,6 +108,7 @@ export class AdminApplicationClientsService {
       initiateLoginUri: client.initiateLoginUri,
       accessTokenTtl: client.accessTokenTtl,
       refreshTokenTtl: client.refreshTokenTtl,
+      rotationReuseIntervalSeconds: client.rotationReuseIntervalSeconds ?? 0,
       hasClientSecret: !!client.clientSecret,
       m2mTrustedAllTenants: client.m2mTrustedAllTenants,
       m2mAllowedScopes: client.m2mAllowedScopes,
@@ -154,6 +162,11 @@ export class AdminApplicationClientsService {
           initiateLoginUri: input.initiateLoginUri,
           ...(input.accessTokenTtl !== undefined && { accessTokenTtl: input.accessTokenTtl }),
           ...(input.refreshTokenTtl !== undefined && { refreshTokenTtl: input.refreshTokenTtl }),
+          ...(input.rotationReuseIntervalSeconds !== undefined && {
+            rotationReuseIntervalSeconds: this.validatedRotationReuseInterval(
+              input.rotationReuseIntervalSeconds,
+            ),
+          }),
         },
       });
       return { client };
@@ -230,6 +243,12 @@ export class AdminApplicationClientsService {
             allowTenantPlaceholder: true,
           });
           if (!result.valid) throw new BadRequestException(result.error);
+          this.assertInitiateLoginUriNotIdpHost(input.initiateLoginUri);
+        } else if (client.initiateLoginUri) {
+          // Clearing a previously-set URI: blocked while the application still
+          // participates in signup — post-signup users would have no app to
+          // land in (see SignupFlowController.initiateSignup).
+          await this.assertSignupNotEnabled(applicationId);
         }
         data.initiateLoginUri = input.initiateLoginUri;
       }
@@ -255,6 +274,11 @@ export class AdminApplicationClientsService {
 
     if (input.accessTokenTtl !== undefined) data.accessTokenTtl = input.accessTokenTtl;
     if (input.refreshTokenTtl !== undefined) data.refreshTokenTtl = input.refreshTokenTtl;
+    if (input.rotationReuseIntervalSeconds !== undefined) {
+      data.rotationReuseIntervalSeconds = this.validatedRotationReuseInterval(
+        input.rotationReuseIntervalSeconds,
+      );
+    }
     if (input.isActive !== undefined) data.isActive = input.isActive;
 
     const updated = await this.prisma.applicationClient.update({
@@ -350,6 +374,16 @@ export class AdminApplicationClientsService {
     }
   }
 
+  /** Grace window bounds: 0 (strict) .. 300 seconds. */
+  private validatedRotationReuseInterval(value: number): number {
+    if (!Number.isInteger(value) || value < 0 || value > 300) {
+      throw new BadRequestException(
+        'rotationReuseIntervalSeconds must be an integer between 0 and 300.',
+      );
+    }
+    return value;
+  }
+
   private validateSpaFields(input: Extract<CreateClientInput, { type: 'SPA' }>): void {
     if (!input.redirectUris?.length) {
       throw new BadRequestException('A SPA credential requires at least one redirect URI.');
@@ -371,6 +405,52 @@ export class AdminApplicationClientsService {
     if (input.initiateLoginUri) {
       const result = validateSafeUrl(input.initiateLoginUri, { allowTenantPlaceholder: true });
       if (!result.valid) throw new BadRequestException(result.error);
+      this.assertInitiateLoginUriNotIdpHost(input.initiateLoginUri);
+    }
+  }
+
+  /**
+   * Reject an initiateLoginUri that points at THIS AuthVital instance: the
+   * hint-less login flow 302s browsers to it, and the IdP has no GET routes
+   * to receive them (only the SPA + JSON APIs), so the user dead-ends in a 404.
+   * Exact hostname match only — apps legitimately live on sibling/sub domains
+   * of the IdP host, so subdomains are NOT rejected.
+   */
+  private assertInitiateLoginUriNotIdpHost(initiateLoginUri: string): void {
+    const baseUrl = this.configService.get<string>('BASE_URL');
+    if (!baseUrl) return;
+
+    let idpHostname: string;
+    let uriHostname: string;
+    try {
+      idpHostname = new URL(baseUrl).hostname;
+      // '{tenant}' is a supported placeholder but not URL-parseable; swap in a
+      // syntactically valid dummy label. A placeholder host can never equal the
+      // (literal) IdP hostname anyway.
+      uriHostname = new URL(initiateLoginUri.replace(/\{tenant\}/g, 'tenant-placeholder')).hostname;
+    } catch {
+      // Syntax is validateSafeUrl's job — never double-report from here.
+      return;
+    }
+
+    if (uriHostname.toLowerCase() === idpHostname.toLowerCase()) {
+      throw new BadRequestException(
+        "initiateLoginUri must point to your application's host, not the AuthVital instance itself",
+      );
+    }
+  }
+
+  /** Guard for clearing initiateLoginUri while the app participates in signup. */
+  private async assertSignupNotEnabled(applicationId: string): Promise<void> {
+    const app = await this.prisma.application.findUnique({
+      where: { id: applicationId },
+      select: { autoProvisionOnSignup: true },
+    });
+    if (app?.autoProvisionOnSignup) {
+      throw new BadRequestException(
+        'This application has signup enabled; its SPA credential must keep an Initiate Login URI. ' +
+          'Disable signup participation first.',
+      );
     }
   }
 

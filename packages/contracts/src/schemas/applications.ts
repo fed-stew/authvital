@@ -109,6 +109,12 @@ export const ApplicationClientSchema = z.object({
   initiateLoginUri: z.string().nullable(),
   accessTokenTtl: z.number(),
   refreshTokenTtl: z.number(),
+  /**
+   * Rotation reuse grace window (seconds, 0..300). Within this window after
+   * a refresh token rotation, replaying the old token is forgiven instead of
+   * revoking the whole token family. 0 = strict.
+   */
+  rotationReuseIntervalSeconds: z.number(),
   /** True when a MACHINE secret is set. SPA credentials are always false. */
   hasClientSecret: z.boolean(),
   m2mTrustedAllTenants: z.boolean(),
@@ -188,6 +194,7 @@ export const SpaClientInputSchema = z.object({
   initiateLoginUri: z.string().optional(),
   accessTokenTtl: z.number().int().min(0).optional(),
   refreshTokenTtl: z.number().int().min(0).optional(),
+  rotationReuseIntervalSeconds: z.number().int().min(0).max(300).optional(),
 });
 
 export const MachineClientInputSchema = z.object({
@@ -214,6 +221,7 @@ export const UpdateClientInputSchema = z.object({
   initiateLoginUri: z.string().nullable().optional(),
   accessTokenTtl: z.number().int().min(0).optional(),
   refreshTokenTtl: z.number().int().min(0).optional(),
+  rotationReuseIntervalSeconds: z.number().int().min(0).max(300).optional(),
   m2mTrustedAllTenants: z.boolean().optional(),
   m2mAllowedScopes: z.array(z.string()).optional(),
   isActive: z.boolean().optional(),

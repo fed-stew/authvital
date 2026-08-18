@@ -31,6 +31,7 @@ import {
   type CookieOptions,
 } from '../session/index.js';
 import { ServerClient, type ServerClientConfig } from '../client/index.js';
+import { singleFlight } from '../utils/single-flight.js';
 import { parseInteractionRequired } from '../errors.js';
 
 // =============================================================================
@@ -838,7 +839,23 @@ interface RefreshOutcome {
   interactionRequired: boolean;
 }
 
+/**
+ * Refresh tokens for a session, de-duplicating concurrent calls per session
+ * id (single-flight): with rotating refresh tokens, parallel refreshes from
+ * multi-tab BFFs — or even parallel requests from ONE tab — would present the
+ * same token twice and trip the IdP's theft response. Per-process only; the
+ * server-side rotation-reuse grace interval covers multi-instance deployments.
+ */
 async function refreshTokens(
+  tokens: SessionTokens,
+  config: ServerClientConfig
+): Promise<RefreshOutcome> {
+  return singleFlight(`refresh:${tokens.sessionId}`, () =>
+    executeTokenRefresh(tokens, config)
+  );
+}
+
+async function executeTokenRefresh(
   tokens: SessionTokens,
   config: ServerClientConfig
 ): Promise<RefreshOutcome> {

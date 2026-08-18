@@ -274,7 +274,11 @@ describe("OAuthTokenService", () => {
       );
       expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
         where: { id: "sid-1", revoked: false },
-        data: { revoked: true, revokedAt: expect.any(Date) },
+        data: {
+          revoked: true,
+          revokedAt: expect.any(Date),
+          revokedReason: "ROTATED",
+        },
       });
       expect(mockSessionService.revokeUserAppTokens).toHaveBeenCalledWith(
         "u1",
@@ -316,6 +320,191 @@ describe("OAuthTokenService", () => {
       expect(result.access_token).toBe("signed-jwt");
       expect(result.refresh_token).toBe("new-refresh-jwt");
       expect(mockSessionService.revokeUserAppTokens).not.toHaveBeenCalled();
+      // Forensic chain: the rotated-out row points at its successor (stamped
+      // once — conditional on successorId: null so replays never rewrite it).
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { id: "sid-1", successorId: null },
+        data: { successorId: "rt-new" },
+      });
+    });
+  });
+
+  describe("refresh_token grant — rotation reuse grace window", () => {
+    const params = {
+      grantType: "refresh_token",
+      refreshToken: "refresh-jwt",
+      clientId: "client-1",
+    };
+
+    const jwtPayload = {
+      sid: "sid-1",
+      sub: "u1",
+      aud: "client-1",
+      scope: "openid profile email",
+    };
+
+    /** Client opted into a 30-second grace window. */
+    const graceClient = {
+      ...applicationClient,
+      rotationReuseIntervalSeconds: 30,
+    };
+
+    const mintHappyPath = () => {
+      mockKeyService.signJwt.mockResolvedValue("signed-jwt");
+      mockPrisma.refreshToken.create.mockResolvedValue({ id: "rt-new" });
+      mockSessionService.generateRefreshTokenJwt.mockResolvedValue(
+        "new-refresh-jwt",
+      );
+    };
+
+    beforeEach(() => {
+      mockSessionService.verifyRefreshTokenJwt.mockResolvedValue(jwtPayload);
+    });
+
+    it("replay of a ROTATED token within the window mints new tokens without family revocation", async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        buildRefreshToken({
+          revoked: true,
+          revokedAt: new Date(Date.now() - 5 * 1000), // rotated 5s ago
+          revokedReason: "ROTATED",
+          applicationClient: graceClient,
+        }),
+      );
+      mintHappyPath();
+
+      const result = await service.token(params);
+
+      expect(result.access_token).toBe("signed-jwt");
+      expect(result.refresh_token).toBe("new-refresh-jwt");
+      expect(mockSessionService.revokeUserAppTokens).not.toHaveBeenCalled();
+      // The row is already revoked — no second rotation write for it...
+      expect(mockPrisma.refreshToken.updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: "sid-1", revoked: false } }),
+      );
+      // ...and the original successor link is never overwritten (conditional
+      // on successorId: null — first rotation wins).
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { id: "sid-1", successorId: null },
+        data: { successorId: "rt-new" },
+      });
+    });
+
+    it("replay of a ROTATED token OUTSIDE the window keeps the theft response", async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        buildRefreshToken({
+          revoked: true,
+          revokedAt: new Date(Date.now() - 60 * 1000), // 60s ago > 30s window
+          revokedReason: "ROTATED",
+          applicationClient: graceClient,
+        }),
+      );
+
+      await expect(service.token(params)).rejects.toThrow(
+        new UnauthorizedException("Session has been revoked"),
+      );
+      expect(mockSessionService.revokeUserAppTokens).toHaveBeenCalledWith(
+        "u1",
+        "appc1",
+      );
+      expect(mockKeyService.signJwt).not.toHaveBeenCalled();
+    });
+
+    it("replay of a token revoked for any OTHER reason (e.g. LOGOUT) is never forgiven", async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        buildRefreshToken({
+          revoked: true,
+          revokedAt: new Date(Date.now() - 5 * 1000),
+          revokedReason: "LOGOUT",
+          applicationClient: graceClient,
+        }),
+      );
+
+      await expect(service.token(params)).rejects.toThrow(
+        new UnauthorizedException("Session has been revoked"),
+      );
+      expect(mockSessionService.revokeUserAppTokens).toHaveBeenCalledWith(
+        "u1",
+        "appc1",
+      );
+    });
+
+    it("default interval 0 keeps strict behavior even for a just-ROTATED token", async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        buildRefreshToken({
+          revoked: true,
+          revokedAt: new Date(Date.now() - 1000),
+          revokedReason: "ROTATED",
+          // applicationClient has no rotationReuseIntervalSeconds → 0 → strict
+        }),
+      );
+
+      await expect(service.token(params)).rejects.toThrow(
+        new UnauthorizedException("Session has been revoked"),
+      );
+      expect(mockSessionService.revokeUserAppTokens).toHaveBeenCalledWith(
+        "u1",
+        "appc1",
+      );
+    });
+
+    it("grace replay of a token whose original expiresAt passed keeps the theft response", async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        buildRefreshToken({
+          revoked: true,
+          revokedAt: new Date(Date.now() - 5 * 1000),
+          revokedReason: "ROTATED",
+          expiresAt: new Date(Date.now() - 1000), // original lifetime over
+          applicationClient: graceClient,
+        }),
+      );
+
+      await expect(service.token(params)).rejects.toThrow(
+        new UnauthorizedException("Session has been revoked"),
+      );
+      expect(mockSessionService.revokeUserAppTokens).toHaveBeenCalledWith(
+        "u1",
+        "appc1",
+      );
+    });
+
+    it("concurrent-rotation race loser is forgiven when the winner ROTATED inside the window", async () => {
+      // First fetch: row still looks live; the atomic rotation then loses.
+      mockPrisma.refreshToken.findUnique
+        .mockResolvedValueOnce(
+          buildRefreshToken({ applicationClient: graceClient }),
+        )
+        // Re-fetch after losing the race: winner rotated it milliseconds ago.
+        .mockResolvedValueOnce({
+          revokedReason: "ROTATED",
+          revokedAt: new Date(),
+          expiresAt: futureDate(),
+        });
+      mockPrisma.refreshToken.updateMany.mockResolvedValue({ count: 0 });
+      mintHappyPath();
+
+      const result = await service.token(params);
+
+      expect(result.access_token).toBe("signed-jwt");
+      expect(mockSessionService.revokeUserAppTokens).not.toHaveBeenCalled();
+    });
+
+    it("concurrent-rotation race loser keeps the theft response when the client has no window", async () => {
+      mockPrisma.refreshToken.findUnique
+        .mockResolvedValueOnce(buildRefreshToken()) // interval 0 client
+        .mockResolvedValueOnce({
+          revokedReason: "ROTATED",
+          revokedAt: new Date(),
+          expiresAt: futureDate(),
+        });
+      mockPrisma.refreshToken.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.token(params)).rejects.toThrow(
+        new UnauthorizedException("Invalid refresh token"),
+      );
+      expect(mockSessionService.revokeUserAppTokens).toHaveBeenCalledWith(
+        "u1",
+        "appc1",
+      );
     });
   });
 
@@ -545,7 +734,11 @@ describe("OAuthTokenService", () => {
       // The presented token IS rotated (legitimately consumed)...
       expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
         where: { id: "sid-1", revoked: false },
-        data: { revoked: true, revokedAt: expect.any(Date) },
+        data: {
+          revoked: true,
+          revokedAt: expect.any(Date),
+          revokedReason: "ROTATED",
+        },
       });
       // ...but a policy failure must NOT look like theft.
       expect(mockSessionService.revokeUserAppTokens).not.toHaveBeenCalled();

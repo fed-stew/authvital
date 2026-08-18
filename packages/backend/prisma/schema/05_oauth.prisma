@@ -142,6 +142,14 @@ model ApplicationClient {
   accessTokenTtl  Int @default(3600) @map("access_token_ttl") // 1 hour in seconds
   refreshTokenTtl Int @default(604800) @map("refresh_token_ttl") // 7 days in seconds
 
+  // Rotation reuse grace interval (seconds). Within this window after a
+  // refresh token was ROTATED, replaying the old token is forgiven (the
+  // refresh proceeds instead of nuking the token family). Covers multi-tab
+  // BFFs and rotation races across instances. 0 = strict (replay of a
+  // revoked token is always treated as theft). Recommended: 30 for
+  // multi-tab SPA clients. Capped at 300 by the admin API.
+  rotationReuseIntervalSeconds Int @default(0) @map("rotation_reuse_interval_seconds")
+
   // ==========================================================================
   // M2M AUTHORIZATION (deny-by-default machine-to-machine access control)
   // Lives on the MACHINE client credential.
@@ -250,6 +258,14 @@ enum CodeChallengeMethod {
   PLAIN // Not recommended, but part of spec
 }
 
+/// Why a RefreshToken session was revoked (audit + grace-window eligibility).
+enum RevokedReason {
+  ROTATED // Consumed by a successful token rotation (normal lifecycle)
+  REUSE_DETECTED // Theft response: replay of a revoked token / rotation race
+  LOGOUT // User-initiated logout (single session or everywhere)
+  ADMIN // Admin or session-management surface revoked it
+}
+
 /// RefreshToken: Long-lived tokens for obtaining new access tokens
 /// Token Ghosting: The refresh token is a JWT with `sid` claim pointing to this record's `id`
 /// On refresh, we verify JWT signature first, then check this record for revocation
@@ -261,6 +277,15 @@ model RefreshToken {
   // Token Ghosting: revocation tracking
   revoked   Boolean   @default(false) // Fast boolean check for session validity
   revokedAt DateTime? @map("revoked_at") // When the session was revoked (for audit)
+
+  // WHY the session was revoked. ROTATED rows are eligible for the
+  // rotation-reuse grace window (see ApplicationClient.rotationReuseIntervalSeconds);
+  // every other reason keeps the strict theft response on replay.
+  revokedReason RevokedReason? @map("revoked_reason")
+
+  // Forensics/chaining: id of the session that replaced this one at rotation.
+  // Stamped once (first rotation wins); grace-window replays never overwrite it.
+  successorId String? @map("successor_id")
 
   // Session metadata (for Token Ghosting)
   userAgent String? @map("user_agent")

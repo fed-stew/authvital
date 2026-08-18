@@ -33,6 +33,7 @@ import {
   type SessionStore,
 } from '../session/index.js';
 import { ServerClient, type ServerClientConfig } from '../client/index.js';
+import { singleFlight } from '../utils/single-flight.js';
 import { parseInteractionRequired } from '../errors.js';
 
 // Web Crypto API types (available in Node 15+ but not in ES2020 lib)
@@ -390,7 +391,23 @@ export class AuthVitalMiddleware implements NestMiddleware {
     }
   }
 
-  private async performTokenRefresh(
+  /**
+   * Refresh tokens for a session, de-duplicating concurrent calls per session
+   * id (single-flight): with rotating refresh tokens, parallel refreshes from
+   * multi-tab BFFs — or even parallel requests from ONE tab — would present
+   * the same token twice and trip the IdP's theft response. Per-process only;
+   * the server-side rotation-reuse grace interval covers multi-instance
+   * deployments.
+   */
+  private performTokenRefresh(
+    tokens: SessionTokens
+  ): Promise<{ success: boolean; tokens?: TokenResponse; interactionRequired?: boolean }> {
+    return singleFlight(`refresh:${tokens.sessionId}`, () =>
+      this.executeTokenRefresh(tokens)
+    );
+  }
+
+  private async executeTokenRefresh(
     tokens: SessionTokens
   ): Promise<{ success: boolean; tokens?: TokenResponse; interactionRequired?: boolean }> {
     try {

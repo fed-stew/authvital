@@ -14,7 +14,7 @@ import { resolveEffectiveTenantPermissions } from '../authorization/utils/tenant
 import { hashAuthorizationCode } from './utils/hash-code';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcrypt';
-import { CodeChallengeMethod, Prisma } from '@prisma/client';
+import { CodeChallengeMethod, Prisma, RevokedReason } from '@prisma/client';
 
 export interface TokenParams {
   grantType: string;
@@ -377,19 +377,30 @@ export class OAuthTokenService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    // Step 3: Validate session state (Token Ghosting "ghost check")
+    // Step 3: Validate session state (Token Ghosting "ghost check").
+    // A revoked token is normally a theft signal — but a token that was just
+    // ROTATED may be replayed benignly (multi-tab BFF, parallel requests,
+    // multi-instance deployments). Within the client's configured grace
+    // window such a replay is forgiven and the refresh proceeds; the
+    // successor chain simply continues from the replayed row.
+    let graceReplay = false;
     if (refreshToken.revoked || refreshToken.revokedAt) {
-      // A previously-rotated (revoked) refresh token is being replayed —
-      // standard rotation-theft response: revoke the whole token family so a
-      // thief holding ANY token from this lineage is cut off.
-      this.logger.warn(
-        `[Token Ghosting] Revoked refresh token ${refreshToken.id} presented — suspected token theft, revoking ALL sessions for user ${refreshToken.userId} on this client`,
+      if (!this.isWithinRotationGrace(refreshToken)) {
+        // Standard rotation-theft response: revoke the whole token family so
+        // a thief holding ANY token from this lineage is cut off.
+        this.logger.warn(
+          `[Token Ghosting] Revoked refresh token ${refreshToken.id} presented — suspected token theft, revoking ALL sessions for user ${refreshToken.userId} on this client`,
+        );
+        await this.sessionService.revokeUserAppTokens(
+          refreshToken.userId,
+          refreshToken.applicationClientId,
+        );
+        throw new UnauthorizedException('Session has been revoked');
+      }
+      graceReplay = true;
+      this.logger.log(
+        `[Token Ghosting] Grace-window replay of ${refreshToken.id} accepted`,
       );
-      await this.sessionService.revokeUserAppTokens(
-        refreshToken.userId,
-        refreshToken.applicationClientId,
-      );
-      throw new UnauthorizedException('Session has been revoked');
     }
 
     if (refreshToken.expiresAt < new Date()) {
@@ -406,23 +417,48 @@ export class OAuthTokenService {
     // Step 4: Atomically rotate the refresh token (revoke old, generate new).
     // The conditional updateMany (revoked: false) guarantees only ONE
     // concurrent rotation wins — losing means replay/theft is in progress.
-    const rotated = await this.prisma.refreshToken.updateMany({
-      where: { id: refreshToken.id, revoked: false },
-      data: {
-        revoked: true,
-        revokedAt: new Date(),
-      },
-    });
+    // Grace replays skip this: their row is already revoked (ROTATED) by the
+    // rotation that consumed it.
+    if (!graceReplay) {
+      const rotated = await this.prisma.refreshToken.updateMany({
+        where: { id: refreshToken.id, revoked: false },
+        data: {
+          revoked: true,
+          revokedAt: new Date(),
+          revokedReason: RevokedReason.ROTATED,
+        },
+      });
 
-    if (rotated.count !== 1) {
-      this.logger.warn(
-        `[Token Ghosting] Concurrent rotation of refresh token ${refreshToken.id} — suspected token theft, revoking ALL sessions for user ${refreshToken.userId} on this client`,
-      );
-      await this.sessionService.revokeUserAppTokens(
-        refreshToken.userId,
-        refreshToken.applicationClientId,
-      );
-      throw new UnauthorizedException('Invalid refresh token');
+      if (rotated.count !== 1) {
+        // Lost a concurrent rotation race. Re-fetch the row: if the winner
+        // legitimately ROTATED it and we're inside the grace window, the
+        // loser is forgiven too — otherwise keep the theft response.
+        const current = await this.prisma.refreshToken.findUnique({
+          where: { id: refreshToken.id },
+          select: { revokedReason: true, revokedAt: true, expiresAt: true },
+        });
+
+        if (
+          !current ||
+          !this.isWithinRotationGrace({
+            ...current,
+            applicationClient: refreshToken.applicationClient,
+          })
+        ) {
+          this.logger.warn(
+            `[Token Ghosting] Concurrent rotation of refresh token ${refreshToken.id} — suspected token theft, revoking ALL sessions for user ${refreshToken.userId} on this client`,
+          );
+          await this.sessionService.revokeUserAppTokens(
+            refreshToken.userId,
+            refreshToken.applicationClientId,
+          );
+          throw new UnauthorizedException('Invalid refresh token');
+        }
+
+        this.logger.log(
+          `[Token Ghosting] Grace-window replay of ${refreshToken.id} accepted`,
+        );
+      }
     }
 
     // MFA-at-mint backstop — e.g. the grace period expired between refreshes.
@@ -452,7 +488,42 @@ export class OAuthTokenService {
         : null,
       mfaCompliance,
       refreshToken.amr,
+      refreshToken.id,
     );
+  }
+
+  /**
+   * Rotation-reuse grace check (Task: forgive benign replays).
+   *
+   * A revoked refresh token may still be refreshed IFF:
+   *  - the client opted in (rotationReuseIntervalSeconds > 0), AND
+   *  - the row was revoked by a normal rotation (ROTATED — never by theft
+   *    response, logout, or admin action), AND
+   *  - the rotation happened within the grace window, AND
+   *  - the row's original expiresAt hasn't passed.
+   *
+   * With the default interval of 0 this always returns false — byte-for-byte
+   * the strict legacy behavior.
+   */
+  private isWithinRotationGrace(token: {
+    revokedReason: RevokedReason | null;
+    revokedAt: Date | null;
+    expiresAt: Date;
+    applicationClient: { rotationReuseIntervalSeconds?: number };
+  }): boolean {
+    const intervalSeconds =
+      token.applicationClient.rotationReuseIntervalSeconds ?? 0;
+    if (intervalSeconds <= 0) {
+      return false;
+    }
+    if (token.revokedReason !== RevokedReason.ROTATED || !token.revokedAt) {
+      return false;
+    }
+    const now = Date.now();
+    if (now - token.revokedAt.getTime() > intervalSeconds * 1000) {
+      return false;
+    }
+    return token.expiresAt.getTime() > now;
   }
 
   /**
@@ -597,6 +668,9 @@ export class OAuthTokenService {
    *                     (every pre-amr console login was at least
    *                     password-authenticated; we claim the weakest method
    *                     rather than inventing 'otp').
+   * @param predecessorSessionId - Refresh-token row this mint rotates/replaces.
+   *                     Its successorId is stamped once (first rotation wins;
+   *                     grace-window replays never overwrite it).
    */
   async generateTokens(
     user: UserWithMemberships,
@@ -606,6 +680,7 @@ export class OAuthTokenService {
     tenantScope?: TenantScope | null,
     mfaCompliance?: MfaComplianceResult | null,
     sessionAmr?: string[] | null,
+    predecessorSessionId?: string | null,
   ): Promise<TokenResponse> {
     const scopes = scope.split(' ');
 
@@ -692,6 +767,16 @@ export class OAuthTokenService {
         amr,
       },
     });
+
+    // Chain the predecessor to its successor for forensics. Conditional on
+    // successorId: null so the FIRST rotation wins — a grace-window replay
+    // never rewrites history.
+    if (predecessorSessionId) {
+      await this.prisma.refreshToken.updateMany({
+        where: { id: predecessorSessionId, successorId: null },
+        data: { successorId: refreshTokenRecord.id },
+      });
+    }
 
     // Generate signed refresh JWT with session ID
     const refreshTokenJwt = await this.sessionService.generateRefreshTokenJwt({

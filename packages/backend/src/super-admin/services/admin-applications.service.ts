@@ -154,6 +154,15 @@ export class AdminApplicationsService {
       );
     }
 
+    // Signup participation needs somewhere to send the new user afterwards:
+    // the SPA credential's initiateLoginUri. Enforce it at enable time so the
+    // failure doesn't surface only after email verification + org creation.
+    if (data.autoProvisionOnSignup && !(data.client?.type === 'SPA' && data.client.initiateLoginUri)) {
+      throw new BadRequestException(
+        "Configure an Initiate Login URI on the application's SPA credential before enabling signup",
+      );
+    }
+
     // Validate default license type exists if provided
     if (data.defaultLicenseTypeId) {
       const licenseType = await this.prisma.licenseType.findUnique({
@@ -322,6 +331,21 @@ export class AdminApplicationsService {
       throw new BadRequestException(
         'A default license type is required when auto-provision on signup is enabled',
       );
+    }
+
+    // Enabling signup participation (false → true) requires a SPA credential
+    // with an initiateLoginUri, so post-signup users have an app to land in.
+    // (Clearing that URI later is blocked in AdminApplicationClientsService.)
+    if (data.autoProvisionOnSignup && !app.autoProvisionOnSignup) {
+      const launchableSpa = await this.prisma.applicationClient.findFirst({
+        where: { applicationId, type: 'SPA', initiateLoginUri: { not: null } },
+        select: { id: true },
+      });
+      if (!launchableSpa) {
+        throw new BadRequestException(
+          "Configure an Initiate Login URI on the application's SPA credential before enabling signup",
+        );
+      }
     }
 
     // Validate default license type exists if provided
