@@ -87,7 +87,10 @@ function oauthFor(req: Request): OAuthFlow {
     authVitalHost: config.avHost,
     clientId: config.clientId,
     redirectUri: `https://${getHost(req)}/api/auth/callback`,
-    scope: 'openid profile email',
+    // offline_access is REQUIRED for the IdP to issue a refresh_token — without
+    // it the token response has no refresh_token and the BFF can't silently
+    // renew the session (see docs/api/oauth-endpoints.md, Scopes table).
+    scope: 'openid profile email offline_access',
   });
 }
 

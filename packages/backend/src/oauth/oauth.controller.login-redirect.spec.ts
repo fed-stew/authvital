@@ -32,6 +32,7 @@ describe("OAuthController — login handoff keeps redirect_uri relative", () => 
   } as unknown as ConfigService;
   const mockPrisma = {
     tenant: { findFirst: jest.fn() },
+    membership: { count: jest.fn() },
   };
 
   let controller: OAuthController;
@@ -78,6 +79,9 @@ describe("OAuthController — login handoff keeps redirect_uri relative", () => 
     res = { redirect: jest.fn() };
     mockOAuthService.validateRedirectUri.mockResolvedValue({ valid: true });
     mockPrisma.tenant.findFirst.mockResolvedValue({ id: "t1", slug: "acme" });
+    // Default: the user belongs to at least one org, so the tenant-first guard
+    // is a no-op and the flow proceeds to authorize as before.
+    mockPrisma.membership.count.mockResolvedValue(1);
   });
 
   it("unauthenticated: /auth/login gets a relative /oauth/authorize redirect_uri", async () => {
@@ -88,6 +92,28 @@ describe("OAuthController — login handoff keeps redirect_uri relative", () => 
     const redirectUri = capturedRedirectUri();
     expect(redirectUri.startsWith("/oauth/authorize?")).toBe(true);
     expect(passesLoginRelativeCheck(redirectUri)).toBe(true);
+  });
+
+  it("zero memberships: tenant-first guard redirects to /auth/no-organizations with a relative resume", async () => {
+    const req = {
+      headers: { authorization: "Bearer good-jwt" },
+      cookies: {},
+    } as any;
+    mockOAuthService.validateJwt.mockResolvedValue({ userId: "u1" });
+    mockPrisma.membership.count.mockResolvedValue(0); // corrupted / fresh session
+
+    await callAuthorize(req);
+
+    expect(res.redirect).toHaveBeenCalledTimes(1);
+    const target: string = res.redirect.mock.calls[0][0];
+    expect(target).toContain("/auth/no-organizations");
+    // We never minted a code for an org-less session.
+    expect(mockOAuthService.authorize).not.toHaveBeenCalled();
+    // The resume param must be a relative /oauth/authorize path so login()'s
+    // relative-only check accepts it on the way back.
+    const resume = new URL(target).searchParams.get("resume") as string;
+    expect(resume.startsWith("/oauth/authorize?")).toBe(true);
+    expect(passesLoginRelativeCheck(resume)).toBe(true);
   });
 
   it("expired session (UnauthorizedException): redirect_uri stays relative", async () => {

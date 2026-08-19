@@ -14,6 +14,8 @@ export {
   type CookieOptions,
 } from './cookie.utils';
 
+export { hasActiveMembership } from './membership.utils';
+
 export {
   validateRedirectUriPattern as validateSecureRedirectUriPattern,
   validateRedirectUriPatterns,

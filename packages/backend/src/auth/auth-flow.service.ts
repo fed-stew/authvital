@@ -350,7 +350,13 @@ export class AuthFlowService {
       return res.redirect(302, `/auth/org-picker?${params.toString()}`);
     }
 
-    return res.redirect(302, '/auth/app-picker');
+    // Zero memberships → the user has no tenant to scope this app to. Sending
+    // them to the app-picker would render an empty list; instead route to the
+    // "create your first organization" experience and carry the client_id so
+    // the OAuth continuation resumes once they belong somewhere.
+    const noOrgParams = new URLSearchParams();
+    noOrgParams.set('client_id', dto.clientId);
+    return res.redirect(302, `/auth/no-organizations?${noOrgParams.toString()}`);
   }
 
   /**
@@ -382,10 +388,12 @@ export class AuthFlowService {
       return '/auth/org-picker';
     }
 
-    // No tenants → graceful empty state via the app-picker.
+    // No tenants → the user belongs to no organization at all. Route to the
+    // "create your first organization" experience rather than an empty
+    // app-picker (tenant-first: no tenant ⇒ nothing to launch).
     if (memberships.length === 0) {
-      console.log('[Login] No active tenants → app-picker empty state');
-      return '/auth/app-picker';
+      console.log('[Login] No active tenants → no-organizations (create-tenant)');
+      return '/auth/no-organizations';
     }
 
     // Exactly one tenant → resolve launchable apps scoped to that tenant.

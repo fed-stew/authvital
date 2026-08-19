@@ -28,6 +28,7 @@ describe("OAuthController — MFA enrollment interrupt redirect", () => {
 
   const mockPrisma = {
     tenant: { findFirst: jest.fn() },
+    membership: { count: jest.fn() },
   };
 
   let controller: OAuthController;
@@ -60,6 +61,9 @@ describe("OAuthController — MFA enrollment interrupt redirect", () => {
     mockOAuthService.issueMfaEnrollmentResumeToken.mockResolvedValue(
       "resume-token",
     );
+    // Tenant-first guard is a no-op here: these tests exercise users who
+    // already belong to an org.
+    mockPrisma.membership.count.mockResolvedValue(1);
   });
 
   it("GET /oauth/authorize 302s to /auth/mfa/enroll with a resume token on interrupt", async () => {

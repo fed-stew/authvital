@@ -21,6 +21,7 @@ import { MfaEnrollmentRequiredException } from '../auth/mfa/mfa-enrollment-requi
 import { KeyService } from './key.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { getRefreshTokenCookieOptions } from '../common/utils/cookie.utils';
+import { hasActiveMembership } from '../common/utils/membership.utils';
 
 /**
  * OAuth Controller
@@ -219,6 +220,19 @@ export class OAuthController {
       authParams.set('redirect_uri', oauthAuthorizeUrl);
       if (clientId) authParams.set('client_id', clientId);
       return res.redirect(`${frontendUrl}/auth/login?${authParams.toString()}`);
+    }
+
+    // Tenant-first guard: a session with zero organization memberships cannot
+    // be scoped to any tenant. Rather than silently minting an org-less code
+    // (the corrupted-session bug), send the user to create their first
+    // organization and resume THIS authorize request verbatim afterwards.
+    // (Silent refresh above is intentionally exempt: it runs in a background
+    //  iframe where an interactive create-tenant page can't be shown.)
+    if (!(await hasActiveMembership(this.prisma, user.userId))) {
+      const frontendUrl = this.configService.get<string>('BASE_URL', 'http://localhost:8000');
+      const noOrgParams = new URLSearchParams();
+      noOrgParams.set('resume', oauthAuthorizeUrl);
+      return res.redirect(`${frontendUrl}/auth/no-organizations?${noOrgParams.toString()}`);
     }
 
     // Validate redirect_uri

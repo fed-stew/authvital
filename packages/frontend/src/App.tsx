@@ -15,6 +15,7 @@ import { OAuthLogin } from './pages/auth/OAuthLogin';
 import { OAuthSignup } from './pages/auth/OAuthSignup';
 import { OrgPicker } from './pages/auth/OrgPicker';
 import { AppPicker } from './pages/auth/AppPicker';
+import { NoOrganizations } from './pages/auth/NoOrganizations';
 import { AcceptInvite } from './pages/auth/AcceptInvite';
 import { ForgotPassword } from './pages/auth/ForgotPassword';
 import { ResetPassword } from './pages/auth/ResetPassword';
@@ -96,6 +97,7 @@ function AppContent() {
         <Route path="/auth/mfa/enroll" element={<MfaEnroll />} />
         <Route path="/auth/org-picker" element={<OrgPicker />} />
         <Route path="/auth/app-picker" element={<AppPicker />} />
+        <Route path="/auth/no-organizations" element={<NoOrganizations />} />
         <Route path="/auth/embed/login" element={<EmbedLogin />} />
         <Route path="/auth/embed/signup" element={<EmbedSignup />} />
         <Route path="/auth/verify-email" element={<VerifyEmail />} />
