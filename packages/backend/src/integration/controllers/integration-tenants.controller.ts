@@ -85,7 +85,7 @@ export class IntegrationTenantsController {
   }
 
   /**
-   * Get application memberships (optionally filtered by tenant)
+   * Get application memberships (optionally filtered by tenant and/or user)
    */
   @Get('application-memberships')
   @RequireScopes(IntegrationScope.READ)
@@ -94,11 +94,12 @@ export class IntegrationTenantsController {
     @Query('clientId') clientId: string,
     @Query('tenantId') tenantId?: string,
     @Query('status') status?: 'ACTIVE' | 'INVITED' | 'SUSPENDED',
+    @Query('userId') userId?: string,
   ) {
     if (!clientId) {
       throw new BadRequestException('clientId is required');
     }
-    return this.tenantsService.getApplicationMemberships(clientId, { tenantId, status });
+    return this.tenantsService.getApplicationMemberships(clientId, { tenantId, status, userId });
   }
 
   /**

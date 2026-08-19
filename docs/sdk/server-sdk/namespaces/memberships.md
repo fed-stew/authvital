@@ -29,14 +29,21 @@ Verified against `packages/sdk-server/src/client/integration.ts`:
 
 | Method | Params | Returns |
 |--------|--------|---------|
-| `validateMembership` | `{ userId, tenantId }` | `{ valid: boolean; membership?: Membership }` |
-| `listTenantMembers` | `{ tenantId, status?, includeRoles? }` | `{ memberships: Membership[] }` |
-| `listUserMemberships` | `{ userId?, tenantId?, clientId?, status?, includeRoles? }` | `{ memberships: Membership[] }` |
-| `listUserTenants` | `{ userId }` | tenants for the user |
+| `validateMembership` | `{ userId, tenantId }` | `{ isMember: boolean; membership: { id, status, joinedAt } \| null }` |
+| `listTenantMembers` | `{ tenantId, status?, includeRoles? }` | `TenantMembershipsResponse` |
+| `listUserMemberships` | `{ userId?, tenantId?, clientId?, status?, includeRoles? }` | `ApplicationMembershipsResponse` |
+| `listUserTenants` | `{ userId }` | `UserTenantsResponse` |
 
 `status` is `'ACTIVE' \| 'INVITED' \| 'SUSPENDED'`. `listUserMemberships`
 defaults `clientId` to the SDK's configured `clientId` when omitted (this is the
 "members with access to *my* app" query).
+
+!!! info "`listUserMemberships` userId semantics"
+    All filters are applied **server-side**. When `userId` is **omitted**, the
+    call returns memberships for **all users** that hold roles on the
+    application — client-credentials (M2M) tokens have no associated user, so
+    there is no "token user" fallback. Pass `userId` to scope the results to a
+    single user.
 
 ```typescript
 // All members of a tenant, with role details
@@ -46,31 +53,94 @@ const { memberships } = await client.integration.listTenantMembers({
   includeRoles: true,
 });
 
-// Members who have access to THIS application
+// Members who have access to THIS application (all users)
 const appMembers = await client.integration.listUserMemberships({
   tenantId: 'tenant-abc',
-  includeRoles: true,
+});
+
+// ONE user's memberships on THIS application (filtered server-side)
+const userMemberships = await client.integration.listUserMemberships({
+  userId: 'user-123',
 });
 
 // Org picker: every tenant a user belongs to
 const tenants = await client.integration.listUserTenants({ userId: 'user-123' });
 ```
 
-`Membership` shape (from the SDK types):
+Response shapes are **nested** (re-exported from `@authvital/shared`; the old
+flat `Membership` interface never matched the wire format and has been
+removed):
 
 ```typescript
-interface Membership {
+// Shared building blocks
+interface MembershipUser {
   id: string;
-  userId: string;
+  email: string | null;
+  givenName: string | null;
+  familyName: string | null;
+}
+
+interface MembershipRole {
+  id: string;
+  name: string;
+  slug: string;
+  applicationId?: string;   // present on tenant/user-tenant queries
+  applicationName?: string; // present on tenant/user-tenant queries
+}
+
+interface MembershipTenant {
+  id: string;
+  name: string;
+  slug: string;
+  initiateLoginUri: string | null;
+}
+
+// listTenantMembers → TenantMembershipsResponse
+interface TenantMembershipsResponse {
   tenantId: string;
-  status: string;
-  email?: string;
-  givenName?: string;
-  familyName?: string;
-  roles?: Array<{ slug: string; name: string }>;
-  tenantRoles?: Array<{ slug: string; name: string }>;
-  createdAt?: string;
-  updatedAt?: string;
+  tenantName: string;
+  tenantSlug: string;
+  initiateLoginUri: string | null;
+  memberships: Array<{
+    id: string;
+    status: 'ACTIVE' | 'INVITED' | 'SUSPENDED';
+    joinedAt: string | null;
+    createdAt: string;
+    user: MembershipUser;
+    roles: MembershipRole[];
+  }>;
+  totalCount: number;
+}
+
+// listUserMemberships → ApplicationMembershipsResponse
+interface ApplicationMembershipsResponse {
+  applicationId: string;
+  applicationName: string;
+  clientId: string;
+  memberships: Array<{
+    id: string;
+    status: 'ACTIVE' | 'INVITED' | 'SUSPENDED';
+    joinedAt: string | null;
+    createdAt: string;
+    user: MembershipUser;
+    tenant: MembershipTenant;
+    roles: MembershipRole[]; // only the queried app's roles (no applicationId)
+  }>;
+  totalCount: number;
+}
+
+// listUserTenants → UserTenantsResponse
+interface UserTenantsResponse {
+  userId: string;
+  memberships: Array<{
+    id: string;
+    status: 'ACTIVE' | 'INVITED' | 'SUSPENDED';
+    joinedAt: string | null;
+    createdAt: string;
+    tenant: MembershipTenant;
+    roles: MembershipRole[];
+  }>;
+  totalCount: number;
 }
 ```
 

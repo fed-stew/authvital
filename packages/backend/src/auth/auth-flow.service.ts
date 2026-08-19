@@ -270,7 +270,28 @@ export class AuthFlowService {
     };
   }
 
-  async login(dto: LoginDto, res: Response) {
+  /**
+   * Finish a login/MFA flow by sending the browser to `url`.
+   *
+   * WHY not always res.redirect(302)? The hosted login SPA POSTs credentials
+   * with fetch(), and the post-login target is often CROSS-ORIGIN (e.g.
+   * auth.example.dev → tenant.example.dev). Chrome enforces the CSP
+   * `form-action 'self'` directive (set by Helmet in main.ts) against
+   * redirects that follow form submissions, silently cancelling the 302 and
+   * breaking login. So JSON clients get { success, redirect_url } and
+   * navigate themselves via window.location; classic urlencoded form posts
+   * (legacy/no-JS consumers) keep the 302 the browser can follow.
+   */
+  private respondWithRedirect(req: ExpressRequest, res: Response, url: string): void {
+    const contentType = req.headers['content-type'] ?? '';
+    if (contentType.includes('application/json')) {
+      res.json({ success: true, redirect_url: url });
+      return;
+    }
+    res.redirect(302, url);
+  }
+
+  async login(dto: LoginDto, req: ExpressRequest, res: Response) {
     const result = await this.authService.login(dto);
 
     if (result.mfaRequired && result.mfaChallengeToken) {
@@ -302,14 +323,14 @@ export class AuthFlowService {
       if (!dto.redirectUri.startsWith('/') || dto.redirectUri.startsWith('//')) {
         throw new BadRequestException('Invalid redirect URI');
       }
-      return res.redirect(302, dto.redirectUri);
+      return this.respondWithRedirect(req, res, dto.redirectUri);
     }
 
     // No client_id hint → TENANT-FIRST login selection. The absence of a
     // client_id is the signal for this flow; the OAuth/app-first path below
     // (client_id present) is left untouched.
     if (!dto.clientId) {
-      return res.redirect(302, await this.resolveNoHintRedirect(result.user.id));
+      return this.respondWithRedirect(req, res, await this.resolveNoHintRedirect(result.user.id));
     }
 
     // client_id present (app-first / OAuth continuation) — unchanged behavior.
@@ -340,14 +361,14 @@ export class AuthFlowService {
 
     if (memberships.length === 1) {
       const redirectUrl = buildRedirectUrl(memberships[0].tenant.slug);
-      return res.redirect(302, redirectUrl);
+      return this.respondWithRedirect(req, res, redirectUrl);
     }
 
     if (memberships.length > 1) {
       const params = new URLSearchParams();
       // app was looked up by dto.clientId, so pass the same value through.
       params.set('client_id', dto.clientId);
-      return res.redirect(302, `/auth/org-picker?${params.toString()}`);
+      return this.respondWithRedirect(req, res, `/auth/org-picker?${params.toString()}`);
     }
 
     // Zero memberships → the user has no tenant to scope this app to. Sending
@@ -356,7 +377,7 @@ export class AuthFlowService {
     // the OAuth continuation resumes once they belong somewhere.
     const noOrgParams = new URLSearchParams();
     noOrgParams.set('client_id', dto.clientId);
-    return res.redirect(302, `/auth/no-organizations?${noOrgParams.toString()}`);
+    return this.respondWithRedirect(req, res, `/auth/no-organizations?${noOrgParams.toString()}`);
   }
 
   /**
@@ -419,6 +440,8 @@ export class AuthFlowService {
         clients: { some: { type: 'SPA', initiateLoginUri: { not: null } } },
       },
       select: {
+        name: true,
+        slug: true,
         clients: {
           where: { type: 'SPA', initiateLoginUri: { not: null } },
           select: { initiateLoginUri: true },
@@ -428,10 +451,14 @@ export class AuthFlowService {
     });
 
     if (launchableApps.length === 1) {
-      const initiateLoginUri = launchableApps[0].clients[0]?.initiateLoginUri;
+      const launched = launchableApps[0];
+      const initiateLoginUri = launched.clients[0]?.initiateLoginUri;
       if (initiateLoginUri) {
         const url = initiateLoginUri.replace('{tenant}', tenant.slug);
-        console.log(`[Login] Single tenant ${tenant.slug}, single app → auto-launch ${url}`);
+        console.log(
+          `[Login] Single tenant ${tenant.slug}, single app "${launched.name}" (${launched.slug}) → auto-launch ${url}`,
+        );
+        this.warnIfSelfReferentialLaunch(url, launched.slug);
         return url;
       }
     }
@@ -440,8 +467,33 @@ export class AuthFlowService {
     return appPickerUrl;
   }
 
+  /**
+   * Auto-launching an initiateLoginUri that points at THIS AuthVital instance
+   * sends the browser straight back to the hosted login page (via the GET
+   * /api/auth/login fallback) — an invisible login loop that masquerades as a
+   * broken {tenant} substitution. Admin edits are validated against this
+   * (assertInitiateLoginUriNotIdpHost), but seeded rows bypass validation, so
+   * bark loudly here instead of looping silently.
+   */
+  private warnIfSelfReferentialLaunch(url: string, appSlug: string): void {
+    try {
+      if (new URL(url).hostname === new URL(this.issuer).hostname) {
+        this.logger.warn(
+          `[Login] Auto-launch for app "${appSlug}" targets this IdP's own host (${url}). ` +
+            `The user will loop back to the login page. Fix that client's initiateLoginUri.`,
+        );
+      }
+    } catch {
+      this.logger.warn(
+        `[Login] Auto-launch URL for app "${appSlug}" is not a valid absolute URL: ${url} ` +
+          `(unreplaced {tenant} placeholder or malformed initiateLoginUri?)`,
+      );
+    }
+  }
+
   async verifyMfa(
     body: { challengeToken: string; code: string; redirectUri?: string; clientId?: string },
+    req: ExpressRequest,
     res: Response,
   ) {
     const result = await this.authService.verifyMfaAndCompleteLogin(body.challengeToken, body.code);
@@ -477,9 +529,10 @@ export class AuthFlowService {
       redirectUrl = await this.resolveNoHintRedirect(result.user.id);
     }
 
-    // If redirect URL is set, redirect without returning JSON
+    // If a redirect URL is set, hand it to the client instead of returning the
+    // token payload (JSON callers get { success, redirect_url }; form posts 302).
     if (redirectUrl) {
-      return res.redirect(302, redirectUrl);
+      return this.respondWithRedirect(req, res, redirectUrl);
     }
 
     // Return JSON response with access token in body

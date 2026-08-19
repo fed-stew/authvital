@@ -9,25 +9,30 @@
  */
 
 import type { ServerClient } from './server-client.js';
+import type {
+  ApplicationMembershipsResponse,
+  TenantMembershipsResponse,
+  UserTenantsResponse,
+} from '@authvital/shared';
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
-export interface Membership {
-  id: string;
-  userId: string;
-  tenantId: string;
-  status: string;
-  email?: string;
-  givenName?: string;
-  familyName?: string;
-  roles?: Array<{ slug: string; name: string }>;
-  tenantRoles?: Array<{ slug: string; name: string }>;
-  createdAt?: string;
-  updatedAt?: string;
-  [key: string]: unknown;
-}
+// Membership wire shapes are shared with the backend - single source of truth.
+// These replace the old (inaccurate) flat `Membership` interface: the API
+// actually returns NESTED records with `user`, `tenant`, and `roles` objects.
+export type {
+  ApplicationMembership,
+  ApplicationMembershipsResponse,
+  MembershipRole,
+  MembershipTenant,
+  MembershipUser,
+  TenantMembership,
+  TenantMembershipsResponse,
+  UserTenantMembership,
+  UserTenantsResponse,
+} from '@authvital/shared';
 
 export interface ApplicationRole {
   id: string;
@@ -247,19 +252,31 @@ export class IntegrationClient {
 
   /**
    * Validate that a user is a member of a tenant.
+   *
+   * Maps to `GET /api/integration/validate-membership`. The backend returns
+   * `{ isMember, membership }` (a minimal membership record, or null when the
+   * user has no membership at all) - return type corrected (was the
+   * non-existent `{ valid, membership? }` with a flat Membership shape).
    */
-  async validateMembership(params: { userId: string; tenantId: string }): Promise<{ valid: boolean; membership?: Membership }> {
+  async validateMembership(params: { userId: string; tenantId: string }): Promise<{
+    isMember: boolean;
+    membership: { id: string; status: string; joinedAt: string | null } | null;
+  }> {
     return this.m2mGet('/api/integration/validate-membership', params);
   }
 
   /**
    * List all members of a tenant.
+   *
+   * Maps to `GET /api/integration/tenant-memberships`. Each membership is a
+   * nested record with `user` and `roles` (app roles, including
+   * `applicationId`/`applicationName`).
    */
   async listTenantMembers(params: {
     tenantId: string;
     status?: 'ACTIVE' | 'INVITED' | 'SUSPENDED';
     includeRoles?: boolean;
-  }): Promise<{ memberships: Membership[] }> {
+  }): Promise<TenantMembershipsResponse> {
     return this.m2mGet('/api/integration/tenant-memberships', {
       tenantId: params.tenantId,
       status: params.status,
@@ -268,8 +285,19 @@ export class IntegrationClient {
   }
 
   /**
-   * List all tenant memberships for a user (which tenants they belong to).
-   * If userId is omitted, uses the user associated with the M2M token context.
+   * List memberships that hold roles for an APPLICATION (identified by
+   * clientId, defaulting to this SDK's configured clientId).
+   *
+   * Maps to `GET /api/integration/application-memberships`. Each membership is
+   * a nested record with `user`, `tenant`, and `roles` (only the roles
+   * belonging to the queried application).
+   *
+   * Filtering semantics (all filters applied server-side):
+   * - `userId` omitted -> memberships for ALL users with roles on the app.
+   *   (Client-credentials tokens have no user, so there is no "token user"
+   *   fallback - omitting userId is the "everyone on my app" query.)
+   * - `userId` provided -> only that user's memberships.
+   * - `tenantId` / `status` narrow further.
    */
   async listUserMemberships(params: {
     userId?: string;
@@ -277,7 +305,7 @@ export class IntegrationClient {
     clientId?: string;
     status?: 'ACTIVE' | 'INVITED' | 'SUSPENDED';
     includeRoles?: boolean;
-  }): Promise<{ memberships: Membership[] }> {
+  }): Promise<ApplicationMembershipsResponse> {
     return this.m2mGet('/api/integration/application-memberships', {
       clientId: params.clientId || this.client.config.clientId,
       userId: params.userId,
@@ -288,9 +316,13 @@ export class IntegrationClient {
   }
 
   /**
-   * Get user's tenants (lighter weight than full memberships).
+   * Get user's tenants (which tenants a user belongs to).
+   *
+   * Maps to `GET /api/integration/user-tenants`. Each membership is a nested
+   * record with `tenant` and `roles` (app roles, including
+   * `applicationId`/`applicationName`).
    */
-  async listUserTenants(params: { userId: string }): Promise<unknown> {
+  async listUserTenants(params: { userId: string }): Promise<UserTenantsResponse> {
     return this.m2mGet('/api/integration/user-tenants', params);
   }
 

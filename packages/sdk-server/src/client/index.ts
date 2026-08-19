@@ -23,7 +23,15 @@ export {
 
 export { IntegrationClient } from './integration.js';
 export type {
-  Membership,
+  ApplicationMembership,
+  ApplicationMembershipsResponse,
+  MembershipRole,
+  MembershipTenant,
+  MembershipUser,
+  TenantMembership,
+  TenantMembershipsResponse,
+  UserTenantMembership,
+  UserTenantsResponse,
   ApplicationRole,
   ApplicationRolesResult,
   TenantRole,

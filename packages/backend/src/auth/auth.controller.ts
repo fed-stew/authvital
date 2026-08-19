@@ -105,8 +105,8 @@ export class AuthController {
    */
   @Post('login')
   @Throttle({ default: { limit: 5, ttl: 60_000 } }) // strict: brute-force target
-  async login(@Body() dto: LoginDto, @Res() res: Response) {
-    return this.authFlowService.login(dto, res);
+  async login(@Body() dto: LoginDto, @Req() req: ExpressRequest, @Res() res: Response) {
+    return this.authFlowService.login(dto, req, res);
   }
 
   /**
@@ -117,9 +117,10 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async verifyMfa(
     @Body() body: { challengeToken: string; code: string; redirectUri?: string; clientId?: string },
+    @Req() req: ExpressRequest,
     @Res({ passthrough: true }) res: Response,
   ) {
-    return this.authFlowService.verifyMfa(body, res);
+    return this.authFlowService.verifyMfa(body, req, res);
   }
   @Get('me')
   @UseGuards(OptionalAuthGuard)

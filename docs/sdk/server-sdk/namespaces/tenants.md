@@ -15,10 +15,10 @@ Verified against `packages/sdk-server/src/client/integration.ts`:
 
 | Method | Params | Returns |
 |--------|--------|---------|
-| `client.integration.listUserTenants` | `{ userId }` | tenants the user belongs to |
-| `client.integration.validateMembership` | `{ userId, tenantId }` | `{ valid, membership? }` |
-| `client.integration.listTenantMembers` | `{ tenantId, status?, includeRoles? }` | `{ memberships }` |
-| `client.integration.listUserMemberships` | `{ userId?, tenantId?, clientId?, status?, includeRoles? }` | `{ memberships }` |
+| `client.integration.listUserTenants` | `{ userId }` | `UserTenantsResponse` (nested `tenant` + `roles` per membership) |
+| `client.integration.validateMembership` | `{ userId, tenantId }` | `{ isMember, membership }` |
+| `client.integration.listTenantMembers` | `{ tenantId, status?, includeRoles? }` | `TenantMembershipsResponse` (nested `user` + `roles` per membership) |
+| `client.integration.listUserMemberships` | `{ userId?, tenantId?, clientId?, status?, includeRoles? }` | `ApplicationMembershipsResponse` (nested `user` + `tenant` + `roles`; `userId` filters server-side, omit for ALL users with app roles) |
 
 ```typescript
 import { createServerClient } from '@authvital/server';
@@ -33,7 +33,7 @@ const client = createServerClient({
 const tenants = await client.integration.listUserTenants({ userId: 'user-123' });
 
 // Is this user actually a member of this tenant?
-const { valid, membership } = await client.integration.validateMembership({
+const { isMember, membership } = await client.integration.validateMembership({
   userId: 'user-123',
   tenantId: 'tenant-abc',
 });

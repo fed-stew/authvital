@@ -116,6 +116,46 @@ export interface UserTenantMembership {
 }
 
 /**
+ * A membership with roles for a specific application (with user + tenant info).
+ *
+ * Wire shape of items returned by `GET /api/integration/application-memberships`.
+ * `roles` contains only the roles belonging to the queried application, so
+ * `applicationId`/`applicationName` are omitted on each role.
+ */
+export interface ApplicationMembership {
+  /** Membership ID */
+  id: string;
+  /** Membership status */
+  status: MembershipStatusType;
+  /** When the user joined (null if still invited) */
+  joinedAt: string | null;
+  /** When the membership was created */
+  createdAt: string;
+  /** User info */
+  user: MembershipUser;
+  /** Tenant info */
+  tenant: MembershipTenant;
+  /** Roles for the queried application */
+  roles: MembershipRole[];
+}
+
+/**
+ * Response from `GET /api/integration/application-memberships`.
+ */
+export interface ApplicationMembershipsResponse {
+  /** Application ID */
+  applicationId: string;
+  /** Application name */
+  applicationName: string;
+  /** OAuth client ID */
+  clientId: string;
+  /** Memberships that hold roles for this application */
+  memberships: ApplicationMembership[];
+  /** Total count */
+  totalCount: number;
+}
+
+/**
  * Response from user's tenants list endpoint.
  */
 export interface UserTenantsResponse {

@@ -175,6 +175,7 @@ export class IntegrationTenantsService {
     options?: {
       status?: 'ACTIVE' | 'INVITED' | 'SUSPENDED';
       tenantId?: string; // Filter to a specific tenant
+      userId?: string; // Filter to a specific user
     },
   ): Promise<{
     applicationId: string;
@@ -240,6 +241,10 @@ export class IntegrationTenantsService {
 
     if (options?.tenantId) {
       whereClause.tenantId = options.tenantId;
+    }
+
+    if (options?.userId) {
+      whereClause.userId = options.userId;
     }
 
     const memberships = await this.prisma.membership.findMany({

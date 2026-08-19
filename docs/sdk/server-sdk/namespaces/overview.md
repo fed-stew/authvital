@@ -38,14 +38,20 @@ const { memberships } = await client.integration.listTenantMembers({ tenantId })
 
 | Method | Signature (params) | Returns |
 |--------|--------------------|---------|
-| `validateMembership` | `{ userId, tenantId }` | `{ valid, membership? }` |
-| `listTenantMembers` | `{ tenantId, status?, includeRoles? }` | `{ memberships }` |
-| `listUserMemberships` | `{ userId?, tenantId?, clientId?, status?, includeRoles? }` | `{ memberships }` |
-| `listUserTenants` | `{ userId }` | tenants for the user |
+| `validateMembership` | `{ userId, tenantId }` | `{ isMember, membership }` |
+| `listTenantMembers` | `{ tenantId, status?, includeRoles? }` | `TenantMembershipsResponse` |
+| `listUserMemberships` | `{ userId?, tenantId?, clientId?, status?, includeRoles? }` | `ApplicationMembershipsResponse` |
+| `listUserTenants` | `{ userId }` | `UserTenantsResponse` |
+
+Membership responses are **nested** records (`user`, `tenant`, `roles` objects
+plus `totalCount`) - see [Memberships](./memberships.md) for the full shapes.
+For `listUserMemberships`, `userId` filters server-side; omitting it returns
+memberships for **all** users with roles on the application (M2M tokens have no
+associated user).
 
 ```typescript
 // Which tenants does a user belong to?
-const tenants = await client.integration.listUserTenants({ userId });
+const { memberships } = await client.integration.listUserTenants({ userId });
 ```
 
 ## Roles

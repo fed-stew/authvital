@@ -86,9 +86,11 @@ export default function MfaChallenge() {
       // Clear stored challenge data
       sessionStorage.removeItem('mfa_challenge');
 
-      // If there's a redirect URL in the response, go there
-      if (result.redirectUrl) {
-        window.location.href = result.redirectUrl;
+      // If there's a redirect URL in the response, go there. The backend
+      // returns { success, redirect_url } as JSON (never a 302) because Chrome
+      // enforces CSP form-action against redirects following form submissions.
+      if (result.redirect_url) {
+        window.location.assign(result.redirect_url);
       } else if (data.redirectUri) {
         // Continue OAuth flow
         window.location.href = data.redirectUri;

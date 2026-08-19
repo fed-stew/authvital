@@ -6,7 +6,7 @@
  * After login, redirects back to /oauth/authorize to complete the flow.
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { Loader2, AlertCircle, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -114,9 +114,6 @@ export function OAuthLogin() {
     fetchBranding();
   }, [clientId]);
 
-  // Reference to hidden form for POST submission
-  const formRef = useRef<HTMLFormElement>(null);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -139,7 +136,6 @@ export function OAuthLogin() {
           redirectUri: redirectUri || undefined,
         }),
         credentials: 'include',
-        redirect: 'manual',
       });
 
       // Try to parse response as JSON
@@ -147,7 +143,7 @@ export function OAuthLogin() {
       try {
         data = await response.json();
       } catch {
-        // Response might be empty for redirects
+        // Defensive: non-JSON bodies shouldn't happen, but don't explode
       }
 
       // Check if MFA is required
@@ -176,8 +172,17 @@ export function OAuthLogin() {
         return;
       }
 
-      // Success (302 redirect or 2xx) - submit the form to let browser follow redirect
-      formRef.current?.submit();
+      // Success: the backend returns { success, redirect_url } as JSON instead
+      // of a 302 because Chrome enforces CSP form-action against redirects that
+      // follow form submissions, cancelling cross-origin post-login redirects.
+      // Client-side navigation sidesteps that enforcement entirely.
+      if (data.redirect_url) {
+        window.location.assign(data.redirect_url);
+        return;
+      }
+
+      // Defensive fallback: logged in but no destination provided
+      window.location.assign('/');
     } catch (err) {
       console.error('Login error:', err);
       setError('An error occurred. Please try again.');
@@ -362,19 +367,6 @@ export function OAuthLogin() {
               This organization requires SSO login. Please use one of the options above.
             </p>
           )}
-
-          {/* Hidden form for actual POST submission (browser follows 302) */}
-          <form
-            ref={formRef}
-            method="POST"
-            action={`${API_URL}/api/auth/login`}
-            style={{ display: 'none' }}
-          >
-            <input type="hidden" name="email" value={email} />
-            <input type="hidden" name="password" value={password} />
-            {clientId && <input type="hidden" name="clientId" value={clientId} />}
-            {redirectUri && <input type="hidden" name="redirectUri" value={redirectUri} />}
-          </form>
 
           {/* Sign up link */}
           <div className="mt-6 text-center">
