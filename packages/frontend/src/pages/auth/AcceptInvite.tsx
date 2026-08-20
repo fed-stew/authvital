@@ -18,6 +18,9 @@ interface InvitationDetails {
   invitedBy: {
     name: string;
   } | null;
+  // Names the inviter provided for the invitee (nullable)
+  givenName: string | null;
+  familyName: string | null;
 }
 
 export function AcceptInvite() {
@@ -58,6 +61,11 @@ export function AcceptInvite() {
 
         const data = await response.json();
         setInvitation(data);
+        // Pre-fill with the names the inviter provided. Kept inside the fetch
+        // success path (runs once on mount) so user-typed input is never
+        // clobbered by a stale response.
+        setGivenName(data.givenName ?? '');
+        setFamilyName(data.familyName ?? '');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load invitation');
       } finally {

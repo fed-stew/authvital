@@ -247,6 +247,9 @@ export class InvitationsService {
         invitedBy: { select: { givenName: true, familyName: true, email: true } },
         membership: {
           include: {
+            // Invitee's (placeholder) user - carries the names the inviter
+            // typed when creating the invite (see createInvitation).
+            user: { select: { givenName: true, familyName: true } },
             membershipTenantRoles: { include: { tenantRole: true } },
           },
         },
@@ -265,6 +268,11 @@ export class InvitationsService {
       role: tenantRole?.name || 'Member',
       expiresAt: invitation.expiresAt,
       tenant: invitation.tenant,
+      // Invitee names for pre-filling the accept form. This endpoint is
+      // public-by-token; these are the names the inviter typed, the same
+      // sensitivity class as the email already returned - no new exposure.
+      givenName: invitation.membership?.user?.givenName ?? null,
+      familyName: invitation.membership?.user?.familyName ?? null,
       invitedBy: invitation.invitedBy
         ? {
             name:
@@ -339,6 +347,11 @@ export class InvitationsService {
         const bcrypt = await import('bcrypt');
         updateData.passwordHash = await bcrypt.hash(password, 12);
       }
+      // Name precedence: form value > inviter-provided value > null.
+      // The inviter's names were persisted on the placeholder user at invite
+      // time (createInvitation / integration sendInvitation), so only
+      // overwrite when the invitee actually typed something - omitting the
+      // fields here keeps the inviter-provided fallback intact.
       if (givenName) updateData.givenName = givenName;
       if (familyName) updateData.familyName = familyName;
 
