@@ -174,9 +174,11 @@ Every Pub/Sub message contains this JSON envelope:
   "application_id": null,
   "data": {
     "tenant_id": "clx1tenant001...",
-    "tenant_name": "Acme Corp",
-    "tenant_slug": "acme-corp",
-    "owner_id": "clx1user001...",
+    "name": "Acme Corp",
+    "slug": "acme-corp",
+    "created_at": "2025-01-15T10:30:00.000Z",
+    "settings": {},
+    "created_by_sub": "clx1user001...",
     "owner_email": "admin@acme.com"
   }
 }
@@ -219,6 +221,10 @@ contains the event-specific payload. Below is the complete reference for all
 
 Source: `system_webhook` | Ordering key: `tenant_id`
 
+Payload contracts: `TenantCreatedEventData` / `TenantUpdatedEventData` /
+`TenantDeletedEventData` in `@authvital/shared` (strictly enforced at every
+emit site — the `data` blocks below are exact).
+
 #### `tenant.created`
 
 ```json
@@ -234,19 +240,17 @@ Source: `system_webhook` | Ordering key: `tenant_id`
     "tenant_id": "tnt_newcorp789",
     "name": "NewCorp Industries",
     "slug": "newcorp",
-    "plan": "pro",
-    "created_by_sub": "usr_founder001",
     "created_at": "2024-01-15T10:00:00.000Z",
-    "settings": {
-      "allow_signups": true,
-      "require_mfa": false,
-      "allowed_email_domains": ["newcorp.com"],
-      "session_lifetime_minutes": 480,
-      "password_policy": "standard"
-    }
+    "settings": { "theme": "dark" },
+    "created_by_sub": "usr_founder001",
+    "owner_email": "founder@newcorp.com"
   }
 }
 ```
+
+`created_by_sub` and `owner_email` are optional (absent on super-admin
+creation / when unknown). `settings` is the tenant's freeform settings JSON
+— there is no `plan` field.
 
 #### `tenant.updated`
 
@@ -263,23 +267,15 @@ Source: `system_webhook` | Ordering key: `tenant_id`
     "tenant_id": "tnt_acme123",
     "name": "Acme Corporation",
     "slug": "acme-corp",
-    "plan": "enterprise",
-    "changed_fields": ["plan", "settings.require_mfa"],
-    "previous_values": {
-      "plan": "pro",
-      "settings.require_mfa": false
-    },
-    "updated_by_sub": "usr_admin001",
-    "settings": {
-      "allow_signups": true,
-      "require_mfa": true,
-      "allowed_email_domains": ["acme.com"],
-      "session_lifetime_minutes": 480,
-      "password_policy": "strict"
-    }
+    "changed_fields": ["name", "settings"],
+    "settings": { "theme": "light" },
+    "updated_by_sub": "usr_admin001"
   }
 }
 ```
+
+`previous_values` and `updated_by_sub` are optional. Membership changes are
+reported as `changed_fields: ["members"]`.
 
 #### `tenant.deleted`
 
@@ -296,13 +292,16 @@ Source: `system_webhook` | Ordering key: `tenant_id`
     "tenant_id": "tnt_oldcorp456",
     "name": "Old Corp Inc",
     "slug": "old-corp",
-    "deleted_by_sub": "usr_superadmin001",
     "deleted_at": "2024-02-01T09:00:00.000Z"
   }
 }
 ```
 
 #### `tenant.suspended`
+
+!!! note "Reserved — not currently emitted"
+    The `TenantSuspendedEventData` contract is defined for forward
+    compatibility, but no core code path dispatches it today.
 
 ```json
 {
@@ -317,8 +316,8 @@ Source: `system_webhook` | Ordering key: `tenant_id`
     "tenant_id": "tnt_suspended789",
     "name": "Suspended Company",
     "slug": "suspended-co",
-    "suspended_by_sub": "usr_superadmin001",
     "suspended_at": "2024-01-25T16:00:00.000Z",
+    "suspended_by_sub": "usr_superadmin001",
     "reason": "Payment failed after 3 retry attempts"
   }
 }
@@ -328,7 +327,39 @@ Source: `system_webhook` | Ordering key: `tenant_id`
 
 Source: `system_webhook` | Ordering key: `tenant_id`
 
+Payload contracts: `TenantAppGrantedEventData` / `TenantAppRevokedEventData`.
+`tenant.app.granted` covers two grant modes — user-level access grants
+(`user_id` + `access_type`) and tenant-level subscription grants
+(`subscription_id` + `license_type_*`, no `user_id`).
+
 #### `tenant.app.granted`
+
+User-level grant:
+
+```json
+{
+  "id": "evt_01HQ...",
+  "source": "authvital",
+  "event_type": "tenant.app.granted",
+  "event_source": "system_webhook",
+  "timestamp": "2024-01-16T15:00:00.000Z",
+  "tenant_id": "tnt_acme123",
+  "application_id": null,
+  "data": {
+    "tenant_id": "tnt_acme123",
+    "tenant_slug": "acme-corp",
+    "user_id": "usr_jane001",
+    "user_email": "jane@acme.com",
+    "application_id": "app_dashboard456",
+    "application_name": "Acme Dashboard",
+    "application_slug": "acme-dashboard",
+    "access_type": "GRANTED",
+    "granted_by_id": "usr_admin001"
+  }
+}
+```
+
+Tenant-level subscription grant:
 
 ```json
 {
@@ -342,7 +373,12 @@ Source: `system_webhook` | Ordering key: `tenant_id`
   "data": {
     "tenant_id": "tnt_acme123",
     "application_id": "app_dashboard456",
-    "application_name": "Acme Dashboard"
+    "application_name": "Acme Dashboard",
+    "subscription_id": "sub_001",
+    "license_type_id": "lt_pro",
+    "license_type_name": "Pro",
+    "quantity_purchased": 10,
+    "status": "ACTIVE"
   }
 }
 ```
@@ -360,15 +396,24 @@ Source: `system_webhook` | Ordering key: `tenant_id`
   "application_id": null,
   "data": {
     "tenant_id": "tnt_acme123",
+    "tenant_slug": "acme-corp",
+    "user_id": "usr_jane001",
+    "user_email": "jane@acme.com",
     "application_id": "app_legacy789",
-    "application_name": "Legacy App"
+    "application_name": "Legacy App",
+    "application_slug": "legacy-app",
+    "revoked_by_id": "usr_admin001"
   }
 }
 ```
 
 ### Application Events
 
-Source: `system_webhook` | Ordering key: `application_id`
+Source: `system_webhook` | Ordering key: none (applications are
+instance-scoped; `tenant_id` is always `null`)
+
+Payload contracts: `ApplicationCreatedEventData` /
+`ApplicationUpdatedEventData` / `ApplicationDeletedEventData`.
 
 #### `application.created`
 
@@ -396,9 +441,7 @@ Source: `system_webhook` | Ordering key: `application_id`
         "https://dashboard.acme.com/callback",
         "http://localhost:3000/callback"
       ],
-      "post_logout_redirect_uris": [
-        "https://dashboard.acme.com"
-      ],
+      "post_logout_redirect_uris": ["https://dashboard.acme.com"],
       "initiate_login_uri": null,
       "access_token_ttl_seconds": 3600,
       "refresh_token_ttl_seconds": 604800
@@ -415,6 +458,10 @@ Source: `system_webhook` | Ordering key: `application_id`
 ```
 
 #### `application.updated`
+
+Includes enable/disable toggles (`changed_fields: ["is_active"]`). No
+`config` block — configuration changes surface via
+`changed_fields`/`previous_values`.
 
 ```json
 {
@@ -434,26 +481,8 @@ Source: `system_webhook` | Ordering key: `application_id`
     "client_id": "acme_dashboard_prod",
     "application_type": "AUTOMATIC",
     "is_active": true,
-    "changed_fields": ["config.redirect_uris", "config.access_token_ttl_seconds"],
-    "previous_values": {
-      "config.redirect_uris": [
-        "https://dashboard.acme.com/callback"
-      ],
-      "config.access_token_ttl_seconds": 1800
-    },
-    "config": {
-      "redirect_uris": [
-        "https://dashboard.acme.com/callback",
-        "https://staging.dashboard.acme.com/callback",
-        "http://localhost:3000/callback"
-      ],
-      "post_logout_redirect_uris": [
-        "https://dashboard.acme.com"
-      ],
-      "initiate_login_uri": null,
-      "access_token_ttl_seconds": 3600,
-      "refresh_token_ttl_seconds": 604800
-    },
+    "changed_fields": ["name"],
+    "previous_values": { "name": "Old Dashboard" },
     "licensing": {
       "mode": "FREE",
       "allow_mixed": false,
@@ -489,7 +518,12 @@ Source: `system_webhook` | Ordering key: `application_id`
 
 ### SSO Provider Events
 
-Source: `system_webhook` | Ordering key: `provider_id`
+Source: `system_webhook` | Ordering key: none (providers are
+instance-scoped; `tenant_id` is always `null`). `provider_id` is the
+provider enum key (e.g. `GOOGLE`), not a row id.
+
+Payload contracts: `SsoProviderAddedEventData` /
+`SsoProviderUpdatedEventData` / `SsoProviderRemovedEventData`.
 
 #### `sso.provider_added`
 
@@ -504,6 +538,7 @@ Source: `system_webhook` | Ordering key: `provider_id`
   "application_id": null,
   "data": {
     "provider_id": "GOOGLE",
+    "tenant_id": null,
     "provider_type": "GOOGLE",
     "display_name": "GOOGLE",
     "is_enabled": true
@@ -524,6 +559,7 @@ Source: `system_webhook` | Ordering key: `provider_id`
   "application_id": null,
   "data": {
     "provider_id": "GOOGLE",
+    "tenant_id": null,
     "provider_type": "GOOGLE",
     "changed_fields": ["enabled", "allowedDomains"]
   }
@@ -543,7 +579,9 @@ Source: `system_webhook` | Ordering key: `provider_id`
   "application_id": null,
   "data": {
     "provider_id": "OKTA",
-    "provider_type": "OKTA"
+    "tenant_id": null,
+    "provider_type": "OKTA",
+    "removed_at": "2024-02-01T14:00:00.000Z"
   }
 }
 ```
@@ -994,27 +1032,94 @@ gcloud pubsub subscriptions create tenant-events-only \
   --enable-message-ordering
 ```
 
-### Example Subscriber (Node.js)
+### Example Subscriber — Server SDK (recommended for Node.js)
+
+`@authvital/server/pubsub` handles parsing, validation, typed routing, and
+deduplication so you don't hand-roll JSON handling. It has **no dependency
+on `@google-cloud/pubsub`** — pass it any Message-like object.
+
+**Pull subscription:**
+
+```typescript
+import { PubSub } from '@google-cloud/pubsub';
+import {
+  createPubSubDispatcher,
+  parsePubSubMessage,
+  InMemoryDedupeStore,
+  PubSubParseError,
+} from '@authvital/server/pubsub';
+
+const dispatcher = createPubSubDispatcher({
+  dedupeStore: new InMemoryDedupeStore(), // per-process; see Deduplication
+})
+  .on('member.joined', async (event) => {
+    // event.data is fully typed: membership_id, sub, email, tenant_roles...
+    await db.members.upsert({ id: event.data.membership_id, roles: event.data.tenant_roles });
+  })
+  .on('license.*', async (event) => {
+    // Category wildcard — same matching rules as the platform's event filter
+    await refreshEntitlements(event.tenant_id);
+  })
+  .onAny((event) => console.log('unhandled event:', event.event_type));
+
+const subscription = new PubSub().subscription('my-subscriber');
+
+subscription.on('message', async (message) => {
+  try {
+    await dispatcher.dispatch(parsePubSubMessage(message));
+    message.ack();
+  } catch (err) {
+    if (err instanceof PubSubParseError) {
+      message.ack(); // poison message — redelivery can never succeed
+      return;
+    }
+    message.nack(); // transient handler failure — let Pub/Sub redeliver
+  }
+});
+```
+
+**Push endpoint (Express):**
+
+```typescript
+import express from 'express';
+import { createPubSubPushHandler } from '@authvital/server/pubsub';
+
+const handlePush = createPubSubPushHandler(dispatcher, {
+  onError: (err) => console.error('handler failed', err),
+});
+
+const app = express();
+app.post('/pubsub/push', express.json(), async (req, res) => {
+  const { status, error } = await handlePush(req.body);
+  res.status(status).send(error ? { error } : undefined);
+});
+```
+
+Status mapping (per Pub/Sub push retry semantics — only 2xx acks):
+handled/duplicate/unhandled return **204** (ack), parse errors return
+**400** (permanent — pair the push subscription with a dead-letter topic so
+poison messages park instead of retrying forever), handler errors return
+**500** (transient — Pub/Sub redelivers and the dedupe id was NOT recorded,
+so the retry re-runs your handlers).
+
+### Example Subscriber — Raw (any language)
+
+No SDK required — the envelope is plain JSON:
 
 ```typescript
 import { PubSub } from '@google-cloud/pubsub';
 
-const pubsub = new PubSub();
-const subscription = pubsub.subscription('my-subscriber');
+const subscription = new PubSub().subscription('my-subscriber');
 
 subscription.on('message', (message) => {
   const event = JSON.parse(message.data.toString());
-  
+
   console.log(`Received: ${event.event_type}`);
   console.log(`Tenant: ${event.tenant_id}`);
   console.log(`Data:`, event.data);
-  
+
   // Important: Acknowledge to prevent redelivery
   message.ack();
-});
-
-subscription.on('error', (error) => {
-  console.error('Subscription error:', error);
 });
 ```
 
@@ -1023,28 +1128,35 @@ subscription.on('error', (error) => {
 ## Deduplication
 
 Pub/Sub provides **at-least-once delivery**. Subscribers may receive the same
-message more than once. Use the `id` field in the message envelope to
-deduplicate:
+message more than once. The dispatcher deduplicates on the envelope's unique
+`id` via a pluggable store:
 
 ```typescript
-const processedIds = new Set<string>();
+import type { DedupeStore } from '@authvital/server/pubsub';
 
-subscription.on('message', (message) => {
-  const event = JSON.parse(message.data.toString());
-  
-  if (processedIds.has(event.id)) {
-    message.ack(); // Already processed
-    return;
-  }
-  
-  // Process the event...
-  processedIds.add(event.id);
-  message.ack();
-});
+// The interface — implement over Redis/DB for production:
+interface DedupeStore {
+  has(id: string): Promise<boolean>;
+  add(id: string, ttlMs?: number): Promise<void>;
+}
+
+// Example: Redis-backed implementation
+const redisDedupe: DedupeStore = {
+  has: async (id) => (await redis.exists(`av:evt:${id}`)) === 1,
+  add: async (id, ttlMs = 86_400_000) =>
+    void (await redis.set(`av:evt:${id}`, '1', 'PX', ttlMs)),
+};
+
+const dispatcher = createPubSubDispatcher({ dedupeStore: redisDedupe });
 ```
 
-For production use, store processed IDs in a database or Redis rather than
-an in-memory Set.
+The bundled `InMemoryDedupeStore` (bounded LRU + TTL) is **per-process
+only**: restarts forget everything and scaled-out subscribers don't share
+it. Use it for single-instance consumers and development; use Redis or a
+database unique index in production.
+
+Ids are recorded **after** all handlers succeed — a thrown handler leaves
+the id un-recorded so the redelivered message gets a full retry.
 
 ---
 
@@ -1075,14 +1187,38 @@ you inspect what would be published without actually connecting to GCP.
 
 ## Outbox Table
 
-The `pub_sub_outbox_events` table tracks all events:
+The `pub_sub_outbox_events` table tracks all events. Each row carries TWO
+independent lifecycles:
+
+**Publish lifecycle** (`status` — GCP topic export, owned by the core):
 
 | Status | Meaning |
 |---|---|
 | `PENDING` | Queued for publishing |
-| `PUBLISHED` | Successfully published (cleaned up after 7 days) |
+| `PUBLISHED` | Successfully published (see cleanup rules below) |
 | `FAILED` | All 10 retry attempts exhausted |
 | `SKIPPED` | Pub/Sub is disabled |
+
+**Webhook-delivery lifecycle** (`delivery_*` columns — owned by the
+[authvital-broker](../concepts/event-broker.md) when
+`WEBHOOK_DELIVERY_MODE=broker`):
+
+| Column | Meaning |
+|---|---|
+| `delivery_status` | `PENDING` / `DELIVERED` / `FAILED` / `SKIPPED` |
+| `delivery_attempts` | Attempt count against the 10-step backoff ladder |
+| `last_delivery_attempt_at` | Timestamp of the last attempt |
+| `last_delivery_error` | Categorized error (`[TIMEOUT] ...`, `[HTTP_ERROR] ...`) |
+
+The two lifecycles are **fully independent**: broker webhook delivery does
+not wait for (or care about) GCP publish status, and vice versa — they are
+separate consumers of the same row. Cleanup respects both: rows are removed
+after 7 days only when published/consumed **and** (in broker mode)
+terminally delivered; `FAILED` rows of either lifecycle are retained
+indefinitely for inspection and replay.
+
+In `legacy` delivery mode the `delivery_*` columns stay at their defaults
+and can be ignored.
 
 ### Monitoring Failed Events
 

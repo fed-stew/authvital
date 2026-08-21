@@ -17,4 +17,6 @@ export * from './licensing.types.js';
 export * from './rbac.types.js';
 export * from './api.types.js';
 export * from './sync-events.types.js';
+export * from './system-events.types.js';
+export * from './pubsub-envelope.types.js';
 export * from './membership.types.js';

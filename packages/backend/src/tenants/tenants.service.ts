@@ -93,10 +93,12 @@ export class TenantsService {
     const creator = tenant.memberships[0]?.user;
     this.systemWebhookService.dispatch('tenant.created', {
       tenant_id: tenant.id,
-      tenant_name: tenant.name,
-      tenant_slug: tenant.slug,
-      owner_id: creatorUserId,
-      owner_email: creator?.email,
+      name: tenant.name,
+      slug: tenant.slug,
+      created_at: tenant.createdAt.toISOString(),
+      settings: (tenant.settings ?? {}) as Record<string, unknown>,
+      created_by_sub: creatorUserId,
+      owner_email: creator?.email ?? undefined,
     }).catch((err) => {
       this.logger.warn(`Failed to dispatch tenant.created event: ${err.message}`);
     });
@@ -325,9 +327,11 @@ export class TenantsService {
     if (changedFields.length > 0) {
       this.systemWebhookService.dispatch('tenant.updated', {
         tenant_id: updated.id,
-        tenant_name: updated.name,
-        tenant_slug: updated.slug,
+        name: updated.name,
+        slug: updated.slug,
         changed_fields: changedFields,
+        settings: (updated.settings ?? {}) as Record<string, unknown>,
+        updated_by_sub: actorUserId,
       }).catch((err) => {
         this.logger.warn(`Failed to dispatch tenant.updated event: ${err.message}`);
       });
@@ -374,7 +378,9 @@ export class TenantsService {
     // Fire webhook event BEFORE deletion (fire and forget)
     this.systemWebhookService.dispatch('tenant.deleted', {
       tenant_id: tenant.id,
-      tenant_slug: tenant.slug,
+      name: tenant.name,
+      slug: tenant.slug,
+      deleted_at: new Date().toISOString(),
     }).catch((err) => {
       this.logger.warn(`Failed to dispatch tenant.deleted event: ${err.message}`);
     });

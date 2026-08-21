@@ -45,6 +45,28 @@ When using Google Cloud SQL, configure individual components instead of `DATABAS
 
 The application constructs `DATABASE_URL` from these at startup.
 
+### Service Role & Webhook Delivery (advanced deployments)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `SERVICE_ROLE` | No | `all` | Which plane this instance serves: `all` (everything, single container), `public` (data plane: OAuth, `/auth/*` UI, member APIs — no admin surface, no crons), `admin` (control plane: `/admin/*`, admin APIs, background crons). **Invalid values refuse to boot.** See [Service Roles](../concepts/service-roles.md). |
+| `ADMIN_BASE_URL` | No | - | Admin dashboard origin for split deployments (added to the CORS allow-list). `BASE_URL` must ALWAYS remain the public URL. |
+| `WEBHOOK_DELIVERY_MODE` | No | `legacy` | `legacy`: webhooks delivered in-core (classic behavior). `broker`: the authvital-broker service owns delivery. See [Event Broker](../concepts/event-broker.md). |
+
+### Broker Service (`packages/broker` — only when `WEBHOOK_DELIVERY_MODE=broker`)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `BROKER_TRANSPORT` | No | `outbox` | `outbox` (Postgres polling, no GCP) or `pubsub` (GCP subscription) |
+| `BROKER_PORT` | No | `8100` | Health endpoint port |
+| `BROKER_POLL_INTERVAL_MS` | No | `5000` | Outbox poll interval |
+| `BROKER_PUBSUB_SUBSCRIPTION` | pubsub only | - | Pub/Sub subscription name |
+| `BROKER_ALLOW_PRIVATE_WEBHOOK_TARGETS` | No | prod `false` / dev `true` | SSRF guard opt-out for private webhook targets |
+| `BROKER_CIRCUIT_FAILURE_THRESHOLD` | No | `5` | Consecutive failures before a URL's circuit opens |
+| `BROKER_CIRCUIT_COOLDOWN_MS` | No | `60000` | Circuit-open cooldown |
+| `MASTER_SECRET` | Yes | - | Same value as the core (decrypts the webhook signing key) |
+| `DATABASE_URL` / `DB_*` | Yes | - | Same database as the core |
+
 ### CORS
 
 | Variable | Required | Default | Description |

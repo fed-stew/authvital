@@ -599,58 +599,67 @@ Fires when a user's license type changes. Includes previous license info.
 
 ## Tenant Events
 
-Tenant events fire when organization-level changes occur in AuthVital.
+Tenant events fire on tenant lifecycle changes. These are **system-level**
+events (`event_source: system_webhook`) — delivered to system webhooks with
+the `{event, timestamp, data}` wrapper shown below, and to Pub/Sub with the
+standard envelope (`data` carries the same payload).
 
 ### TypeScript Types
 
+The canonical contracts ship in `@authvital/shared` (re-exported from
+`@authvital/server/pubsub`) and are compile-time enforced at every emit
+site in the platform:
+
 ```typescript
-interface TenantSettings {
-  allow_signups: boolean;                    // Whether self-signup is enabled
-  require_mfa: boolean;                      // Whether MFA is required for all users
-  allowed_email_domains: string[];           // Restrict signups to specific domains
-  session_lifetime_minutes: number;          // Session duration
-  password_policy: 'standard' | 'strict';    // Password requirements
-}
+import type {
+  TenantCreatedEventData,
+  TenantUpdatedEventData,
+  TenantDeletedEventData,
+  TenantSuspendedEventData,
+} from '@authvital/shared';
 
-interface TenantData {
-  tenant_id: string;                         // Unique tenant identifier
-  name: string;                              // Display name
-  slug: string;                              // URL-safe identifier
-  plan: 'free' | 'starter' | 'pro' | 'enterprise'; // Subscription plan
-  settings: TenantSettings;                  // Tenant configuration
-}
+// Shared by all tenant lifecycle events
+type TenantEventBase = {
+  tenant_id: string;                     // Unique tenant identifier
+  name: string;                          // Display name
+  slug: string;                          // URL-safe identifier
+};
 
-interface TenantCreatedData extends TenantData {
-  created_by_sub: string;                    // Subject ID of creator
-  created_at: string;                        // ISO timestamp
-}
+type TenantCreatedEventData = TenantEventBase & {
+  created_at: string;                    // ISO timestamp (Tenant.createdAt)
+  settings: Record<string, unknown>;     // Freeform tenant settings JSON
+  created_by_sub?: string;               // Absent on super-admin creation
+  owner_email?: string;                  // Owner email when known
+};
 
-interface TenantUpdatedData extends TenantData {
-  changed_fields: string[];                  // Fields that changed
-  previous_values: Record<string, unknown>;  // Previous field values
-  updated_by_sub: string;                    // Subject ID of updater
-}
+type TenantUpdatedEventData = TenantEventBase & {
+  changed_fields: string[];              // Which fields changed
+  settings: Record<string, unknown>;     // Current settings snapshot
+  previous_values?: Record<string, unknown>;
+  updated_by_sub?: string;
+};
 
-interface TenantDeletedData {
-  tenant_id: string;
-  name: string;
-  slug: string;
-  deleted_by_sub: string;
+type TenantDeletedEventData = TenantEventBase & {
   deleted_at: string;
-}
+  deleted_by_sub?: string;
+};
 
-interface TenantSuspendedData extends TenantData {
-  suspended_by_sub: string;
+// Reserved contract — the core does NOT currently emit tenant.suspended.
+type TenantSuspendedEventData = TenantEventBase & {
   suspended_at: string;
+  suspended_by_sub?: string;
   reason?: string;
-}
-
-// Event types
-type TenantCreatedEvent = BaseEvent<'tenant.created', TenantCreatedData>;
-type TenantUpdatedEvent = BaseEvent<'tenant.updated', TenantUpdatedData>;
-type TenantDeletedEvent = BaseEvent<'tenant.deleted', TenantDeletedData>;
-type TenantSuspendedEvent = BaseEvent<'tenant.suspended', TenantSuspendedData>;
+};
 ```
+
+!!! warning "Breaking change: canonical payloads"
+    Earlier docs showed a `plan` field and a structured `settings` object
+    (`allow_signups`, `require_mfa`, ...) — neither exists in the platform
+    model and they were never sent. `settings` is the tenant's freeform
+    settings JSON. Field names are now canonical (`name`/`slug`, previously
+    emitted as `tenant_name`/`tenant_slug`). See the
+    [upgrade guide](../getting-started/upgrading-to-broker.md) for the full
+    migration table.
 
 ### `tenant.created`
 
@@ -658,78 +667,53 @@ Fires when a new tenant (organization) is provisioned in AuthVital.
 
 ```json
 {
-  "id": "evt_01HQTNT001ABC",
-  "type": "tenant.created",
+  "event": "tenant.created",
   "timestamp": "2024-01-15T10:00:00.000Z",
-  "tenant_id": "tnt_newcorp789",
-  "application_id": null,
   "data": {
     "tenant_id": "tnt_newcorp789",
     "name": "NewCorp Industries",
     "slug": "newcorp",
-    "plan": "pro",
-    "created_by_sub": "usr_founder001",
     "created_at": "2024-01-15T10:00:00.000Z",
-    "settings": {
-      "allow_signups": true,
-      "require_mfa": false,
-      "allowed_email_domains": ["newcorp.com"],
-      "session_lifetime_minutes": 480,
-      "password_policy": "standard"
-    }
+    "settings": { "theme": "dark" },
+    "created_by_sub": "usr_founder001",
+    "owner_email": "founder@newcorp.com"
   }
 }
 ```
 
 ### `tenant.updated`
 
-Fires when tenant settings or plan changes. Includes `changed_fields` and `previous_values` for audit trails.
+Fires when tenant fields change (including membership changes, reported as
+`changed_fields: ["members"]`).
 
 ```json
 {
-  "id": "evt_01HQTNT002DEF",
-  "type": "tenant.updated",
+  "event": "tenant.updated",
   "timestamp": "2024-01-20T14:30:00.000Z",
-  "tenant_id": "tnt_acme123",
-  "application_id": null,
   "data": {
     "tenant_id": "tnt_acme123",
     "name": "Acme Corporation",
     "slug": "acme-corp",
-    "plan": "enterprise",
-    "changed_fields": ["plan", "settings.require_mfa"],
-    "previous_values": {
-      "plan": "pro",
-      "settings.require_mfa": false
-    },
-    "updated_by_sub": "usr_admin001",
-    "settings": {
-      "allow_signups": true,
-      "require_mfa": true,
-      "allowed_email_domains": ["acme.com", "acme.io"],
-      "session_lifetime_minutes": 480,
-      "password_policy": "strict"
-    }
+    "changed_fields": ["name", "settings"],
+    "settings": { "theme": "light" },
+    "updated_by_sub": "usr_admin001"
   }
 }
 ```
 
 ### `tenant.deleted`
 
-Fires when a tenant is permanently removed from AuthVital.
+Fires when a tenant is permanently removed from AuthVital (dispatched
+BEFORE the row is deleted).
 
 ```json
 {
-  "id": "evt_01HQTNT003GHI",
-  "type": "tenant.deleted",
+  "event": "tenant.deleted",
   "timestamp": "2024-02-01T09:00:00.000Z",
-  "tenant_id": "tnt_oldcorp456",
-  "application_id": null,
   "data": {
     "tenant_id": "tnt_oldcorp456",
     "name": "Old Corp Inc",
     "slug": "old-corp",
-    "deleted_by_sub": "usr_superadmin001",
     "deleted_at": "2024-02-01T09:00:00.000Z"
   }
 }
@@ -737,30 +721,132 @@ Fires when a tenant is permanently removed from AuthVital.
 
 ### `tenant.suspended`
 
-Fires when a tenant is deactivated (soft disable). Users cannot authenticate but data is preserved.
+!!! note "Reserved — not currently emitted"
+    The contract is defined for forward compatibility, but no code path in
+    the core dispatches `tenant.suspended` today. Do not build workflows
+    that depend on receiving it.
 
 ```json
 {
-  "id": "evt_01HQTNT004JKL",
-  "type": "tenant.suspended",
+  "event": "tenant.suspended",
   "timestamp": "2024-01-25T16:00:00.000Z",
-  "tenant_id": "tnt_suspended789",
-  "application_id": null,
   "data": {
     "tenant_id": "tnt_suspended789",
     "name": "Suspended Company",
     "slug": "suspended-co",
-    "plan": "starter",
-    "suspended_by_sub": "usr_superadmin001",
     "suspended_at": "2024-01-25T16:00:00.000Z",
-    "reason": "Payment failed after 3 retry attempts",
-    "settings": {
-      "allow_signups": false,
-      "require_mfa": false,
-      "allowed_email_domains": [],
-      "session_lifetime_minutes": 480,
-      "password_policy": "standard"
-    }
+    "suspended_by_sub": "usr_superadmin001",
+    "reason": "Payment failed after 3 retry attempts"
+  }
+}
+```
+
+---
+
+## Tenant App Access Events
+
+Fire when a tenant/user is granted or revoked access to an application.
+System-level events (`event_source: system_webhook`).
+
+### TypeScript Types
+
+```typescript
+import type {
+  TenantAppGrantedEventData,
+  TenantAppRevokedEventData,
+} from '@authvital/shared';
+
+type TenantAppEventBase = {
+  tenant_id: string;
+  application_id: string;
+  tenant_slug?: string;                  // Resolved at emit time
+  user_email?: string;
+  application_name?: string;
+  application_slug?: string;
+};
+
+// tenant.app.granted covers TWO grant modes:
+//  - USER-LEVEL access grant: user_id + access_type present
+//  - TENANT-LEVEL subscription grant (license pool): subscription_id +
+//    license_type_* + quantity_purchased present, no user_id
+type TenantAppGrantedEventData = TenantAppEventBase & {
+  user_id?: string;
+  access_type?: 'GRANTED' | 'INVITED' | 'AUTO_FREE' | 'AUTO_TENANT' | 'AUTO_OWNER';
+  granted_by_id?: string;
+  license_assignment_id?: string;
+  role_id?: string;
+  role_name?: string;
+  role_slug?: string;
+  subscription_id?: string;              // Tenant-level grants only
+  license_type_id?: string;
+  license_type_name?: string;
+  quantity_purchased?: number;
+  status?: string;                       // Subscription status (e.g. 'ACTIVE')
+};
+
+type TenantAppRevokedEventData = TenantAppEventBase & {
+  user_id: string;                       // Revocation is always user-level
+  revoked_by_id?: string;
+};
+```
+
+### `tenant.app.granted`
+
+User-level grant example:
+
+```json
+{
+  "event": "tenant.app.granted",
+  "timestamp": "2024-01-16T15:00:00.000Z",
+  "data": {
+    "tenant_id": "tnt_acme123",
+    "tenant_slug": "acme-corp",
+    "user_id": "usr_jane001",
+    "user_email": "jane@acme.com",
+    "application_id": "app_dashboard456",
+    "application_name": "Acme Dashboard",
+    "application_slug": "acme-dashboard",
+    "access_type": "GRANTED",
+    "granted_by_id": "usr_admin001",
+    "license_assignment_id": "la_001"
+  }
+}
+```
+
+Tenant-level subscription grant example (no `user_id`):
+
+```json
+{
+  "event": "tenant.app.granted",
+  "timestamp": "2024-01-16T15:00:00.000Z",
+  "data": {
+    "tenant_id": "tnt_acme123",
+    "application_id": "app_dashboard456",
+    "application_name": "Acme Dashboard",
+    "subscription_id": "sub_001",
+    "license_type_id": "lt_pro",
+    "license_type_name": "Pro",
+    "quantity_purchased": 10,
+    "status": "ACTIVE"
+  }
+}
+```
+
+### `tenant.app.revoked`
+
+```json
+{
+  "event": "tenant.app.revoked",
+  "timestamp": "2024-01-20T16:00:00.000Z",
+  "data": {
+    "tenant_id": "tnt_acme123",
+    "tenant_slug": "acme-corp",
+    "user_id": "usr_jane001",
+    "user_email": "jane@acme.com",
+    "application_id": "app_legacy789",
+    "application_name": "Legacy App",
+    "application_slug": "legacy-app",
+    "revoked_by_id": "usr_admin001"
   }
 }
 ```
@@ -769,92 +855,105 @@ Fires when a tenant is deactivated (soft disable). Users cannot authenticate but
 
 ## Application Events
 
-Application events fire when OAuth applications are created, modified, or removed from a tenant.
+Application events fire when OAuth applications are created, modified, or
+removed. Applications are **instance-scoped** in AuthVital (not owned by a
+tenant), so `tenant_id` is always `null` on these payloads.
 
 ### TypeScript Types
 
 ```typescript
-interface ApplicationConfig {
-  redirect_uris: string[];                   // Allowed redirect URIs
-  post_logout_redirect_uris: string[];       // Allowed post-logout URIs
-  allowed_scopes: string[];                  // Permitted OAuth scopes
-  grant_types: ('authorization_code' | 'refresh_token' | 'client_credentials')[];
-  token_endpoint_auth_method: 'client_secret_basic' | 'client_secret_post' | 'none';
-  access_token_ttl_seconds: number;          // Access token lifetime
-  refresh_token_ttl_seconds: number;         // Refresh token lifetime
-}
+import type {
+  ApplicationCreatedEventData,
+  ApplicationUpdatedEventData,
+  ApplicationDeletedEventData,
+  ApplicationClientConfig,
+  ApplicationLicensingInfo,
+} from '@authvital/shared';
 
-interface ApplicationData {
-  application_id: string;                    // Unique application ID
-  tenant_id: string;                         // Parent tenant ID
-  name: string;                              // Display name
-  description?: string;                      // Optional description
-  client_id: string;                         // OAuth client ID
-  application_type: 'web' | 'spa' | 'native' | 'machine';
-  config: ApplicationConfig;
+type ApplicationClientConfig = {
+  redirect_uris: string[];
+  post_logout_redirect_uris: string[];
+  initiate_login_uri: string | null;
+  access_token_ttl_seconds: number | null;
+  refresh_token_ttl_seconds: number | null;
+};
+
+type ApplicationLicensingInfo = {
+  mode: string;                          // 'FREE' | 'PER_SEAT' | 'TENANT_WIDE'
+  allow_mixed: boolean;
+  default_seat_count: number | null;
+  auto_provision_on_signup: boolean;
+  auto_grant_to_owner: boolean;
+};
+
+type ApplicationEventBase = {
+  application_id: string;
+  tenant_id: null;                       // Always null — instance-scoped
+  name: string;
+  slug: string;
+  client_id: string | null;              // First client; null if none yet
+  application_type: string;              // Access mode, e.g. 'AUTOMATIC'
   is_active: boolean;
-}
+  description?: string | null;
+};
 
-interface ApplicationCreatedData extends ApplicationData {
-  created_by_sub: string;
+type ApplicationCreatedEventData = ApplicationEventBase & {
   created_at: string;
-}
+  config: ApplicationClientConfig;       // First client's OAuth config
+  licensing: ApplicationLicensingInfo;
+};
 
-interface ApplicationUpdatedData extends ApplicationData {
+type ApplicationUpdatedEventData = ApplicationEventBase & {
   changed_fields: string[];
   previous_values: Record<string, unknown>;
-  updated_by_sub: string;
-}
+  licensing: ApplicationLicensingInfo;
+  // No config block — config changes surface via changed_fields/previous_values
+};
 
-interface ApplicationDeletedData {
+type ApplicationDeletedEventData = {
   application_id: string;
-  tenant_id: string;
+  tenant_id: null;
   name: string;
-  client_id: string;
-  deleted_by_sub: string;
+  slug: string;
+  client_id: string | null;
   deleted_at: string;
-}
-
-// Event types
-type ApplicationCreatedEvent = BaseEvent<'application.created', ApplicationCreatedData>;
-type ApplicationUpdatedEvent = BaseEvent<'application.updated', ApplicationUpdatedData>;
-type ApplicationDeletedEvent = BaseEvent<'application.deleted', ApplicationDeletedData>;
+};
 ```
 
 ### `application.created`
 
-Fires when a new OAuth application is registered to a tenant.
+Fires when a new OAuth application is registered.
 
 ```json
 {
-  "id": "evt_01HQAPC001ABC",
-  "type": "application.created",
+  "event": "application.created",
   "timestamp": "2024-01-15T11:00:00.000Z",
-  "tenant_id": "tnt_acme123",
-  "application_id": "app_dashboard456",
   "data": {
     "application_id": "app_dashboard456",
-    "tenant_id": "tnt_acme123",
+    "tenant_id": null,
     "name": "Acme Dashboard",
     "description": "Main customer dashboard",
+    "slug": "acme-dashboard",
     "client_id": "acme_dashboard_prod",
-    "application_type": "spa",
+    "application_type": "AUTOMATIC",
     "is_active": true,
-    "created_by_sub": "usr_admin001",
     "created_at": "2024-01-15T11:00:00.000Z",
     "config": {
       "redirect_uris": [
         "https://dashboard.acme.com/callback",
         "http://localhost:3000/callback"
       ],
-      "post_logout_redirect_uris": [
-        "https://dashboard.acme.com"
-      ],
-      "allowed_scopes": ["openid", "profile", "email"],
-      "grant_types": ["authorization_code", "refresh_token"],
-      "token_endpoint_auth_method": "none",
+      "post_logout_redirect_uris": ["https://dashboard.acme.com"],
+      "initiate_login_uri": null,
       "access_token_ttl_seconds": 3600,
       "refresh_token_ttl_seconds": 604800
+    },
+    "licensing": {
+      "mode": "FREE",
+      "allow_mixed": false,
+      "default_seat_count": 5,
+      "auto_provision_on_signup": true,
+      "auto_grant_to_owner": true
     }
   }
 }
@@ -862,46 +961,30 @@ Fires when a new OAuth application is registered to a tenant.
 
 ### `application.updated`
 
-Fires when application configuration changes (redirect URIs, scopes, etc.).
+Fires when application configuration changes, including enable/disable
+toggles (`changed_fields: ["is_active"]`).
 
 ```json
 {
-  "id": "evt_01HQAPC002DEF",
-  "type": "application.updated",
+  "event": "application.updated",
   "timestamp": "2024-01-18T15:30:00.000Z",
-  "tenant_id": "tnt_acme123",
-  "application_id": "app_dashboard456",
   "data": {
     "application_id": "app_dashboard456",
-    "tenant_id": "tnt_acme123",
+    "tenant_id": null,
     "name": "Acme Dashboard",
     "description": "Main customer dashboard",
+    "slug": "acme-dashboard",
     "client_id": "acme_dashboard_prod",
-    "application_type": "spa",
+    "application_type": "AUTOMATIC",
     "is_active": true,
-    "changed_fields": ["config.redirect_uris", "config.allowed_scopes"],
-    "previous_values": {
-      "config.redirect_uris": [
-        "https://dashboard.acme.com/callback",
-        "http://localhost:3000/callback"
-      ],
-      "config.allowed_scopes": ["openid", "profile", "email"]
-    },
-    "updated_by_sub": "usr_admin001",
-    "config": {
-      "redirect_uris": [
-        "https://dashboard.acme.com/callback",
-        "https://staging.dashboard.acme.com/callback",
-        "http://localhost:3000/callback"
-      ],
-      "post_logout_redirect_uris": [
-        "https://dashboard.acme.com"
-      ],
-      "allowed_scopes": ["openid", "profile", "email", "offline_access"],
-      "grant_types": ["authorization_code", "refresh_token"],
-      "token_endpoint_auth_method": "none",
-      "access_token_ttl_seconds": 3600,
-      "refresh_token_ttl_seconds": 604800
+    "changed_fields": ["name"],
+    "previous_values": { "name": "Old Dashboard" },
+    "licensing": {
+      "mode": "FREE",
+      "allow_mixed": false,
+      "default_seat_count": 5,
+      "auto_provision_on_signup": true,
+      "auto_grant_to_owner": true
     }
   }
 }
@@ -909,21 +992,18 @@ Fires when application configuration changes (redirect URIs, scopes, etc.).
 
 ### `application.deleted`
 
-Fires when an application is removed from a tenant.
+Fires when an application is removed (with all associated data).
 
 ```json
 {
-  "id": "evt_01HQAPC003GHI",
-  "type": "application.deleted",
+  "event": "application.deleted",
   "timestamp": "2024-02-01T10:00:00.000Z",
-  "tenant_id": "tnt_acme123",
-  "application_id": "app_legacy789",
   "data": {
     "application_id": "app_legacy789",
-    "tenant_id": "tnt_acme123",
+    "tenant_id": null,
     "name": "Legacy App",
+    "slug": "legacy-app",
     "client_id": "acme_legacy_deprecated",
-    "deleted_by_sub": "usr_admin001",
     "deleted_at": "2024-02-01T10:00:00.000Z"
   }
 }
@@ -933,85 +1013,53 @@ Fires when an application is removed from a tenant.
 
 ## SSO Provider Events
 
-SSO events fire when Single Sign-On providers are configured, modified, or removed from a tenant.
+SSO events fire when Single Sign-On providers are configured, modified, or
+removed. Providers are **instance-scoped** (`tenant_id` always `null`), and
+`provider_id` is the provider enum key (e.g. `GOOGLE`) — not a row id.
 
 ### TypeScript Types
 
 ```typescript
-interface SsoProviderConfig {
-  client_id: string;                        // OAuth client ID for the provider
-  issuer?: string;                          // OIDC issuer URL (for OIDC/SAML)
-  authorization_endpoint?: string;          // OAuth authorization URL
-  token_endpoint?: string;                  // OAuth token URL
-  userinfo_endpoint?: string;               // OIDC userinfo URL
-  domains: string[];                        // Email domains that trigger this SSO
-  attribute_mapping: Record<string, string>; // Map provider claims to AuthVital claims
-}
+import type {
+  SsoProviderAddedEventData,
+  SsoProviderUpdatedEventData,
+  SsoProviderRemovedEventData,
+} from '@authvital/shared';
 
-interface SsoProviderData {
-  provider_id: string;                      // Unique provider ID
-  tenant_id: string;                        // Parent tenant ID
-  provider_type: 'google' | 'microsoft' | 'okta' | 'saml' | 'oidc';
-  display_name: string;                     // Display name for login UI
-  is_enabled: boolean;                      // Whether SSO is active
-  config: SsoProviderConfig;
-}
+type SsoProviderEventBase = {
+  provider_id: string;                   // Provider enum key, e.g. 'GOOGLE'
+  tenant_id: null;                       // Always null — instance-scoped
+  provider_type: string;                 // Same enum key as provider_id today
+};
 
-interface SsoProviderAddedData extends SsoProviderData {
-  created_by_sub: string;
-  created_at: string;
-}
-
-interface SsoProviderUpdatedData extends SsoProviderData {
-  changed_fields: string[];
-  previous_values: Record<string, unknown>;
-  updated_by_sub: string;
-}
-
-interface SsoProviderRemovedData {
-  provider_id: string;
-  tenant_id: string;
-  provider_type: string;
+type SsoProviderAddedEventData = SsoProviderEventBase & {
   display_name: string;
-  removed_by_sub: string;
-  removed_at: string;
-}
+  is_enabled: boolean;
+};
 
-// Event types
-type SsoProviderAddedEvent = BaseEvent<'sso.provider_added', SsoProviderAddedData>;
-type SsoProviderUpdatedEvent = BaseEvent<'sso.provider_updated', SsoProviderUpdatedData>;
-type SsoProviderRemovedEvent = BaseEvent<'sso.provider_removed', SsoProviderRemovedData>;
+type SsoProviderUpdatedEventData = SsoProviderEventBase & {
+  changed_fields: string[];
+};
+
+type SsoProviderRemovedEventData = SsoProviderEventBase & {
+  removed_at: string;
+};
 ```
 
 ### `sso.provider_added`
 
-Fires when an SSO provider is configured for a tenant.
+Fires when an SSO provider is configured (upserts are reported as adds).
 
 ```json
 {
-  "id": "evt_01HQSSO001ABC",
-  "type": "sso.provider_added",
+  "event": "sso.provider_added",
   "timestamp": "2024-01-16T09:00:00.000Z",
-  "tenant_id": "tnt_acme123",
-  "application_id": null,
   "data": {
-    "provider_id": "sso_google001",
-    "tenant_id": "tnt_acme123",
-    "provider_type": "google",
-    "display_name": "Sign in with Google",
-    "is_enabled": true,
-    "created_by_sub": "usr_admin001",
-    "created_at": "2024-01-16T09:00:00.000Z",
-    "config": {
-      "client_id": "123456789.apps.googleusercontent.com",
-      "domains": ["acme.com"],
-      "attribute_mapping": {
-        "email": "email",
-        "given_name": "given_name",
-        "family_name": "family_name",
-        "picture": "picture"
-      }
-    }
+    "provider_id": "GOOGLE",
+    "tenant_id": null,
+    "provider_type": "GOOGLE",
+    "display_name": "GOOGLE",
+    "is_enabled": true
   }
 }
 ```
@@ -1022,54 +1070,29 @@ Fires when SSO provider settings change.
 
 ```json
 {
-  "id": "evt_01HQSSO002DEF",
-  "type": "sso.provider_updated",
+  "event": "sso.provider_updated",
   "timestamp": "2024-01-20T11:00:00.000Z",
-  "tenant_id": "tnt_acme123",
-  "application_id": null,
   "data": {
-    "provider_id": "sso_google001",
-    "tenant_id": "tnt_acme123",
-    "provider_type": "google",
-    "display_name": "Sign in with Google Workspace",
-    "is_enabled": true,
-    "changed_fields": ["display_name", "config.domains"],
-    "previous_values": {
-      "display_name": "Sign in with Google",
-      "config.domains": ["acme.com"]
-    },
-    "updated_by_sub": "usr_admin001",
-    "config": {
-      "client_id": "123456789.apps.googleusercontent.com",
-      "domains": ["acme.com", "acme.io"],
-      "attribute_mapping": {
-        "email": "email",
-        "given_name": "given_name",
-        "family_name": "family_name",
-        "picture": "picture"
-      }
-    }
+    "provider_id": "GOOGLE",
+    "tenant_id": null,
+    "provider_type": "GOOGLE",
+    "changed_fields": ["enabled", "allowedDomains"]
   }
 }
 ```
 
 ### `sso.provider_removed`
 
-Fires when an SSO provider is disconnected from a tenant.
+Fires when an SSO provider is deleted.
 
 ```json
 {
-  "id": "evt_01HQSSO003GHI",
-  "type": "sso.provider_removed",
+  "event": "sso.provider_removed",
   "timestamp": "2024-02-01T14:00:00.000Z",
-  "tenant_id": "tnt_acme123",
-  "application_id": null,
   "data": {
-    "provider_id": "sso_okta001",
-    "tenant_id": "tnt_acme123",
-    "provider_type": "okta",
-    "display_name": "Okta SSO",
-    "removed_by_sub": "usr_admin001",
+    "provider_id": "OKTA",
+    "tenant_id": null,
+    "provider_type": "OKTA",
     "removed_at": "2024-02-01T14:00:00.000Z"
   }
 }

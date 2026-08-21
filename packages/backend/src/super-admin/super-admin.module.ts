@@ -11,13 +11,6 @@ import { SsoModule } from '../sso/sso.module';
 import { WebhooksModule } from '../webhooks/webhooks.module';
 import { LicensingModule } from '../licensing/licensing.module';
 
-import {
-  SuperAdminAuthController,
-  SuperAdminUsersController,
-  SuperAdminTenantsController,
-  SuperAdminAppsController,
-  SuperAdminSsoController,
-} from './controllers';
 import { SuperAdminGuard } from './guards/super-admin.guard';
 
 import {
@@ -48,13 +41,10 @@ import { AdminApplicationClientsService } from './services/admin-application-cli
     forwardRef(() => WebhooksModule),
     forwardRef(() => LicensingModule),
   ],
-  controllers: [
-    SuperAdminAuthController,
-    SuperAdminUsersController,
-    SuperAdminTenantsController,
-    SuperAdminAppsController,
-    SuperAdminSsoController,
-  ],
+  // NO controllers here — the HTTP surface registers exclusively via
+  // ControlPlaneModule (SERVICE_ROLE admin|all). This module only provides
+  // services/guards so data-plane modules can import it without exposing
+  // any admin routes on a public service.
   providers: [
     AdminAuthService,
     AdminUsersService,

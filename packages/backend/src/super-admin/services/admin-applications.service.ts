@@ -262,7 +262,7 @@ export class AdminApplicationsService {
 
     // Dispatch application.created event
     this.systemWebhookService.dispatch(
-      'application.created' as any,
+      'application.created',
       buildApplicationCreatedPayload(app, client),
     ).catch((err) => this.logger.warn(`Failed to dispatch application.created event: ${err.message}`));
 
@@ -389,7 +389,7 @@ export class AdminApplicationsService {
         select: { clientId: true },
       });
       this.systemWebhookService.dispatch(
-        'application.updated' as any,
+        'application.updated',
         buildApplicationUpdatedPayload({
           applicationId,
           result,
@@ -450,7 +450,7 @@ export class AdminApplicationsService {
 
     // Dispatch application.deleted event
     this.systemWebhookService.dispatch(
-      'application.deleted' as any,
+      'application.deleted',
       buildApplicationDeletedPayload(app, applicationId, client?.clientId),
     ).catch((err) => this.logger.warn(`Failed to dispatch application.deleted event: ${err.message}`));
 
@@ -497,7 +497,7 @@ export class AdminApplicationsService {
 
     // Dispatch webhook (using app loaded before transaction — only isActive changed)
     this.systemWebhookService.dispatch(
-      'application.updated' as any,
+      'application.updated',
       buildApplicationStatusChangedPayload(app, client?.clientId, false),
     ).catch((err) => this.logger.warn(`Failed to dispatch application.updated event: ${err.message}`));
 
@@ -535,7 +535,7 @@ export class AdminApplicationsService {
 
     // Dispatch webhook
     this.systemWebhookService.dispatch(
-      'application.updated' as any,
+      'application.updated',
       buildApplicationStatusChangedPayload(result, client?.clientId, true),
     ).catch((err) => this.logger.warn(`Failed to dispatch application.updated event: ${err.message}`));
 

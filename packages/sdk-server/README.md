@@ -263,6 +263,39 @@ instead.
 
 ---
 
+### Typed Pub/Sub Event Consumption
+
+Subscribing to AuthVital's GCP Pub/Sub events? `@authvital/server/pubsub`
+parses and validates the message envelope (pull Messages AND push HTTP
+bodies — no dependency on `@google-cloud/pubsub`), routes events to typed
+handlers, and deduplicates at-least-once redeliveries:
+
+```typescript
+import {
+  createPubSubDispatcher,
+  parsePubSubMessage,
+  InMemoryDedupeStore,
+} from '@authvital/server/pubsub';
+
+const dispatcher = createPubSubDispatcher({ dedupeStore: new InMemoryDedupeStore() })
+  .on('member.joined', async (event) => {
+    // event.data is fully typed for this event
+    await db.members.upsert(event.data.membership_id, event.data.tenant_roles);
+  })
+  .on('license.*', async (event) => refreshEntitlements(event.tenant_id));
+
+subscription.on('message', async (message) => {
+  await dispatcher.dispatch(parsePubSubMessage(message));
+  message.ack();
+});
+```
+
+Push endpoints get a framework-agnostic helper (`createPubSubPushHandler`)
+with correct Pub/Sub retry-semantics status mapping. The bundled dedupe
+store is per-process; implement the two-method `DedupeStore` interface over
+Redis/your DB for scaled-out consumers. Full guide: the GCP Pub/Sub page in
+the documentation site.
+
 ## Framework Guides
 
 ### Express

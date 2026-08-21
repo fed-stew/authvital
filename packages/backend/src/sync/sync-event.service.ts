@@ -1,9 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma';
 import { KeyService } from '../oauth/key.service';
 import { PubSubOutboxService } from '../pubsub/pubsub-outbox.service';
+import {
+  WebhookDeliveryMode,
+  resolveWebhookDeliveryMode,
+} from '../config/webhook-delivery-mode';
 import { SyncEventType, BaseEventPayload } from './types';
 
 @Injectable()
@@ -12,11 +17,27 @@ export class SyncEventService {
   private readonly MAX_RETRY_ATTEMPTS = 5;
   private readonly RETRY_DELAYS = [60, 300, 900, 3600, 14400]; // 1m, 5m, 15m, 1h, 4h
 
+  /**
+   * WEBHOOK_DELIVERY_MODE gate — the SINGLE switch between:
+   *  - 'legacy' (default): in-core delivery, exactly as it always worked.
+   *  - 'broker': core only writes syncEvent + outbox rows atomically; the
+   *    authvital-broker service (packages/broker) owns delivery/retries.
+   */
+  private readonly deliveryMode: WebhookDeliveryMode;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly keyService: KeyService,
     private readonly pubSubOutboxService: PubSubOutboxService,
-  ) {}
+    configService: ConfigService,
+  ) {
+    this.deliveryMode = resolveWebhookDeliveryMode(configService);
+    this.logger.log(`Webhook delivery mode: ${this.deliveryMode}`);
+  }
+
+  private get isLegacyDelivery(): boolean {
+    return this.deliveryMode === 'legacy';
+  }
 
   /**
    * Emit a sync event - stores in DB and triggers webhook delivery
@@ -99,49 +120,73 @@ export class SyncEventService {
       this.logger.debug(`[SyncEvent] Webhook SKIPPED: ${skipReason}`);
     }
 
-    // Store the event
-    await this.prisma.syncEvent.create({
-      data: {
-        id: eventId,
-        eventType,
-        tenantId,
-        applicationId,
-        payload: payload as any,
-        webhookStatus,
-      },
-    });
-
-    this.logger.debug(
-      `[SyncEvent] Event ${eventId} stored with webhookStatus=${webhookStatus}`,
-    );
-
-    // Enqueue for Pub/Sub outbox
-    this.pubSubOutboxService.enqueue({
+    const syncEventData = {
+      id: eventId,
       eventType,
-      eventSource: 'sync_event',
+      tenantId,
+      applicationId,
+      payload: payload as any,
+      webhookStatus,
+    };
+
+    const outboxParams = {
+      eventType,
+      eventSource: 'sync_event' as const,
       aggregateId: tenantId,
       tenantId,
       applicationId,
       payload: payload as unknown as Record<string, unknown>,
       orderingKey: `${tenantId}:${applicationId}`,
-    }).catch((err) => {
-      this.logger.warn(
-        `[SyncEvent] Failed to enqueue Pub/Sub outbox event for ${eventId}: ${err.message}`,
-      );
-    });
+    };
 
-    // If webhook is configured, attempt immediate delivery
-    if (webhookStatus === 'PENDING') {
+    if (this.isLegacyDelivery) {
+      // ------------------------------------------------------------------
+      // LEGACY MODE — byte-for-byte the pre-broker behavior:
+      // separate syncEvent write, fire-and-forget outbox enqueue (the
+      // outbox only feeds optional GCP export here), in-core delivery.
+      // ------------------------------------------------------------------
+      await this.prisma.syncEvent.create({ data: syncEventData });
+
       this.logger.debug(
-        `[SyncEvent] Triggering immediate webhook delivery for event ${eventId}`,
+        `[SyncEvent] Event ${eventId} stored with webhookStatus=${webhookStatus}`,
       );
-      // Fire and forget - don't block the main operation
-      this.deliverWebhook(eventId).catch((err) => {
+
+      this.pubSubOutboxService.enqueue(outboxParams).catch((err) => {
         this.logger.warn(
-          `[SyncEvent] Immediate webhook delivery failed for ${eventId}: ${err.message}`,
+          `[SyncEvent] Failed to enqueue Pub/Sub outbox event for ${eventId}: ${err.message}`,
         );
       });
+
+      if (webhookStatus === 'PENDING') {
+        this.logger.debug(
+          `[SyncEvent] Triggering immediate webhook delivery for event ${eventId}`,
+        );
+        // Fire and forget - don't block the main operation
+        this.deliverWebhook(eventId).catch((err) => {
+          this.logger.warn(
+            `[SyncEvent] Immediate webhook delivery failed for ${eventId}: ${err.message}`,
+          );
+        });
+      }
+      return;
     }
+
+    // --------------------------------------------------------------------
+    // BROKER MODE — the outbox row is now LOAD-BEARING for webhook
+    // delivery, so it must be written atomically with the syncEvent row:
+    // either both exist (broker delivers + writes back) or neither does.
+    // No in-core delivery; the broker consumes the outbox delivery_*
+    // lifecycle (see packages/broker).
+    // --------------------------------------------------------------------
+    await this.prisma.$transaction(async (tx) => {
+      await tx.syncEvent.create({ data: syncEventData });
+      await this.pubSubOutboxService.enqueueWithTransaction(tx, outboxParams);
+    });
+
+    this.logger.debug(
+      `[SyncEvent] Event ${eventId} stored atomically with outbox row ` +
+        `(webhookStatus=${webhookStatus}) — delivery delegated to broker`,
+    );
   }
 
   /**
@@ -173,6 +218,11 @@ export class SyncEventService {
 
   /**
    * Deliver a webhook with signature
+   *
+   * @deprecated LEGACY delivery path (WEBHOOK_DELIVERY_MODE=legacy only).
+   * In broker mode, delivery lives in packages/broker
+   * (src/delivery/sync-event.deliverer.ts), which ports this logic
+   * faithfully — keep the two in sync until the legacy path is removed.
    */
   async deliverWebhook(eventId: string): Promise<boolean> {
     this.logger.debug(`[Webhook] Starting delivery for event ${eventId}`);
@@ -349,10 +399,11 @@ export class SyncEventService {
   }
 
   /**
-   * Sign payload using the active signing key
+   * Sign payload using the active WEBHOOK signing key (dedicated purpose;
+   * consistent kid with the broker's KeyReaderService regardless of mode)
    */
   private async signPayload(input: string): Promise<{ signature: string; kid: string }> {
-    const activeKey = await this.keyService.getActiveKey();
+    const activeKey = await this.keyService.getActiveWebhookKey();
 
     const sign = crypto.createSign('RSA-SHA256');
     sign.update(input);
@@ -369,6 +420,12 @@ export class SyncEventService {
    */
   @Cron(CronExpression.EVERY_MINUTE)
   async retryPendingWebhooks(): Promise<void> {
+    if (!this.isLegacyDelivery) {
+      // Broker mode: retries are scheduled by the broker's outbox backoff
+      // ladder — doing them here too would double-deliver.
+      return;
+    }
+
     const now = new Date();
 
     // Find pending webhooks that are ready for retry

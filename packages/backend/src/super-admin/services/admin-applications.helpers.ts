@@ -1,4 +1,10 @@
 import { BadRequestException } from '@nestjs/common';
+import type {
+  ApplicationCreatedEventData,
+  ApplicationDeletedEventData,
+  ApplicationLicensingInfo,
+  ApplicationUpdatedEventData,
+} from '@authvital/shared';
 import { validateSafeUrl } from '../../common/utils/url-validation.utils';
 
 // ===========================================================================
@@ -117,11 +123,25 @@ export function validateBrandingUrls(
 }
 
 // ---------------------------------------------------------------------------
-// Webhook payload builders (pure). Object shapes are byte-for-byte identical
-// to the previous inline literals.
+// Webhook payload builders (pure). Return types are the CANONICAL contracts
+// from @authvital/shared (system-events.types.ts) — compile-time enforced.
 // ---------------------------------------------------------------------------
 
-export function buildApplicationCreatedPayload(app: any, client: any) {
+/** Licensing block shared by created/updated/status payloads (DRY). */
+function buildLicensingInfo(app: any): ApplicationLicensingInfo {
+  return {
+    mode: app.licensingMode,
+    allow_mixed: app.allowMixedLicensing,
+    default_seat_count: app.defaultSeatCount ?? null,
+    auto_provision_on_signup: app.autoProvisionOnSignup,
+    auto_grant_to_owner: app.autoGrantToOwner,
+  };
+}
+
+export function buildApplicationCreatedPayload(
+  app: any,
+  client: any,
+): ApplicationCreatedEventData {
   return {
     application_id: app.id,
     tenant_id: null,
@@ -139,13 +159,7 @@ export function buildApplicationCreatedPayload(app: any, client: any) {
       access_token_ttl_seconds: client?.accessTokenTtl ?? null,
       refresh_token_ttl_seconds: client?.refreshTokenTtl ?? null,
     },
-    licensing: {
-      mode: app.licensingMode,
-      allow_mixed: app.allowMixedLicensing,
-      default_seat_count: app.defaultSeatCount,
-      auto_provision_on_signup: app.autoProvisionOnSignup,
-      auto_grant_to_owner: app.autoGrantToOwner,
-    },
+    licensing: buildLicensingInfo(app),
   };
 }
 
@@ -155,7 +169,7 @@ export function buildApplicationUpdatedPayload(params: {
   clientId: string | undefined;
   changedFields: string[];
   previousValues: Record<string, unknown>;
-}) {
+}): ApplicationUpdatedEventData {
   const { applicationId, result, clientId, changedFields, previousValues } = params;
   return {
     application_id: applicationId,
@@ -163,18 +177,12 @@ export function buildApplicationUpdatedPayload(params: {
     name: result.name,
     description: result.description,
     slug: result.slug,
-    client_id: clientId,
+    client_id: clientId ?? null,
     application_type: result.accessMode,
     is_active: result.isActive,
     changed_fields: changedFields,
     previous_values: previousValues,
-    licensing: {
-      mode: result.licensingMode,
-      allow_mixed: result.allowMixedLicensing,
-      default_seat_count: result.defaultSeatCount,
-      auto_provision_on_signup: result.autoProvisionOnSignup,
-      auto_grant_to_owner: result.autoGrantToOwner,
-    },
+    licensing: buildLicensingInfo(result),
   };
 }
 
@@ -187,18 +195,21 @@ export function buildApplicationStatusChangedPayload(
   source: any,
   clientId: string | undefined,
   isActive: boolean,
-) {
+): ApplicationUpdatedEventData {
   return {
     application_id: source.id,
     tenant_id: null,
     name: source.name,
     description: source.description,
     slug: source.slug,
-    client_id: clientId,
+    client_id: clientId ?? null,
     application_type: source.accessMode,
     is_active: isActive,
     changed_fields: ['is_active'],
     previous_values: { is_active: !isActive },
+    // Canonical requires licensing on every application.updated — the full
+    // application row is available on both enable/disable paths.
+    licensing: buildLicensingInfo(source),
   };
 }
 
@@ -206,13 +217,13 @@ export function buildApplicationDeletedPayload(
   app: any,
   applicationId: string,
   clientId: string | undefined,
-) {
+): ApplicationDeletedEventData {
   return {
     application_id: applicationId,
     tenant_id: null,
     name: app.name,
     slug: app.slug,
-    client_id: clientId,
+    client_id: clientId ?? null,
     deleted_at: new Date().toISOString(),
   };
 }

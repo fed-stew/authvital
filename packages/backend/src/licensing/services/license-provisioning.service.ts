@@ -116,6 +116,7 @@ export class LicenseProvisioningService {
           userId: ownerId,
           applicationId: app.id,
           accessType: AccessType.AUTO_OWNER, // Owner access is special
+          assignDefaultRole: true, // Owner gets the app's default role too
         });
         this.logger.log(`Granted ${app.licensingMode} access to owner ${ownerId} for ${app.name}`);
       } catch (error) {

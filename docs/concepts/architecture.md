@@ -200,25 +200,36 @@ sequenceDiagram
 
 ### 5. Webhook System
 
-Real-time event notifications for integrating with your systems:
+Real-time event notifications for integrating with your systems. Events are
+written to a **transactional outbox**; delivery is performed either in-core
+(the default, single-container mode) or by the dedicated **authvital-broker**
+service (see [Event Broker](./event-broker.md)):
 
 ```mermaid
 graph LR
-    subgraph "AuthVital"
+    subgraph "AuthVital Core"
         Event[Event Triggered]
-        Queue[Event Queue]
-        Deliver[Delivery System]
+        Outbox[(Transactional<br/>Outbox)]
+        Legacy[In-Core Delivery<br/>WEBHOOK_DELIVERY_MODE=legacy]
     end
-    
+
+    subgraph "AuthVital Broker (optional)"
+        Transport[Transport<br/>outbox polling / Pub-Sub]
+        Engine[Delivery Engine<br/>signing, retries, circuit breaker]
+    end
+
     subgraph "Your App"
         Endpoint[Webhook Endpoint]
         Handler[Event Handler]
         DB[(Your Database)]
     end
-    
-    Event --> Queue
-    Queue --> Deliver
-    Deliver -->|POST + HMAC| Endpoint
+
+    Event --> Outbox
+    Event -.legacy mode.-> Legacy
+    Legacy -->|POST + RSA signature| Endpoint
+    Outbox -.broker mode.-> Transport
+    Transport --> Engine
+    Engine -->|POST + RSA signature| Endpoint
     Endpoint --> Handler
     Handler --> DB
 ```
@@ -230,37 +241,70 @@ graph LR
 - `license.*` - License assignments
 - `app_access.*` - Application access changes
 
+### 6. Deployment Topologies (Service Roles)
+
+One backend image serves three shapes via `SERVICE_ROLE`
+(see [Service Roles](./service-roles.md)):
+
+```mermaid
+graph TB
+    subgraph "Single container (default)"
+        All[authvital<br/>SERVICE_ROLE=all<br/>UI + APIs + admin + crons]
+    end
+
+    subgraph "Split topology (hardened)"
+        Pub[authvital-public<br/>SERVICE_ROLE=public<br/>OAuth, /auth UI, member APIs]
+        Adm[authvital-admin<br/>SERVICE_ROLE=admin<br/>/admin UI, admin APIs, crons<br/>internal ingress / IAP]
+        Brk[authvital-broker<br/>webhook delivery engine]
+    end
+
+    Internet((Internet)) --> All
+    Internet --> Pub
+    Operators((Operators)) -->|VPN / IAP| Adm
+    Pub --> DB2[(PostgreSQL)]
+    Adm --> DB2
+    Brk --> DB2
+```
+
+The public service registers **no admin controllers at all** and runs no
+background crons; the admin service owns the crons and deploys behind
+internal ingress.
+
 ## Directory Structure
 
 ```
-authvital/
-├── backend/                    # NestJS API Server
-│   ├── src/
-│   │   ├── auth/              # Authentication (login, register, MFA)
-│   │   ├── oauth/             # OAuth 2.0/OIDC endpoints
-│   │   ├── tenants/           # Tenant & membership management
-│   │   ├── licensing/         # License pool system
-│   │   ├── authorization/     # RBAC engine
-│   │   ├── sso/               # SSO providers (Google, Microsoft)
-│   │   ├── webhooks/          # System webhook delivery
-│   │   ├── super-admin/       # Instance administration
-│   │   └── prisma/            # Database service
-│   ├── prisma/
-│   │   ├── schema.prisma      # Data model (53KB!)
-│   │   └── migrations/        # Database migrations
-│   ├── sdk-browser/           # @authvital/browser (SPA/React SDK)
-│   ├── sdk-server/            # @authvital/server (Node.js SDK)
-│   ├── sdk-core/              # @authvital/core (crypto, JWT, types)
-│   ├── shared/                # @authvital/shared (shared types, sync events)
-│   └── contracts/             # @authvital/contracts (ts-rest contracts)
-├── frontend/                  # React Admin Panel
-│   └── src/
-│       ├── pages/
-│       │   ├── admin/         # Super admin UI
-│       │   ├── auth/          # Auth flows UI
-│       │   └── tenant/        # Tenant admin UI
-│       └── components/
-└── docker-compose.yml         # Local development
+authvital/                          # npm workspaces monorepo
+├── packages/
+│   ├── backend/                    # NestJS API Server
+│   │   ├── src/
+│   │   │   ├── auth/               # Authentication (login, register, MFA)
+│   │   │   ├── oauth/              # OAuth 2.0/OIDC endpoints + key management
+│   │   │   ├── tenants/            # Tenant & membership management
+│   │   │   ├── licensing/          # License pool system
+│   │   │   ├── authorization/      # RBAC engine
+│   │   │   ├── sso/                # SSO providers (Google, Microsoft)
+│   │   │   ├── sync/               # Application sync events
+│   │   │   ├── webhooks/           # System webhook dispatch
+│   │   │   ├── pubsub/             # Transactional outbox + GCP Pub/Sub export
+│   │   │   ├── super-admin/        # Instance administration services
+│   │   │   ├── control-plane/      # Admin controller registration (SERVICE_ROLE)
+│   │   │   └── prisma/             # Database service
+│   │   └── prisma/
+│   │       ├── schema/             # Data model (split into numbered files)
+│   │       └── migrations/         # Database migrations
+│   ├── broker/                     # authvital-broker (webhook delivery engine)
+│   │   └── src/
+│   │       ├── transport/          # Outbox polling / Pub-Sub subscription
+│   │       └── delivery/           # Signing, retries, circuit breaker, SSRF guard
+│   ├── frontend/                   # React UI (auth pages + admin dashboard)
+│   ├── sdk-browser/                # @authvital/browser (SPA/React SDK)
+│   ├── sdk-server/                 # @authvital/server (Node.js SDK)
+│   ├── sdk-core/                   # @authvital/core (crypto, JWT, types)
+│   ├── shared/                     # @authvital/shared (shared types, sync events)
+│   └── contracts/                  # @authvital/contracts (ts-rest contracts)
+├── sdks/                           # Non-TypeScript SDKs (go, python, java, ...)
+├── scripts/                        # deploy-gcp.sh etc.
+└── docker-compose.yml              # Local development (+ split profile)
 ```
 
 ## Security Architecture
@@ -276,10 +320,11 @@ authvital/
 
 ### Key Management
 
-- **JWT Signing Keys**: Ed25519 key pairs, automatically rotated every 7 days
-- **Master Secret** (`MASTER_SECRET` env var): Root-of-trust key that encrypts the Ed25519 private keys at rest in the database, derives HMAC keys for cookies/CSRF/auth codes, and encrypts sensitive data like OAuth client secrets
-- **JWKS Endpoint**: Public keys available at `/.well-known/jwks.json` — clients validate JWTs against these
-- **Two-Layer Architecture**: JWTs are signed by the rotating Ed25519 keys, NOT by the master secret directly. Changing `MASTER_SECRET` invalidates everything because the stored signing keys can no longer be decrypted
+- **JWT Signing Keys**: RSA-2048 (RS256) key pairs, automatically rotated every 30 days
+- **Webhook Signing Key**: a dedicated RSA key pair (`purpose = WEBHOOK`) signs webhook payloads on the same rotation cadence — published in the same JWKS, resolved by `kid`. Keeps token-signing material out of the webhook path (and out of the broker)
+- **Master Secret** (`MASTER_SECRET` env var): Root-of-trust key that encrypts the RSA private keys at rest in the database, derives HMAC keys for cookies/CSRF/auth codes, and encrypts sensitive data like OAuth client secrets
+- **JWKS Endpoint**: Public keys available at `/.well-known/jwks.json` — clients validate JWTs (and webhook signatures) against these
+- **Two-Layer Architecture**: JWTs are signed by the rotating RSA keys, NOT by the master secret directly. Changing `MASTER_SECRET` invalidates everything because the stored signing keys can no longer be decrypted
 
 ### MFA Implementation
 

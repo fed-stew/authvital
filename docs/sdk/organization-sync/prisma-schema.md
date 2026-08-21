@@ -16,7 +16,7 @@
 ```prisma
 model Organization {
   id         String   @id                        // tenant_id
-  name       String                              // tenant_name
+  name       String                              // event data `name`
   slug       String   @unique                    // tenant_slug
   ownerEmail String?  @map("owner_email")
   status     String   @default("active")         // set to "deleted" on tenant.deleted

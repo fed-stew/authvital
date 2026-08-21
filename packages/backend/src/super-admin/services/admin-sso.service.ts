@@ -36,7 +36,7 @@ export class AdminSsoService {
     const result = await this.ssoProviderService.upsertProvider(dto);
 
     // Dispatch sso.provider_added event (upsert - treat as add)
-    this.systemWebhookService.dispatch('sso.provider_added' as any, {
+    this.systemWebhookService.dispatch('sso.provider_added', {
       provider_id: dto.provider,
       tenant_id: null,
       provider_type: dto.provider,
@@ -53,7 +53,7 @@ export class AdminSsoService {
   async updateProvider(provider: SsoProviderType, dto: UpdateSsoProviderDto) {
     const result = await this.ssoProviderService.updateProvider(provider, dto);
 
-    this.systemWebhookService.dispatch('sso.provider_updated' as any, {
+    this.systemWebhookService.dispatch('sso.provider_updated', {
       provider_id: provider,
       tenant_id: null,
       provider_type: provider,
@@ -69,10 +69,11 @@ export class AdminSsoService {
   async deleteProvider(provider: SsoProviderType) {
     const result = await this.ssoProviderService.deleteProvider(provider);
 
-    this.systemWebhookService.dispatch('sso.provider_removed' as any, {
+    this.systemWebhookService.dispatch('sso.provider_removed', {
       provider_id: provider,
       tenant_id: null,
       provider_type: provider,
+      removed_at: new Date().toISOString(),
     }).catch((err) => this.logger.warn(`Failed to dispatch sso.provider_removed event: ${err.message}`));
 
     return result;

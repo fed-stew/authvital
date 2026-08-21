@@ -1,7 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
-import { SuperAdminModule } from '../super-admin/super-admin.module';
 import { AuthorizationModule } from '../authorization';
 import { SyncModule } from '../sync/sync.module';
 import { WebhooksModule } from '../webhooks/webhooks.module';
@@ -18,7 +17,6 @@ import { LicenseLifecycleService } from './services/license-lifecycle.service';
 import { LicenseUsageService } from './services/license-usage.service';
 
 // Controllers
-import { LicenseAdminController } from './controllers/license-admin.controller';
 import { LicenseCheckController } from './controllers/license-check.controller';
 import { TenantLicensesController } from './controllers/tenant-licenses.controller';
 
@@ -41,13 +39,13 @@ import { TenantIdentifierGuard } from '../tenants/guards/tenant-identifier.guard
   imports: [
     PrismaModule,
     forwardRef(() => AuthModule), // ForJwtAuthGuard (circular dependency)
-    forwardRef(() => SuperAdminModule), // For SuperAdminGuard (circular dependency)
     AuthorizationModule, // For AppAccessService (license grants create AppAccess)
     SyncModule, // For emitting webhook events
     forwardRef(() => WebhooksModule), // For SystemWebhookService (subscription events)
   ],
+  // LicenseAdminController (SuperAdminGuard'd catalog admin) registers via
+  // ControlPlaneModule only; the tenant/member-facing controllers stay here.
   controllers: [
-    LicenseAdminController,
     LicenseCheckController,
     TenantLicensesController,
   ],

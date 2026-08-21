@@ -72,6 +72,9 @@ SUPER_ADMIN_EMAIL="admin@localhost.com"
 SKIP_INFRA=false
 SKIP_MIGRATE=false
 ROTATE_DB_PASSWORD=false
+SPLIT=false
+BROKER_IMAGE="ghcr.io/authvital/authvital-broker:latest"
+ADMIN_BASE_URL=""
 
 #######################################################################
 # Parse Arguments
@@ -119,6 +122,18 @@ while [[ $# -gt 0 ]]; do
             ROTATE_DB_PASSWORD=true
             shift
             ;;
+        --split)
+            SPLIT=true
+            shift
+            ;;
+        --broker-image)
+            BROKER_IMAGE="$2"
+            shift 2
+            ;;
+        --admin-base-url)
+            ADMIN_BASE_URL="$2"
+            shift 2
+            ;;
         -h|--help)
             echo "Usage: $0 --project <gcp-project-id> --base-url <url> [options]"
             echo ""
@@ -137,6 +152,20 @@ while [[ $# -gt 0 ]]; do
             echo "  --rotate-db-password          Force regeneration of the postgres password"
             echo "                                (default: keep the existing secret so running"
             echo "                                services stay in sync until redeployed)"
+            echo "  --split                       Deploy the SPLIT topology (three services):"
+            echo "                                  authvital        SERVICE_ROLE=public (public ingress)"
+            echo "                                  authvital-admin  SERVICE_ROLE=admin  (internal/IAP-ready)"
+            echo "                                  authvital-broker webhook delivery engine (internal,"
+            echo "                                                   Pub/Sub transport + DLQ, min 1 instance)"
+            echo "                                Both app services run WEBHOOK_DELIVERY_MODE=broker."
+            echo "                                Without --split the classic single service deploys"
+            echo "                                (SERVICE_ROLE=all, legacy delivery) — unchanged."
+            echo "  --broker-image <image>        Broker image for --split"
+            echo "                                (default: ghcr.io/authvital/authvital-broker:latest)"
+            echo "  --admin-base-url <url>        Admin dashboard origin for --split (added to the"
+            echo "                                CORS allow-list on both app services; e.g. the"
+            echo "                                IAP-fronted LB domain). BASE_URL always remains"
+            echo "                                the PUBLIC url (issuer/JWKS/email links)."
             echo "  -h, --help                    Show this help message"
             echo ""
             echo "Notes:"
@@ -504,33 +533,189 @@ else
 fi
 
 #######################################################################
-# Phase 4: Deploy Cloud Run Service
+# Phase 4: Deploy Cloud Run Service(s)
 #######################################################################
 
 log_header "Phase 4: Deploy Cloud Run Service"
 
-log_step "Deploying AuthVital to Cloud Run..."
-log_info "Image: ${IMAGE}"
-echo ""
+# Base env + secrets shared by every app service (single or split)
+APP_ENV_VARS="DB_HOST=${CLOUDSQL_SOCKET_PATH},DB_USERNAME=postgres,DB_DATABASE=${DB_NAME},BASE_URL=${BASE_URL},NODE_ENV=production,COOKIE_SECURE=true,PORT=8000,SUPER_ADMIN_EMAIL=${SUPER_ADMIN_EMAIL}"
+APP_SECRETS="DB_PASSWORD=${SECRET_DB_PASSWORD}:latest,MASTER_SECRET=${SECRET_MASTER}:latest,SENDGRID_API_KEY=${SECRET_SENDGRID}:latest"
 
-gcloud run deploy authvital \
-    --image="$IMAGE" \
-    --project="$GCP_PROJECT" \
-    --region="$REGION" \
-    --platform=managed \
-    --allow-unauthenticated \
-    --port=8000 \
-    --memory=512Mi \
-    --min-instances=0 \
-    --max-instances=3 \
-    --service-account="$SERVICE_ACCOUNT" \
-    --set-cloudsql-instances="$CLOUDSQL_CONNECTION" \
-    --set-secrets="DB_PASSWORD=${SECRET_DB_PASSWORD}:latest,MASTER_SECRET=${SECRET_MASTER}:latest,SENDGRID_API_KEY=${SECRET_SENDGRID}:latest" \
-    --set-env-vars="DB_HOST=${CLOUDSQL_SOCKET_PATH},DB_USERNAME=postgres,DB_DATABASE=${DB_NAME},BASE_URL=${BASE_URL},NODE_ENV=production,COOKIE_SECURE=true,PORT=8000,SUPER_ADMIN_EMAIL=${SUPER_ADMIN_EMAIL}" \
-    --quiet
+if [[ "$SPLIT" == "false" ]]; then
+    # Classic single-service deploy — unchanged behavior (SERVICE_ROLE
+    # defaults to 'all', WEBHOOK_DELIVERY_MODE defaults to 'legacy').
+    log_step "Deploying AuthVital to Cloud Run..."
+    log_info "Image: ${IMAGE}"
+    echo ""
 
-echo ""
-log_success "AuthVital deployed to Cloud Run"
+    gcloud run deploy authvital \
+        --image="$IMAGE" \
+        --project="$GCP_PROJECT" \
+        --region="$REGION" \
+        --platform=managed \
+        --allow-unauthenticated \
+        --port=8000 \
+        --memory=512Mi \
+        --min-instances=0 \
+        --max-instances=3 \
+        --service-account="$SERVICE_ACCOUNT" \
+        --set-cloudsql-instances="$CLOUDSQL_CONNECTION" \
+        --set-secrets="$APP_SECRETS" \
+        --set-env-vars="$APP_ENV_VARS" \
+        --quiet
+
+    echo ""
+    log_success "AuthVital deployed to Cloud Run"
+else
+    ###################################################################
+    # Phase 4a: Pub/Sub infrastructure for the broker
+    ###################################################################
+    log_step "Setting up Pub/Sub topics + broker subscription..."
+
+    PUBSUB_TOPIC="authvital-events"
+    PUBSUB_DLQ_TOPIC="authvital-events-dlq"
+    PUBSUB_SUBSCRIPTION="authvital-events-broker"
+
+    if ! gcloud pubsub topics describe "$PUBSUB_TOPIC" --project="$GCP_PROJECT" &>/dev/null; then
+        gcloud pubsub topics create "$PUBSUB_TOPIC" --project="$GCP_PROJECT" --quiet
+        log_success "Created topic ${PUBSUB_TOPIC}"
+    else
+        log_info "Topic ${PUBSUB_TOPIC} already exists"
+    fi
+
+    if ! gcloud pubsub topics describe "$PUBSUB_DLQ_TOPIC" --project="$GCP_PROJECT" &>/dev/null; then
+        gcloud pubsub topics create "$PUBSUB_DLQ_TOPIC" --project="$GCP_PROJECT" --quiet
+        log_success "Created dead-letter topic ${PUBSUB_DLQ_TOPIC}"
+    else
+        log_info "Dead-letter topic ${PUBSUB_DLQ_TOPIC} already exists"
+    fi
+
+    if ! gcloud pubsub subscriptions describe "$PUBSUB_SUBSCRIPTION" --project="$GCP_PROJECT" &>/dev/null; then
+        # Ordered subscription — the outbox publishes with per-tenant ordering
+        # keys; 10 delivery attempts, then the message parks in the DLQ.
+        gcloud pubsub subscriptions create "$PUBSUB_SUBSCRIPTION" \
+            --project="$GCP_PROJECT" \
+            --topic="$PUBSUB_TOPIC" \
+            --enable-message-ordering \
+            --ack-deadline=60 \
+            --dead-letter-topic="$PUBSUB_DLQ_TOPIC" \
+            --max-delivery-attempts=10 \
+            --quiet
+        log_success "Created subscription ${PUBSUB_SUBSCRIPTION} (DLQ after 10 attempts)"
+    else
+        log_info "Subscription ${PUBSUB_SUBSCRIPTION} already exists"
+    fi
+
+    # IAM: the Pub/Sub service agent must publish to the DLQ and ack on the
+    # source subscription for dead-lettering to function.
+    PROJECT_NUMBER=$(gcloud projects describe "$GCP_PROJECT" --format="value(projectNumber)")
+    PUBSUB_SERVICE_AGENT="service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com"
+
+    gcloud pubsub topics add-iam-policy-binding "$PUBSUB_DLQ_TOPIC" \
+        --project="$GCP_PROJECT" \
+        --member="serviceAccount:${PUBSUB_SERVICE_AGENT}" \
+        --role="roles/pubsub.publisher" --quiet >/dev/null
+    gcloud pubsub subscriptions add-iam-policy-binding "$PUBSUB_SUBSCRIPTION" \
+        --project="$GCP_PROJECT" \
+        --member="serviceAccount:${PUBSUB_SERVICE_AGENT}" \
+        --role="roles/pubsub.subscriber" --quiet >/dev/null
+
+    # Runtime SA: publish (admin service outbox cron) + subscribe (broker)
+    gcloud pubsub topics add-iam-policy-binding "$PUBSUB_TOPIC" \
+        --project="$GCP_PROJECT" \
+        --member="serviceAccount:${SERVICE_ACCOUNT}" \
+        --role="roles/pubsub.publisher" --quiet >/dev/null
+    gcloud pubsub subscriptions add-iam-policy-binding "$PUBSUB_SUBSCRIPTION" \
+        --project="$GCP_PROJECT" \
+        --member="serviceAccount:${SERVICE_ACCOUNT}" \
+        --role="roles/pubsub.subscriber" --quiet >/dev/null
+    log_success "Pub/Sub IAM bindings applied"
+
+    # ADMIN_BASE_URL feeds the CORS allow-list on both app services
+    SPLIT_EXTRA_ENV=""
+    if [[ -n "$ADMIN_BASE_URL" ]]; then
+        SPLIT_EXTRA_ENV=",ADMIN_BASE_URL=${ADMIN_BASE_URL%/}"
+    fi
+
+    ###################################################################
+    # Phase 4b: Public data-plane service (keeps the name 'authvital'
+    # so existing domain mappings continue to point at the public plane)
+    ###################################################################
+    log_step "Deploying authvital (SERVICE_ROLE=public)..."
+
+    gcloud run deploy authvital \
+        --image="$IMAGE" \
+        --project="$GCP_PROJECT" \
+        --region="$REGION" \
+        --platform=managed \
+        --allow-unauthenticated \
+        --port=8000 \
+        --memory=512Mi \
+        --min-instances=0 \
+        --max-instances=3 \
+        --service-account="$SERVICE_ACCOUNT" \
+        --set-cloudsql-instances="$CLOUDSQL_CONNECTION" \
+        --set-secrets="$APP_SECRETS" \
+        --set-env-vars="${APP_ENV_VARS},SERVICE_ROLE=public,WEBHOOK_DELIVERY_MODE=broker${SPLIT_EXTRA_ENV}" \
+        --quiet
+    log_success "Public service deployed"
+
+    ###################################################################
+    # Phase 4c: Admin control-plane service (internal ingress — reach it
+    # through an internal LB / IAP; runs the background crons)
+    ###################################################################
+    log_step "Deploying authvital-admin (SERVICE_ROLE=admin, internal ingress)..."
+
+    gcloud run deploy authvital-admin \
+        --image="$IMAGE" \
+        --project="$GCP_PROJECT" \
+        --region="$REGION" \
+        --platform=managed \
+        --no-allow-unauthenticated \
+        --ingress=internal-and-cloud-load-balancing \
+        --port=8000 \
+        --memory=512Mi \
+        --min-instances=1 \
+        --max-instances=2 \
+        --service-account="$SERVICE_ACCOUNT" \
+        --set-cloudsql-instances="$CLOUDSQL_CONNECTION" \
+        --set-secrets="$APP_SECRETS" \
+        --set-env-vars="${APP_ENV_VARS},SERVICE_ROLE=admin,WEBHOOK_DELIVERY_MODE=broker,PUBSUB_PROJECT_ID=${GCP_PROJECT}${SPLIT_EXTRA_ENV}" \
+        --quiet
+    log_success "Admin service deployed (min 1 instance — it owns the crons)"
+
+    ###################################################################
+    # Phase 4d: Broker service (webhook delivery engine; holds a
+    # streaming pull subscription, hence min-instances=1, no CPU
+    # throttling, and no public ingress at all)
+    ###################################################################
+    log_step "Deploying authvital-broker (Pub/Sub transport)..."
+    log_info "Broker image: ${BROKER_IMAGE}"
+
+    gcloud run deploy authvital-broker \
+        --image="$BROKER_IMAGE" \
+        --project="$GCP_PROJECT" \
+        --region="$REGION" \
+        --platform=managed \
+        --no-allow-unauthenticated \
+        --ingress=internal \
+        --port=8100 \
+        --memory=256Mi \
+        --min-instances=1 \
+        --max-instances=1 \
+        --no-cpu-throttling \
+        --service-account="$SERVICE_ACCOUNT" \
+        --set-cloudsql-instances="$CLOUDSQL_CONNECTION" \
+        --set-secrets="DB_PASSWORD=${SECRET_DB_PASSWORD}:latest,MASTER_SECRET=${SECRET_MASTER}:latest" \
+        --set-env-vars="DB_HOST=${CLOUDSQL_SOCKET_PATH},DB_USERNAME=postgres,DB_DATABASE=${DB_NAME},NODE_ENV=production,BROKER_PORT=8100,BROKER_TRANSPORT=pubsub,BROKER_PUBSUB_SUBSCRIPTION=${PUBSUB_SUBSCRIPTION},PUBSUB_PROJECT_ID=${GCP_PROJECT}" \
+        --quiet
+    log_success "Broker deployed"
+
+    echo ""
+    log_success "Split topology deployed (public + admin + broker)"
+    log_info "Remember: enable Pub/Sub publishing to topic '${PUBSUB_TOPIC}' in the admin dashboard (/admin → Pub/Sub)"
+fi
 
 #######################################################################
 # Phase 5: Summary
@@ -551,8 +736,22 @@ echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━
 echo -e "${GREEN}                     🎉 DEPLOYMENT COMPLETE 🎉                       ${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "   ${CYAN}🌐 Service URL:${NC}        ${SERVICE_URL}"
-echo -e "   ${CYAN}🔧 Admin Panel:${NC}        ${SERVICE_URL}/admin"
+echo -e "   ${CYAN} Service URL:${NC}        ${SERVICE_URL}"
+if [[ "$SPLIT" == "true" ]]; then
+    ADMIN_SERVICE_URL=$(gcloud run services describe authvital-admin \
+        --project="$GCP_PROJECT" \
+        --region="$REGION" \
+        --format="value(status.url)" 2>/dev/null || echo "(internal)")
+    BROKER_SERVICE_URL=$(gcloud run services describe authvital-broker \
+        --project="$GCP_PROJECT" \
+        --region="$REGION" \
+        --format="value(status.url)" 2>/dev/null || echo "(internal)")
+    echo -e "   ${CYAN} Admin Service:${NC}      ${ADMIN_SERVICE_URL}/admin (internal ingress — route via internal LB/IAP)"
+    echo -e "   ${CYAN} Broker Service:${NC}     ${BROKER_SERVICE_URL} (internal)"
+    echo -e "   ${CYAN}ℹ  Note:${NC}               /admin on the PUBLIC service now returns 404 by design"
+else
+    echo -e "   ${CYAN} Admin Panel:${NC}        ${SERVICE_URL}/admin"
+fi
 echo -e "   ${CYAN}📦 Image:${NC}              ${IMAGE}"
 echo -e "   ${CYAN}☁️  GCP Project:${NC}        ${GCP_PROJECT}"
 echo -e "   ${CYAN}📍 Region:${NC}             ${REGION}"

@@ -27,7 +27,21 @@ describe('PubSubOutboxService', () => {
     getConfig: jest.fn(),
   };
 
+  const mockConfigService = { get: jest.fn() };
+
   let service: PubSubOutboxService;
+
+  function buildService(mode?: string): PubSubOutboxService {
+    mockConfigService.get.mockImplementation((key: string) =>
+      key === 'WEBHOOK_DELIVERY_MODE' ? mode : undefined,
+    );
+    return new PubSubOutboxService(
+      mockPrisma as unknown as PrismaService,
+      mockPublisher as unknown as PubSubPublisherService,
+      mockPubSubConfig as unknown as PubSubConfigService,
+      mockConfigService as any,
+    );
+  }
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -44,11 +58,7 @@ describe('PubSubOutboxService', () => {
       events: ['tenant.created'],
     });
 
-    service = new PubSubOutboxService(
-      mockPrisma as unknown as PrismaService,
-      mockPublisher as unknown as PubSubPublisherService,
-      mockPubSubConfig as unknown as PubSubConfigService,
-    );
+    service = buildService(undefined); // legacy by default
   });
 
   afterEach(() => {
@@ -269,7 +279,7 @@ describe('PubSubOutboxService', () => {
   // ===========================================================================
 
   describe('cleanupPublishedEvents', () => {
-    it('should delete old PUBLISHED events', async () => {
+    it('should delete old PUBLISHED events (legacy mode: publish status only)', async () => {
       mockPrisma.pubSubOutboxEvent.deleteMany.mockResolvedValue({ count: 5 });
 
       await service.cleanupPublishedEvents();
@@ -291,6 +301,23 @@ describe('PubSubOutboxService', () => {
       expect(
         Math.abs(cutoff.getTime() - sevenDaysAgo.getTime()),
       ).toBeLessThan(5000);
+    });
+
+    it('should additionally require a terminal-successful delivery status in BROKER mode', async () => {
+      const brokerService = buildService('broker');
+      mockPrisma.pubSubOutboxEvent.deleteMany.mockResolvedValue({ count: 3 });
+
+      await brokerService.cleanupPublishedEvents();
+
+      // deliveryStatus PENDING (queued/backoff) and FAILED (evidence for
+      // inspection/replay) rows must survive cleanup in broker mode.
+      expect(mockPrisma.pubSubOutboxEvent.deleteMany).toHaveBeenCalledWith({
+        where: {
+          status: 'PUBLISHED',
+          createdAt: { lt: expect.any(Date) },
+          deliveryStatus: { in: ['DELIVERED', 'SKIPPED'] },
+        },
+      });
     });
   });
 

@@ -16,7 +16,7 @@ model PubSubOutboxEvent {
   topic         String                             // Target Pub/Sub topic name
   orderingKey   String?  @map("ordering_key")     // For Pub/Sub message ordering
 
-  // Publishing status
+  // Publishing status (GCP Pub/Sub topic export lifecycle — owned by backend)
   status        PubSubOutboxStatus @default(PENDING)
   attempts      Int       @default(0)
   lastAttemptAt DateTime? @map("last_attempt_at")
@@ -24,9 +24,18 @@ model PubSubOutboxEvent {
   lastError     String?   @map("last_error")
   messageId     String?   @map("message_id")      // GCP Pub/Sub message ID after publish
 
+  // Broker webhook-delivery lifecycle — owned by authvital-broker.
+  // INDEPENDENT of the GCP publish lifecycle above: webhook delivery and
+  // topic export are separate consumers of the same outbox row.
+  deliveryStatus        BrokerDeliveryStatus @default(PENDING) @map("delivery_status")
+  deliveryAttempts      Int       @default(0) @map("delivery_attempts")
+  lastDeliveryAttemptAt DateTime? @map("last_delivery_attempt_at")
+  lastDeliveryError     String?   @map("last_delivery_error")
+
   createdAt     DateTime  @default(now()) @map("created_at")
 
   @@index([status, createdAt])
+  @@index([deliveryStatus, createdAt])
   @@index([eventType])
   @@index([tenantId])
   @@index([createdAt])
@@ -38,6 +47,14 @@ enum PubSubOutboxStatus {
   PUBLISHED  // Successfully published to Pub/Sub
   FAILED     // All retries exhausted
   SKIPPED    // Pub/Sub disabled or event filtered
+}
+
+/// Broker webhook-delivery lifecycle for outbox events (authvital-broker).
+enum BrokerDeliveryStatus {
+  PENDING    // Not yet delivered by the broker
+  DELIVERED  // Webhook delivery completed
+  FAILED     // All delivery retries exhausted (or non-retryable)
+  SKIPPED    // No deliverable webhook targets (disabled/filtered/none)
 }
 
 // =============================================================================

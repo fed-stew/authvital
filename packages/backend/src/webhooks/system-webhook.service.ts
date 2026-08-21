@@ -1,30 +1,28 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { KeyService } from '../oauth/key.service';
 import { PubSubOutboxService } from '../pubsub/pubsub-outbox.service';
+import {
+  WebhookDeliveryMode,
+  resolveWebhookDeliveryMode,
+} from '../config/webhook-delivery-mode';
+import {
+  SYSTEM_EVENT_TYPES,
+  SystemEventDataOf,
+  SystemEventType,
+} from '@authvital/shared';
 import * as crypto from 'crypto';
 
-export const SYSTEM_WEBHOOK_EVENTS = [
-  // Tenant lifecycle
-  'tenant.created',
-  'tenant.updated',
-  'tenant.deleted',
-  'tenant.suspended',
-  // Tenant app access
-  'tenant.app.granted',
-  'tenant.app.revoked',
-  // Application lifecycle
-  'application.created',
-  'application.updated',
-  'application.deleted',
-  // SSO provider lifecycle
-  'sso.provider_added',
-  'sso.provider_updated',
-  'sso.provider_removed',
-] as const;
+/**
+ * Derived from the canonical registry in @authvital/shared so the list can
+ * never drift from the payload contract.
+ */
+export const SYSTEM_WEBHOOK_EVENTS: readonly SystemEventType[] =
+  Object.values(SYSTEM_EVENT_TYPES);
 
-export type SystemWebhookEvent = (typeof SYSTEM_WEBHOOK_EVENTS)[number];
+export type SystemWebhookEvent = SystemEventType;
 
 interface WebhookPayload {
   event: SystemWebhookEvent;
@@ -36,11 +34,21 @@ interface WebhookPayload {
 export class SystemWebhookService {
   private readonly logger = new Logger(SystemWebhookService.name);
 
+  /** See packages/backend/src/config/webhook-delivery-mode.ts */
+  private readonly deliveryMode: WebhookDeliveryMode;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly keyService: KeyService,
     private readonly pubSubOutboxService: PubSubOutboxService,
-  ) {}
+    configService: ConfigService,
+  ) {
+    this.deliveryMode = resolveWebhookDeliveryMode(configService);
+  }
+
+  private get isLegacyDelivery(): boolean {
+    return this.deliveryMode === 'legacy';
+  }
 
   /**
    * Get all system webhooks
@@ -204,24 +212,56 @@ export class SystemWebhookService {
   }
 
   /**
-   * Dispatch an event to all subscribed webhooks
+   * Dispatch an event to all subscribed webhooks.
+   *
+   * Generic over the CANONICAL payload contract (@authvital/shared
+   * system-events.types.ts) — emit sites are compile-time checked against
+   * SystemEventDataOf<T>, so payload drift is a build error.
    */
-  async dispatch(event: SystemWebhookEvent, data: Record<string, unknown>) {
+  async dispatch<T extends SystemEventType>(event: T, data: SystemEventDataOf<T>) {
     const payload: WebhookPayload = {
       event,
       timestamp: new Date().toISOString(),
-      data,
+      data: data as Record<string, unknown>,
     };
 
-    // Enqueue for Pub/Sub outbox (always, regardless of webhook subscribers)
-    this.pubSubOutboxService.enqueue({
+    // Routing fields: tenant.* / tenant.app.* carry a string tenant_id;
+    // application.* / sso.* carry tenant_id: null (instance-scoped).
+    const routing = data as { tenant_id?: string | null; user_id?: string };
+
+    const outboxParams = {
       eventType: event,
-      eventSource: 'system_webhook',
-      aggregateId: (data.tenant_id as string) ?? (data.user_id as string) ?? 'unknown',
-      tenantId: data.tenant_id as string | undefined,
+      eventSource: 'system_webhook' as const,
+      aggregateId: routing.tenant_id ?? routing.user_id ?? 'unknown',
+      tenantId: routing.tenant_id ?? undefined,
       payload: payload as unknown as Record<string, unknown>,
-      orderingKey: data.tenant_id as string | undefined,
-    }).catch((err) => {
+      orderingKey: routing.tenant_id ?? undefined,
+    };
+
+    if (!this.isLegacyDelivery) {
+      // ------------------------------------------------------------------
+      // BROKER MODE — the outbox row is the ONLY delivery trigger, so the
+      // enqueue is awaited and failures are loud. No in-core HTTP fan-out;
+      // packages/broker (src/delivery/system-webhook.deliverer.ts) selects
+      // subscribers and delivers.
+      // ------------------------------------------------------------------
+      try {
+        await this.pubSubOutboxService.enqueue(outboxParams);
+      } catch (err: any) {
+        this.logger.error(
+          `CRITICAL: outbox enqueue failed for system event ${event} — ` +
+            `webhook delivery will be lost: ${err.message}`,
+        );
+      }
+      return;
+    }
+
+    // --------------------------------------------------------------------
+    // LEGACY MODE — byte-for-byte the pre-broker behavior.
+    // --------------------------------------------------------------------
+
+    // Enqueue for Pub/Sub outbox (always, regardless of webhook subscribers)
+    this.pubSubOutboxService.enqueue(outboxParams).catch((err) => {
       this.logger.error(`Failed to enqueue Pub/Sub outbox event: ${err.message}`);
     });
 
@@ -250,6 +290,11 @@ export class SystemWebhookService {
 
   /**
    * Deliver a webhook to a single endpoint
+   *
+   * @deprecated LEGACY delivery path (WEBHOOK_DELIVERY_MODE=legacy), plus
+   * the explicit admin testWebhook() action which stays in-core in both
+   * modes. Broker-mode delivery lives in packages/broker
+   * (src/delivery/system-webhook.deliverer.ts) — keep the wire format in sync.
    */
   private async deliverWebhook(
     webhook: { id: string; url: string; headers: unknown },
@@ -329,7 +374,8 @@ export class SystemWebhookService {
    * Uses the same JWKS infrastructure as SyncEventService for consistency
    */
   private async signPayload(input: string): Promise<{ signature: string; kid: string }> {
-    const activeKey = await this.keyService.getActiveKey();
+    // Dedicated webhook-purpose key (consistent kid with the broker)
+    const activeKey = await this.keyService.getActiveWebhookKey();
 
     const sign = crypto.createSign('RSA-SHA256');
     sign.update(input);

@@ -341,13 +341,23 @@ model SigningKey {
   publicKey  String           @map("public_key") // Plaintext public key PEM
   algorithm  String           @default("RS256")
   status     SigningKeyStatus @default(ACTIVE)
+  purpose    SigningKeyPurpose @default(TOKEN) // What this keypair signs
   expiresAt  DateTime?        @map("expires_at") // Optional: when to stop using for verification
   createdAt  DateTime         @default(now()) @map("created_at")
   updatedAt  DateTime         @updatedAt @map("updated_at")
 
   @@index([status])
+  @@index([status, purpose])
   @@index([kid])
   @@map("signing_keys")
+}
+
+/// What a signing keypair is used for. Separate purposes limit blast radius:
+/// the broker only ever needs the WEBHOOK key, so JWT token signing keys
+/// never leave the core.
+enum SigningKeyPurpose {
+  TOKEN   // JWT access/refresh/session token signing (default, pre-existing keys)
+  WEBHOOK // Webhook payload signing (used by core legacy delivery + broker)
 }
 
 enum SigningKeyStatus {

@@ -8,6 +8,7 @@ export default defineConfig({
     'middleware/nestjs': 'src/middleware/nestjs.ts',
     'client/index': 'src/client/index.ts',
     'crypto/index': 'src/crypto/index.ts',
+    'pubsub/index': 'src/pubsub/index.ts',
   },
   format: ['cjs', 'esm'],
   dts: {

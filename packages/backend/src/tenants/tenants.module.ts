@@ -35,7 +35,11 @@ import { TenantAccessGuard, TenantIdentifierGuard } from './guards';
   imports: [
     PrismaModule,
     forwardRef(() => AuthModule),
-    SyncModule,
+    // forwardRef: SyncModule sits in the require cycle
+    // sync -> super-admin -> tenants -> sync; a raw reference is undefined
+    // at load time depending on which module the entrypoint requires first
+    // (surfaced by ControlPlaneModule changing the require order).
+    forwardRef(() => SyncModule),
     AuthorizationModule,
     MfaModule,
     SsoModule,

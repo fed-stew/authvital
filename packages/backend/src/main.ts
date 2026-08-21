@@ -16,8 +16,13 @@ if (!process.env.DATABASE_URL && process.env.DB_HOST && process.env.DB_USERNAME 
 // This ensures we fail fast with a clear error message
 import { validateEnv, getRequiredEnv } from './config/env.validation';
 import { validateSigningKeySecret } from './config/validate-secrets';
+import { resolveServiceRole } from './config/service-role';
+import { createPlaneGateMiddleware } from './config/plane-gate.middleware';
 validateEnv();
 validateSigningKeySecret();
+// Fail fast on an invalid SERVICE_ROLE before any module loads — a typo
+// must never silently become 'all' and expose the admin plane publicly.
+const serviceRole = resolveServiceRole();
 
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, RequestMethod } from '@nestjs/common';
@@ -29,7 +34,7 @@ import { Request, Response, NextFunction } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create(AppModule.forRole(serviceRole), {
     // Reduce log verbosity in production (no module registration spam)
     logger: process.env.NODE_ENV === 'production' 
       ? ['error', 'warn'] 
@@ -70,6 +75,11 @@ async function bootstrap() {
     }),
   );
 
+  // Cross-plane UI gate: 404 /admin/* on the public service and /auth/* on
+  // the admin service. Registered before Nest init so it runs ahead of
+  // ServeStatic and the SPA fallback (no redirect, no SPA shell leakage).
+  app.use(createPlaneGateMiddleware(serviceRole));
+
   // Enable global validation
   app.useGlobalPipes(
     new ValidationPipe({
@@ -90,10 +100,16 @@ async function bootstrap() {
   // BASE_URL is validated at startup - getRequiredEnv throws if it is missing
   const corsOrigins = [
     getRequiredEnv('BASE_URL'),
+    // Admin dashboard origin for split deployments (defaults to BASE_URL
+    // semantics when unset — i.e. same-origin admin on SERVICE_ROLE=all).
+    // NOTE: BASE_URL must ALWAYS be the PUBLIC data-plane URL; issuer, JWKS
+    // and email links derive from it even when admin-plane code generates
+    // them. ADMIN_BASE_URL only feeds this CORS allow-list.
+    process.env.ADMIN_BASE_URL,
     // Additional origins from env (comma-separated)
     // Supports: http://example.com, *.example.com, http://*.example.com
     ...(process.env.CORS_ORIGINS?.split(',').map(o => o.trim()) || []),
-  ].filter(Boolean);
+  ].filter(Boolean) as string[];
 
   // Convert wildcard patterns to regex
   const originMatchers = corsOrigins.map(pattern => {
@@ -219,7 +235,9 @@ async function bootstrap() {
   }
   await app.listen(port);
 
-  console.log(`AuthVital IDP running on http://localhost:${port}`);
+  console.log(
+    `AuthVital IDP running on http://localhost:${port} (SERVICE_ROLE=${serviceRole})`,
+  );
 }
 
 bootstrap();

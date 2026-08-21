@@ -83,10 +83,20 @@ export class KeyService {
   }
 
   /**
-   * Get the active signing key pair (for raw crypto operations like webhook signing)
+   * Get the active TOKEN signing key pair (for raw crypto operations)
    */
   async getActiveKey(): Promise<SigningKeyPair> {
     return this.keyManager.getSigningKey();
+  }
+
+  /**
+   * Get the active WEBHOOK signing key pair.
+   * Webhook payloads are signed with a dedicated keypair so the broker
+   * (which holds signing capability) never touches JWT token keys.
+   * Published in the same JWKS endpoint — receivers look up by kid.
+   */
+  async getActiveWebhookKey(): Promise<SigningKeyPair> {
+    return this.keyManager.getWebhookSigningKey();
   }
 
   /**

@@ -26,6 +26,13 @@ export interface GrantAccessInput {
   accessType?: AccessType;
   grantedById?: string;
   licenseAssignmentId?: string;
+  /**
+   * Opt-in: also assign the application's default role (Role.isDefault) to
+   * the user's membership if it has no role for this app yet. Off by default
+   * so explicit-role callers (e.g. MemberAppAccessService.enableAppAccess,
+   * which manages roles itself) are unaffected.
+   */
+  assignDefaultRole?: boolean;
 }
 
 export interface RevokeAccessInput {

@@ -61,6 +61,27 @@ export class AppAccessService {
     tx: Prisma.TransactionClient,
     input: GrantAccessInput,
   ): Promise<{ record: AppAccessInfoInternal; shouldDispatch: boolean }> {
+    const outcome = await this.writeAccessGrant(tx, input);
+
+    // Opt-in default role assignment. Joins the caller's tx so a rollback
+    // never leaves an orphaned MembershipRole. Idempotent: existing roles
+    // (explicit or otherwise) always win; no default role configured = no-op.
+    if (input.assignDefaultRole) {
+      await this.autoGrantService.assignDefaultRolesIfNone(
+        tx,
+        input.tenantId,
+        [input.userId],
+        [input.applicationId],
+      );
+    }
+
+    return outcome;
+  }
+
+  private async writeAccessGrant(
+    tx: Prisma.TransactionClient,
+    input: GrantAccessInput,
+  ): Promise<{ record: AppAccessInfoInternal; shouldDispatch: boolean }> {
     const {
       tenantId, userId, applicationId,
       accessType = AccessType.GRANTED,
@@ -405,7 +426,7 @@ export class AppAccessService {
       tenant_id: tenantId,
       tenant_slug: tenant?.slug,
       user_id: userId,
-      user_email: user?.email,
+      user_email: user?.email ?? undefined,
       application_id: applicationId,
       application_name: app?.name,
       application_slug: app?.slug,
@@ -421,7 +442,8 @@ export class AppAccessService {
     const { tenantId, userId, applicationId, revokedById } = params;
 
     const [app, tenant, user] = await Promise.all([
-      this.prisma.application.findUnique({ where: { id: applicationId }, select: { slug: true } }),
+      // name added for the canonical payload (application_name)
+      this.prisma.application.findUnique({ where: { id: applicationId }, select: { name: true, slug: true } }),
       this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { slug: true } }),
       this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
     ]);
@@ -430,8 +452,9 @@ export class AppAccessService {
       tenant_id: tenantId,
       tenant_slug: tenant?.slug,
       user_id: userId,
-      user_email: user?.email,
+      user_email: user?.email ?? undefined,
       application_id: applicationId,
+      application_name: app?.name,
       application_slug: app?.slug,
       revoked_by_id: revokedById,
     });

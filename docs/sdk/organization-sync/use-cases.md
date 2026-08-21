@@ -16,22 +16,25 @@ React to tenant creation to bootstrap per-tenant resources:
 if (event === 'tenant.created') {
   await provisionTenant({
     tenantId: data.tenant_id,
-    slug: data.tenant_slug,
-    name: data.tenant_name,
+    slug: data.slug,
+    name: data.name,
+    settings: data.settings,
     ownerEmail: data.owner_email,
   });
 }
 ```
 
-!!! note "No `plan`/`settings` in the payload"
-    `tenant.created` gives you `tenant_id`, `tenant_name`, `tenant_slug`, and
-    (optionally) `owner_id`/`owner_email`. If you need plan/settings, fetch them
-    from AuthVital out-of-band — they aren't in the event.
+!!! note "No `plan` in the payload"
+    `tenant.created` gives you `tenant_id`, `name`, `slug`, `created_at`,
+    `settings` (the tenant's freeform settings JSON), and optionally
+    `created_by_sub`/`owner_email`. There is no `plan` field — the platform
+    has no plan concept on tenants.
 
 Grant/revoke of app access can drive per-user resource provisioning too:
 
 ```typescript
-if (event === 'tenant.app.granted') {
+if (event === 'tenant.app.granted' && data.user_id) {
+  // user-level grant (tenant-level subscription grants carry no user_id)
   await grantResources({ userId: data.user_id, appId: data.application_id, tenantId: data.tenant_id });
 }
 if (event === 'tenant.app.revoked') {

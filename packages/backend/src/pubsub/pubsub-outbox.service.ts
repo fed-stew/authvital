@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  WebhookDeliveryMode,
+  resolveWebhookDeliveryMode,
+} from '../config/webhook-delivery-mode';
 import { PubSubConfigService } from './pubsub-config.service';
 import { PubSubPublisherService } from './pubsub-publisher.service';
 import {
@@ -44,11 +49,20 @@ export class PubSubOutboxService {
   /** Number of days to retain published events before cleanup. */
   private readonly CLEANUP_RETENTION_DAYS = 7;
 
+  /**
+   * Cleanup must respect the broker's delivery lifecycle in broker mode
+   * (see cleanupPublishedEvents); resolved once at construction.
+   */
+  private readonly deliveryMode: WebhookDeliveryMode;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly publisher: PubSubPublisherService,
     private readonly pubSubConfig: PubSubConfigService,
-  ) {}
+    configService: ConfigService,
+  ) {
+    this.deliveryMode = resolveWebhookDeliveryMode(configService);
+  }
 
   // ===========================================================================
   // Enqueue Methods
@@ -232,8 +246,21 @@ export class PubSubOutboxService {
    * Clean up old published events daily at 4 AM.
    *
    * Removes `PUBLISHED` events older than {@link CLEANUP_RETENTION_DAYS}
-   * to keep the outbox table lean. Failed and skipped events are retained
-   * indefinitely for manual inspection.
+   * to keep the outbox table lean. Publish-FAILED and SKIPPED events are
+   * retained indefinitely for manual inspection.
+   *
+   * BROKER MODE: outbox rows are ALSO the broker's webhook-delivery work
+   * queue and audit trail, so publish status alone must not decide
+   * deletion. Cleanup additionally requires the broker lifecycle to be
+   * terminal-and-successful:
+   *  - deliveryStatus DELIVERED | SKIPPED  -> cleanable after retention
+   *  - deliveryStatus PENDING              -> NEVER deleted (queued/backoff)
+   *  - deliveryStatus FAILED               -> retained indefinitely for
+   *                                           inspection/replay (mirrors
+   *                                           publish-FAILED retention)
+   * LEGACY MODE: deliveryStatus is meaningless (stays at its PENDING
+   * default because no broker runs), so the original publish-status-only
+   * criteria apply — otherwise legacy tables would grow forever.
    */
   @Cron(CronExpression.EVERY_DAY_AT_4AM)
   async cleanupPublishedEvents(): Promise<void> {
@@ -244,6 +271,9 @@ export class PubSubOutboxService {
       where: {
         status: 'PUBLISHED',
         createdAt: { lt: cutoff },
+        ...(this.deliveryMode === 'broker'
+          ? { deliveryStatus: { in: ['DELIVERED', 'SKIPPED'] } }
+          : {}),
       },
     });
 

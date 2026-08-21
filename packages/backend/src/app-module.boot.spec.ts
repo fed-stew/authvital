@@ -42,7 +42,7 @@ describe('AppModule boot', () => {
       const { AppModule } = await import('./app.module');
 
       const moduleRef = await Test.createTestingModule({
-        imports: [AppModule],
+        imports: [AppModule.forRole('all')],
       }).compile();
 
       expect(moduleRef).toBeDefined();

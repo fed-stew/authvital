@@ -22,7 +22,17 @@ provides:
   `InteractionRequiredError` so you can restart the authorize flow.
 - **Webhooks** — per-application identity-sync events (`subject.*`,
   `member.*`, `app_access.*`, `license.*`, `invite.*`), signed by the IdP and
-  verifiable against its JWKS (no shared secrets).
+  verifiable against its JWKS (no shared secrets). Events flow through a
+  transactional outbox; delivery is in-core by default, or handled by the
+  dedicated `authvital-broker` service (10-attempt backoff, per-endpoint
+  circuit breaker, SSRF-guarded, optional GCP Pub/Sub transport with DLQ) —
+  see [Event Broker](docs/concepts/event-broker.md).
+- **Hardened split deployment (optional)** — one image, role-gated by
+  `SERVICE_ROLE`: a public data-plane service (OAuth + member APIs, zero
+  admin surface, `/admin` 404s) and an internal control-plane service
+  (dashboard, admin APIs, background jobs) that belongs behind a VPN/IAP.
+  The default single-container `all` role needs no configuration — see
+  [Service Roles](docs/concepts/service-roles.md).
 - **Hosted admin console** — a Super Admin dashboard at `/admin` and a
   per-tenant console at `/tenant/:tenantId/*` (members, app access, licenses,
   billing, SSO, domains, audit). The SDKs deep-link into it rather than

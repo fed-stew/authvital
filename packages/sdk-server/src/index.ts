@@ -175,3 +175,37 @@ export {
   type TokenResponse,
   type CallbackResult,
 } from './oauth/index.js';
+
+// =============================================================================
+// PUBSUB MODULE (also available as the '@authvital/server/pubsub' subpath)
+// =============================================================================
+
+export {
+  parsePubSubMessage,
+  createPubSubDispatcher,
+  createPubSubPushHandler,
+  InMemoryDedupeStore,
+  PubSubParseError,
+  isSyncEventEnvelope,
+  isSystemEventEnvelope,
+  type PubSubMessageInput,
+  type PullMessageLike,
+  type PushRequestBody,
+  type PubSubDispatcher,
+  type PubSubDispatcherOptions,
+  type PubSubEventHandler,
+  type PubSubAnyHandler,
+  type PubSubWildcard,
+  type DispatchResult,
+  type DedupeStore,
+  type InMemoryDedupeStoreOptions,
+  type PushHandlerResult,
+  type PushHandlerOptions,
+  type AuthVitalPubSubEvent,
+  type PubSubEventType,
+  type SyncEventEnvelope,
+  type SystemEventEnvelope,
+  type SystemEventType,
+  type SystemEvent,
+  type SystemEventDataOf,
+} from './pubsub/index.js';

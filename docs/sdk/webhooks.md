@@ -63,7 +63,21 @@ AuthVital emits webhooks for key events across your identity system:
 | Content-Type | `application/json` |
 | Signature | **RSA-SHA256** via JWKS (NOT HMAC!) |
 | Timeout | 30 seconds |
-| Retries | 3 attempts with exponential backoff |
+| Redirects | Never followed — expose a stable, non-redirecting endpoint |
+| Retries (legacy mode) | Immediate attempt + retry cron: 5 attempts at 1m / 5m / 15m / 1h / 4h |
+| Retries (broker mode) | 10 attempts: 10s, 30s, 1m, 5m, 15m, 1h, 4h, 12h, 24h, 48h, then FAILED/DLQ |
+
+Which retry schedule applies depends on the operator's
+`WEBHOOK_DELIVERY_MODE` (in-core delivery vs the dedicated broker service).
+As a receiver you don't need to care — the wire format, headers, and
+signature scheme are identical. Curious how it works under the hood? See
+[Event Broker](../concepts/event-broker.md).
+
+!!! note "A dedicated webhook signing key in JWKS"
+    Webhook payloads are signed with a dedicated webhook-purpose keypair,
+    so a new `kid` appears in the JWKS endpoint alongside the token-signing
+    keys. Receivers are unaffected: resolve the key by the `kid` from
+    `X-AuthVital-Key-Id` against JWKS, exactly as always.
 
 ---
 

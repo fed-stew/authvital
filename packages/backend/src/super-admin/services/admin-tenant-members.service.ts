@@ -163,8 +163,10 @@ export class AdminTenantMembersService {
     // Note: Using tenant.updated event for member additions
     this.systemWebhookService.dispatch('tenant.updated', {
       tenant_id: tenantId,
-      tenant_slug: tenant.slug,
+      name: tenant.name,
+      slug: tenant.slug,
       changed_fields: ['members'],
+      settings: (tenant.settings ?? {}) as Record<string, unknown>,
     }).catch((err) => {
       this.logger.warn(`Failed to dispatch tenant.updated event: ${err.message}`);
     });

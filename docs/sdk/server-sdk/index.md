@@ -50,6 +50,7 @@ The package declares these export subpaths (see `package.json` `exports`):
 | `@authvital/server/middleware/express` | `authVitalMiddleware`, `requireAuth`, `requirePermission` |
 | `@authvital/server/middleware/nextjs` | `createAuthMiddleware`, `requireServerAuth`, `getServerAuth`, `getServerSideAuth`, `getRouteAuth`, ... |
 | `@authvital/server/middleware/nestjs` | `AuthVitalModule`, `AuthVitalGuard`, `AuthVitalJwtGuard`, decorators |
+| `@authvital/server/pubsub` | `parsePubSubMessage`, `createPubSubDispatcher`, `createPubSubPushHandler`, `InMemoryDedupeStore` — typed GCP Pub/Sub event consumption (see [GCP Pub/Sub guide](../pubsub.md)) |
 
 !!! note "OAuth PKCE lives on the root export"
     `OAuthFlow` is exported from the package root (`@authvital/server`); there is

@@ -40,6 +40,11 @@
       "types": "./dist/crypto/index.d.ts",
       "import": "./dist/crypto/index.mjs",
       "require": "./dist/crypto/index.js"
+    },
+    "./pubsub": {
+      "types": "./dist/pubsub/index.d.ts",
+      "import": "./dist/pubsub/index.mjs",
+      "require": "./dist/pubsub/index.js"
     }
   },
   "files": [
@@ -49,7 +54,31 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "lint": "eslint src --ext .ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "test:watch": "jest --watch"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.(t|j)s$": [
+        "ts-jest",
+        {
+          "tsconfig": {
+            "module": "commonjs",
+            "moduleResolution": "node",
+            "esModuleInterop": true
+          }
+        }
+      ]
+    },
+    "testEnvironment": "node"
   },
   "peerDependencies": {
     "next": ">=13.0.0",
@@ -70,7 +99,10 @@
   "devDependencies": {
     "@types/cookie": "^0.6.0",
     "@types/express": "^4.17.0",
+    "@types/jest": "^29.5.2",
     "@types/node": "^20.0.0",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
     "@typescript-eslint/eslint-plugin": "^8.67.0",
     "@typescript-eslint/parser": "^8.67.0",
     "cookie": "^0.6.0",

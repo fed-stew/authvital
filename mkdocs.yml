@@ -78,11 +78,14 @@ nav:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quick-start.md
     - Configuration: getting-started/configuration.md
+    - Upgrading to the Broker: getting-started/upgrading-to-broker.md
   - Examples:
     - Local UAT Stack: examples.md
     - Local UAT — Lifecycle: local-uat.md
   - Core Concepts:
     - Architecture: concepts/architecture.md
+    - Service Roles: concepts/service-roles.md
+    - Event Broker: concepts/event-broker.md
     - Multi-Tenancy: concepts/multi-tenancy.md
     - OAuth 2.0 / OIDC: concepts/oauth-flow.md
     - Licensing: concepts/licensing.md
@@ -134,6 +137,7 @@ nav:
       - Use Cases: sdk/organization-sync/use-cases.md
     - Webhooks:
       - Overview: sdk/webhooks.md
+      - GCP Pub/Sub: sdk/pubsub.md
       - Event Types: sdk/webhooks-events.md
       - Event Handler: sdk/webhooks-handler.md
       - Framework Examples: sdk/webhooks-frameworks.md

@@ -3,7 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { PrismaService } from "../prisma/prisma.service";
 import { KeyEncryptionService } from "./key-encryption.service";
-import { SigningKeyStatus } from "@prisma/client";
+import { SigningKeyStatus, SigningKeyPurpose } from "@prisma/client";
 import {
   CONSOLE_SESSION_TTL_SECONDS,
   DEFAULT_PASSIVE_KEY_LIFETIME_HOURS,
@@ -37,9 +37,11 @@ export interface SigningKeyPair {
 export class KeyManagerService implements OnModuleInit {
   private readonly logger = new Logger(KeyManagerService.name);
 
-  // Cache the active key to avoid DB lookups on every request
-  private cachedActiveKey: SigningKeyPair | null = null;
-  private cacheExpiresAt = 0;
+  // Cache the active key PER PURPOSE to avoid DB lookups on every request
+  private readonly keyCache = new Map<
+    SigningKeyPurpose,
+    { key: SigningKeyPair; expiresAt: number }
+  >();
   private readonly CACHE_TTL_MS = 60 * 1000; // 1 minute cache
 
   // How long passive keys are kept before archiving, configurable via the
@@ -110,7 +112,7 @@ export class KeyManagerService implements OnModuleInit {
   }
 
   async onModuleInit() {
-    // Ensure we have an active signing key on startup
+    // Ensure we have an active signing key per purpose on startup
     await this.ensureActiveKey();
     // Check if rotation is needed on startup
     await this.checkAndRotateIfNeeded();
@@ -168,18 +170,29 @@ export class KeyManagerService implements OnModuleInit {
   }
 
   /**
-   * Ensure an active key exists, generate one if not (self-healing)
+   * Ensure an active key exists FOR EACH PURPOSE, generate if not
+   * (self-healing). TOKEN keys sign JWTs; the dedicated WEBHOOK key signs
+   * webhook payloads so the broker never needs token-signing material.
    */
   private async ensureActiveKey(): Promise<void> {
-    const activeKey = await this.prisma.signingKey.findFirst({
-      where: { status: SigningKeyStatus.ACTIVE },
-    });
+    for (const purpose of [
+      SigningKeyPurpose.TOKEN,
+      SigningKeyPurpose.WEBHOOK,
+    ]) {
+      const activeKey = await this.prisma.signingKey.findFirst({
+        where: { status: SigningKeyStatus.ACTIVE, purpose },
+      });
 
-    if (!activeKey) {
-      this.logger.log("No active signing key found, generating new key...");
-      await this.generateKey();
-    } else {
-      this.logger.log(`🔑 Active signing key loaded: ${activeKey.kid}`);
+      if (!activeKey) {
+        this.logger.log(
+          `No active ${purpose} signing key found, generating new key...`,
+        );
+        await this.generateKey(purpose);
+      } else {
+        this.logger.log(
+          `Active ${purpose} signing key loaded: ${activeKey.kid}`,
+        );
+      }
     }
   }
 
@@ -187,12 +200,16 @@ export class KeyManagerService implements OnModuleInit {
   private readonly KEY_ROTATION_LOCK_ID = 8675309; // Just a unique number
 
   /**
-   * Generate a new RSA key pair and save to database
+   * Generate a new RSA key pair for the given purpose and save to database
    * - Uses PostgreSQL advisory lock to prevent concurrent rotation
-   * - Demotes existing ACTIVE key to PASSIVE
+   * - Demotes the existing ACTIVE key OF THE SAME PURPOSE to PASSIVE
+   *   (purposes rotate independently — rotating the webhook key must never
+   *   demote the token key and vice versa)
    * - New key becomes ACTIVE
    */
-  async generateKey(): Promise<{ kid: string }> {
+  async generateKey(
+    purpose: SigningKeyPurpose = SigningKeyPurpose.TOKEN,
+  ): Promise<{ kid: string }> {
     // Generate RSA 2048-bit key pair (do this outside the lock)
     const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
       modulusLength: 2048,
@@ -229,7 +246,7 @@ export class KeyManagerService implements OnModuleInit {
 
         // Double-check: maybe another instance just finished rotating
         const currentActive = await tx.signingKey.findFirst({
-          where: { status: SigningKeyStatus.ACTIVE },
+          where: { status: SigningKeyStatus.ACTIVE, purpose },
           select: { kid: true, createdAt: true },
         });
 
@@ -245,9 +262,9 @@ export class KeyManagerService implements OnModuleInit {
           }
         }
 
-        // Demote all existing ACTIVE keys to PASSIVE
+        // Demote existing ACTIVE keys OF THIS PURPOSE to PASSIVE
         await tx.signingKey.updateMany({
-          where: { status: SigningKeyStatus.ACTIVE },
+          where: { status: SigningKeyStatus.ACTIVE, purpose },
           data: { status: SigningKeyStatus.PASSIVE },
         });
 
@@ -259,6 +276,7 @@ export class KeyManagerService implements OnModuleInit {
             publicKey,
             algorithm: "RS256",
             status: SigningKeyStatus.ACTIVE,
+            purpose,
           },
         });
 
@@ -275,37 +293,39 @@ export class KeyManagerService implements OnModuleInit {
       return { kid: result.kid || "" };
     }
 
-    // Invalidate cache
-    this.cachedActiveKey = null;
-    this.cacheExpiresAt = 0;
+    // Invalidate cache for this purpose
+    this.keyCache.delete(purpose);
 
-    this.logger.log(`🔑 Generated new signing key: ${kid}`);
+    this.logger.log(`Generated new ${purpose} signing key: ${kid}`);
     return { kid };
   }
 
   /**
-   * Get the active signing key for JWT signing
+   * Get the active signing key for JWT signing (TOKEN purpose by default)
    * Uses caching to minimize DB lookups
    * Self-heals by generating a key if none exists or decryption fails
    */
-  async getSigningKey(): Promise<SigningKeyPair> {
+  async getSigningKey(
+    purpose: SigningKeyPurpose = SigningKeyPurpose.TOKEN,
+  ): Promise<SigningKeyPair> {
     // Check cache first
-    if (this.cachedActiveKey && Date.now() < this.cacheExpiresAt) {
-      return this.cachedActiveKey;
+    const cached = this.keyCache.get(purpose);
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.key;
     }
 
     // Fetch from database
     const activeKey = await this.prisma.signingKey.findFirst({
-      where: { status: SigningKeyStatus.ACTIVE },
+      where: { status: SigningKeyStatus.ACTIVE, purpose },
     });
 
     // Self-healing: generate key if none exists
     if (!activeKey) {
       this.logger.warn(
-        "No active key found during signing, generating new key...",
+        `No active ${purpose} key found during signing, generating new key...`,
       );
-      await this.generateKey();
-      return this.getSigningKey(); // Recursive call after generation
+      await this.generateKey(purpose);
+      return this.getSigningKey(purpose); // Recursive call after generation
     }
 
     // Try to decrypt private key
@@ -319,13 +339,13 @@ export class KeyManagerService implements OnModuleInit {
         `Failed to decrypt key ${activeKey.kid}: ${error.message}. ` +
           "This usually means MASTER_SECRET changed. Generating new key...",
       );
-      // Archive the old key and generate a new one
+      // Archive the old key and generate a new one (same purpose)
       await this.prisma.signingKey.update({
         where: { id: activeKey.id },
         data: { status: SigningKeyStatus.ARCHIVED },
       });
-      await this.generateKey();
-      return this.getSigningKey(); // Recursive call after generation
+      await this.generateKey(purpose);
+      return this.getSigningKey(purpose); // Recursive call after generation
     }
 
     // Convert to KeyObjects
@@ -337,10 +357,22 @@ export class KeyManagerService implements OnModuleInit {
     };
 
     // Update cache
-    this.cachedActiveKey = keyPair;
-    this.cacheExpiresAt = Date.now() + this.CACHE_TTL_MS;
+    this.keyCache.set(purpose, {
+      key: keyPair,
+      expiresAt: Date.now() + this.CACHE_TTL_MS,
+    });
 
     return keyPair;
+  }
+
+  /**
+   * Get the active WEBHOOK signing key.
+   * Core owns key generation, so this self-heals a missing webhook key
+   * (the broker's read-only KeyReaderService is the one that falls back
+   * to the TOKEN key instead of generating).
+   */
+  async getWebhookSigningKey(): Promise<SigningKeyPair> {
+    return this.getSigningKey(SigningKeyPurpose.WEBHOOK);
   }
 
   /**
@@ -391,53 +423,67 @@ export class KeyManagerService implements OnModuleInit {
     rotated: boolean;
     reason?: string;
   }> {
-    const activeKey = await this.prisma.signingKey.findFirst({
-      where: { status: SigningKeyStatus.ACTIVE },
-      select: { kid: true, createdAt: true },
-    });
+    // Same cadence for every purpose — TOKEN and WEBHOOK keys rotate on the
+    // identical age-based schedule, independently of each other.
+    let anyRotated = false;
+    const reasons: string[] = [];
 
-    if (!activeKey) {
-      return { rotated: false, reason: "No active key" };
-    }
+    for (const purpose of [
+      SigningKeyPurpose.TOKEN,
+      SigningKeyPurpose.WEBHOOK,
+    ]) {
+      const activeKey = await this.prisma.signingKey.findFirst({
+        where: { status: SigningKeyStatus.ACTIVE, purpose },
+        select: { kid: true, createdAt: true },
+      });
 
-    const keyAgeSeconds = (Date.now() - activeKey.createdAt.getTime()) / 1000;
+      if (!activeKey) {
+        reasons.push(`${purpose}: no active key`);
+        continue;
+      }
 
-    if (keyAgeSeconds >= this.rotationIntervalSeconds) {
-      this.logger.log(
-        `Active key ${activeKey.kid} is ${Math.round(keyAgeSeconds / 86400)} days old, ` +
-          `rotating (interval: ${Math.round(this.rotationIntervalSeconds / 86400)} days)...`,
+      const keyAgeSeconds =
+        (Date.now() - activeKey.createdAt.getTime()) / 1000;
+
+      if (keyAgeSeconds >= this.rotationIntervalSeconds) {
+        this.logger.log(
+          `Active ${purpose} key ${activeKey.kid} is ${Math.round(keyAgeSeconds / 86400)} days old, ` +
+            `rotating (interval: ${Math.round(this.rotationIntervalSeconds / 86400)} days)...`,
+        );
+        await this.rotateKeys(purpose);
+        anyRotated = true;
+        reasons.push(`${purpose}: rotated (age exceeded interval)`);
+        continue;
+      }
+
+      const daysUntilRotation = Math.round(
+        (this.rotationIntervalSeconds - keyAgeSeconds) / 86400,
       );
-      await this.rotateKeys();
-      return { rotated: true, reason: "Key age exceeded rotation interval" };
+      this.logger.debug(
+        `Active ${purpose} key ${activeKey.kid} will rotate in ~${daysUntilRotation} days`,
+      );
+      reasons.push(`${purpose}: not old enough (~${daysUntilRotation}d left)`);
     }
 
-    const daysUntilRotation = Math.round(
-      (this.rotationIntervalSeconds - keyAgeSeconds) / 86400,
-    );
-    this.logger.debug(
-      `Active key ${activeKey.kid} will rotate in ~${daysUntilRotation} days`,
-    );
-
-    return {
-      rotated: false,
-      reason: `Key not old enough (${daysUntilRotation} days until rotation)`,
-    };
+    return { rotated: anyRotated, reason: reasons.join('; ') };
   }
 
   /**
    * Rotate keys: Generate new key, demote current active to passive
    * Call this periodically or on-demand for key rotation
    */
-  async rotateKeys(): Promise<{ newKid: string; demotedKid: string | null }> {
+  async rotateKeys(
+    purpose: SigningKeyPurpose = SigningKeyPurpose.TOKEN,
+  ): Promise<{ newKid: string; demotedKid: string | null }> {
     const currentActive = await this.prisma.signingKey.findFirst({
-      where: { status: SigningKeyStatus.ACTIVE },
+      where: { status: SigningKeyStatus.ACTIVE, purpose },
       select: { kid: true },
     });
 
-    const { kid: newKid } = await this.generateKey();
+    const { kid: newKid } = await this.generateKey(purpose);
 
     this.logger.log(
-      `Key rotation complete: ${currentActive?.kid || "none"} -> ${newKid}`,
+      `Key rotation complete (${purpose}): ${currentActive?.kid || "none"} -> ${newKid}`,
     );
 
     return {
@@ -502,8 +548,8 @@ export class KeyManagerService implements OnModuleInit {
     }
 
     if (key.status === SigningKeyStatus.ACTIVE) {
-      // If revoking the active key, generate a new one first
-      await this.generateKey();
+      // If revoking the active key, generate a replacement of the SAME purpose
+      await this.generateKey(key.purpose);
     }
 
     await this.prisma.signingKey.update({
@@ -511,10 +557,11 @@ export class KeyManagerService implements OnModuleInit {
       data: { status: SigningKeyStatus.REVOKED },
     });
 
-    // Invalidate cache if this was the cached key
-    if (this.cachedActiveKey?.kid === kid) {
-      this.cachedActiveKey = null;
-      this.cacheExpiresAt = 0;
+    // Invalidate any cached entry holding this kid
+    for (const [purpose, cached] of this.keyCache) {
+      if (cached.key.kid === kid) {
+        this.keyCache.delete(purpose);
+      }
     }
 
     this.logger.warn(`Key revoked: ${kid}`);
